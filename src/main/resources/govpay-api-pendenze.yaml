@@ -1,0 +1,4054 @@
+openapi: 3.1.0
+info:
+  version: "3.0.0"
+  title: GovPay - API Pendenze
+  description: >-
+    API di integrazione GovPay per la gestione delle pendenze, destinate ai
+    sistemi verticali dell'Ente Creditore e alle altre applicazioni
+    preventivamente censite e autorizzate sull'istanza GovPay. Per il
+    censimento delle applicazioni, le credenziali di accesso e ulteriori
+    dettagli si rimanda alla documentazione ufficiale:
+    https://govpay.readthedocs.io/it/latest/integrazione/api/index.html.
+
+    Le versioni minor o di bugfix successive all'interno di questa major
+    version (v3) possono introdurre nuovi campi nei payload di richiesta e
+    di risposta, senza che ciò costituisca una modifica incompatibile.
+    Perché le integrazioni realizzate su questa major version continuino a
+    funzionare correttamente anche dopo tali evolutive, i client DEVONO
+    tollerare e ignorare eventuali campi non riconosciuti, sia nelle
+    risposte ricevute che, se già presenti in una richiesta per altri
+    scopi, nei payload inviati. Coerentemente, gli schemi di questa
+    specifica non vincolano l'insieme di proprietà accettate/restituite a
+    quello esplicitamente documentato.
+  contact:
+    name: GitHub Project Page
+    url: 'https://github.com/link-it/GovPay/'
+  license:
+    name: GPL
+    url: 'https://github.com/link-it/GovPay/blob/master/LICENSE'
+servers:
+  - url: /govpay/backend/api/pendenze/rs/basic/v3/
+tags:
+  - name: PosizioniDebitorie
+    description: Alimentazione e consultazione delle posizioni debitorie
+  - name: Pendenze
+    description: Consultazione e aggiornamento puntuale delle singole pendenze (rate)
+  - name: Anagrafiche
+    description: >-
+      Consultazione delle anagrafiche di domini, unità operative, tipi
+      pendenza, IBAN di accredito e tipi entrata. Sono visibili solo le
+      entità per cui l'applicativo chiamante ha autorizzazione.
+security:
+  - basicAuth: []
+paths:
+
+  # ============================================================
+  # POSIZIONI DEBITORIE
+  # ============================================================
+
+  '/posizioni-debitorie/{idA2A}':
+    get:
+      tags:
+        - PosizioniDebitorie
+      summary: Elenco delle posizioni debitorie
+      operationId: findPosizioniDebitorie
+      description: >-
+        Fornisce la lista delle posizioni debitorie del gestionale che
+        hanno tra i soggetti debitori quello indicato.
+      parameters:
+        - in: path
+          name: idA2A
+          description: Identificativo del gestionale
+          required: true
+          schema:
+            type: string
+            pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
+        - $ref: '#/components/parameters/idDebitore'
+        - $ref: '#/components/parameters/offset'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/sort'
+        - $ref: '#/components/parameters/fields'
+      responses:
+        '200':
+          description: Elenco delle posizioni debitorie che rispettano i filtri di ricerca
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosizioniDebitorie'
+        '401':
+          $ref: '#/components/responses/401NotAuthenticated'
+        '403':
+          $ref: '#/components/responses/403NotAuthorized'
+        '500':
+          $ref: '#/components/responses/500ServiceUnavailable'
+    post:
+      tags:
+        - PosizioniDebitorie
+      summary: Creazione di una posizione debitoria
+      operationId: addPosizioneDebitoria
+      description: >-
+        Crea una nuova posizione debitoria, comprensiva dei soggetti
+        debitori (anche in solido) e di una o più opzioni di pagamento
+        alternative (es. unica soluzione, piano rateale), ciascuna con le
+        proprie pendenze (rate).
+        Un secondo tentativo di creazione con lo stesso idPosizioneDebitoria
+        viene rifiutato (409): l'operazione crea la posizione debitoria
+        esattamente una volta e non aggiorna una posizione esistente. Se
+        `navNotifica` è indicato, deve corrispondere al `numeroAvviso` di
+        una delle pendenze appena create: la richiesta è rifiutata con 400
+        in caso contrario.
+      parameters:
+        - in: path
+          name: idA2A
+          description: Identificativo del gestionale
+          required: true
+          schema:
+            type: string
+            pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NuovaPosizioneDebitoria'
+            examples:
+              unicaSoluzione:
+                summary: >-
+                  Caso più semplice e più frequente: un'unica pendenza da
+                  pagare in un'unica soluzione
+                value:
+                  idPosizioneDebitoria: CERT2026-000058
+                  idDominio: '12345678901'
+                  descrizione: 'Diritti di segreteria - certificato di residenza'
+                  soggettiDebitori:
+                    - tipo: F
+                      identificativo: FRRPLA90C41H501Y
+                      anagrafica: Paola Ferrari
+                  opzioniPagamento:
+                    - tipologia: SOLUZIONE_UNICA
+                      pendenze:
+                        - idPendenza: CERT2026-000058-UNICA
+                          idTipoPendenza: DIRITTI_SEGRETERIA
+                          importo: 16.00
+                          voci:
+                            - idVocePendenza: CERT2026-000058-UNICA_1
+                              importo: 16.00
+                              descrizione: 'Diritti di segreteria - certificato di residenza'
+                              codEntrata: DIRITTI_SEGRETERIA
+              unicaSoluzioneORateale:
+                summary: >-
+                  Debito pagabile in un'unica soluzione oppure, in
+                  alternativa, in 3 rate
+                value:
+                  idPosizioneDebitoria: IMU2026-000017
+                  idDominio: '12345678901'
+                  descrizione: 'IMU 2026 - immobile in via Garibaldi 5'
+                  soggettiDebitori:
+                    - tipo: F
+                      identificativo: VRDGNN80A01H501W
+                      anagrafica: Giovanna Verdi
+                  opzioniPagamento:
+                    - tipologia: SOLUZIONE_UNICA
+                      dataScadenza: '2026-06-16'
+                      pendenze:
+                        - idPendenza: IMU2026-000017-UNICA
+                          idTipoPendenza: IMU
+                          importo: 600.00
+                          voci:
+                            - idVocePendenza: IMU2026-000017-UNICA_1
+                              importo: 600.00
+                              descrizione: 'IMU 2026 - saldo unico'
+                              codEntrata: IMU
+                    - tipologia: PIANO_RATEALE
+                      dataScadenza: '2026-12-16'
+                      pendenze:
+                        - idPendenza: IMU2026-000017-R1
+                          idTipoPendenza: IMU
+                          importo: 200.00
+                          voci:
+                            - idVocePendenza: IMU2026-000017-R1_1
+                              importo: 200.00
+                              descrizione: 'IMU 2026 - rata 1 di 3'
+                              codEntrata: IMU
+                        - idPendenza: IMU2026-000017-R2
+                          idTipoPendenza: IMU
+                          importo: 200.00
+                          voci:
+                            - idVocePendenza: IMU2026-000017-R2_1
+                              importo: 200.00
+                              descrizione: 'IMU 2026 - rata 2 di 3'
+                              codEntrata: IMU
+                        - idPendenza: IMU2026-000017-R3
+                          idTipoPendenza: IMU
+                          importo: 200.00
+                          voci:
+                            - idVocePendenza: IMU2026-000017-R3_1
+                              importo: 200.00
+                              descrizione: 'IMU 2026 - rata 3 di 3'
+                              codEntrata: IMU
+              multaConRiduzione:
+                summary: >-
+                  Sanzione con riduzione del 30% se pagata entro 5 giorni,
+                  altrimenti a tariffa intera
+                value:
+                  idPosizioneDebitoria: VERBALE2026-000123
+                  idDominio: '12345678901'
+                  descrizione: 'Verbale n. 123/2026 - violazione art. 142 CdS'
+                  soggettiDebitori:
+                    - tipo: F
+                      identificativo: BNCLRA75B02H501K
+                      anagrafica: Laura Bianchi
+                  opzioniPagamento:
+                    - tipologia: SOLUZIONE_UNICA_ENTRO
+                      giorni: 5
+                      pendenze:
+                        - idPendenza: VERBALE2026-000123-RIDOTTA
+                          idTipoPendenza: SANZIONE_CDS
+                          importo: 70.00
+                          voci:
+                            - idVocePendenza: VERBALE2026-000123-RIDOTTA_1
+                              importo: 70.00
+                              descrizione: >-
+                                Sanzione in misura ridotta (-30%), pagamento
+                                entro 5 giorni dalla notifica
+                              codEntrata: SANZIONE_CDS
+                    - tipologia: SOLUZIONE_UNICA_OLTRE
+                      giorni: 5
+                      pendenze:
+                        - idPendenza: VERBALE2026-000123-INTERA
+                          idTipoPendenza: SANZIONE_CDS
+                          importo: 100.00
+                          voci:
+                            - idVocePendenza: VERBALE2026-000123-INTERA_1
+                              importo: 100.00
+                              descrizione: >-
+                                Sanzione in misura intera, pagamento dopo il
+                                5° giorno dalla notifica
+                              codEntrata: SANZIONE_CDS
+      responses:
+        '201':
+          description: >-
+            Posizione debitoria creata. La risposta contiene lo stesso
+            contenuto di una GET sulla risorsa appena creata (comprese le
+            opzioni di pagamento e le pendenze generate).
+          headers:
+            Location:
+              description: URL della posizione debitoria creata (`/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}`)
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosizioneDebitoria'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+        '401':
+          $ref: '#/components/responses/401NotAuthenticated'
+        '403':
+          $ref: '#/components/responses/403NotAuthorized'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+        '409':
+          description: Esiste già una posizione debitoria con questo idPosizioneDebitoria per questo idA2A
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                default:
+                  value:
+                    status: 409
+                    title: Esiste già una posizione debitoria con questo idPosizioneDebitoria per questo idA2A
+        '500':
+          $ref: '#/components/responses/500ServiceUnavailable'
+
+  '/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}':
+    get:
+      tags:
+        - PosizioniDebitorie
+      summary: Dettaglio di una posizione debitoria
+      operationId: getPosizioneDebitoria
+      description: >-
+        Acquisisce il dettaglio della posizione debitoria, comprensivo di
+        tutte le opzioni di pagamento e delle relative pendenze (rate).
+      parameters:
+        - in: path
+          name: idA2A
+          description: Identificativo del gestionale
+          required: true
+          schema:
+            type: string
+            pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
+        - in: path
+          name: idPosizioneDebitoria
+          description: Identificativo della posizione debitoria
+          required: true
+          schema:
+            type: string
+            pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
+      responses:
+        '200':
+          description: Informazioni dettagliate della posizione debitoria
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosizioneDebitoria'
+        '401':
+          $ref: '#/components/responses/401NotAuthenticated'
+        '403':
+          $ref: '#/components/responses/403NotAuthorized'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+        '500':
+          $ref: '#/components/responses/500ServiceUnavailable'
+    patch:
+      tags:
+        - PosizioniDebitorie
+      summary: Aggiornamento di uno o più campi di una posizione debitoria
+      operationId: updatePosizioneDebitoria
+      description: >-
+        Aggiorna i campi della posizione debitoria (es. `descrizione`,
+        `soggettiDebitori`, `dataPubblicazione`, `notificaSend`,
+        `navNotifica`). Se `navNotifica` è indicato, deve corrispondere al
+        `numeroAvviso` di una delle pendenze della posizione: la richiesta
+        è rifiutata con 400 in caso contrario. Le opzioni di pagamento
+        non si aggiornano qui: per aggiungerne una si usa
+        `POST .../opzioni-pagamento`, per cambiarne lo stato
+        `PATCH .../opzioni-pagamento/{idOpzionePagamento}`.
+      parameters:
+        - in: path
+          name: idA2A
+          description: Identificativo del gestionale
+          required: true
+          schema:
+            type: string
+            pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
+        - in: path
+          name: idPosizioneDebitoria
+          description: Identificativo della posizione debitoria
+          required: true
+          schema:
+            type: string
+            pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
+      requestBody:
+        content:
+          application/json-patch+json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/PatchOp'
+              description: Lista di operazioni JSON Patch (RFC 6902) da applicare
+      responses:
+        '200':
+          description: Posizione debitoria aggiornata con successo
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+        '401':
+          $ref: '#/components/responses/401NotAuthenticated'
+        '403':
+          $ref: '#/components/responses/403NotAuthorized'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+        '500':
+          $ref: '#/components/responses/500ServiceUnavailable'
+
+  '/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento':
+    post:
+      tags:
+        - PosizioniDebitorie
+      summary: Aggiunta di un'opzione di pagamento a una posizione debitoria esistente
+      operationId: addOpzionePagamento
+      description: >-
+        Aggiunge una nuova opzione di pagamento (con le sue pendenze) a una
+        posizione debitoria già esistente.
+      parameters:
+        - in: path
+          name: idA2A
+          description: Identificativo del gestionale
+          required: true
+          schema:
+            type: string
+            pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
+        - in: path
+          name: idPosizioneDebitoria
+          description: Identificativo della posizione debitoria
+          required: true
+          schema:
+            type: string
+            pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NuovaOpzionePagamento'
+      responses:
+        '201':
+          description: Opzione di pagamento creata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OpzionePagamento'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+        '401':
+          $ref: '#/components/responses/401NotAuthenticated'
+        '403':
+          $ref: '#/components/responses/403NotAuthorized'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+        '500':
+          $ref: '#/components/responses/500ServiceUnavailable'
+
+  '/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}':
+    patch:
+      tags:
+        - PosizioniDebitorie
+      summary: Aggiornamento dello stato di un'opzione di pagamento
+      operationId: updateOpzionePagamento
+      description: >-
+        Annulla un'opzione di pagamento esistente
+        (`{"op": "replace", "path": "/stato", "value": "ANNULLATA"}`).
+        Non è previsto un DELETE: un'opzione non si elimina, si annulla,
+        preservandone la storia. L'operazione è consentita solo se l'opzione
+        è attualmente DISPONIBILE: un'opzione già ATTIVATA da un pagamento
+        non può essere annullata.
+      parameters:
+        - in: path
+          name: idA2A
+          description: Identificativo del gestionale
+          required: true
+          schema:
+            type: string
+            pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
+        - in: path
+          name: idPosizioneDebitoria
+          description: Identificativo della posizione debitoria
+          required: true
+          schema:
+            type: string
+            pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
+        - in: path
+          name: idOpzionePagamento
+          description: Identificativo dell'opzione di pagamento
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json-patch+json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/PatchOp'
+              description: Lista di operazioni JSON Patch (RFC 6902) da applicare
+      responses:
+        '200':
+          description: Opzione di pagamento aggiornata con successo
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+        '401':
+          $ref: '#/components/responses/401NotAuthenticated'
+        '403':
+          $ref: '#/components/responses/403NotAuthorized'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+        '409':
+          description: >-
+            L'opzione di pagamento è già ATTIVATA da un pagamento e non può
+            essere annullata
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                default:
+                  value:
+                    status: 409
+                    title: >-
+                      L'opzione di pagamento è già ATTIVATA da un pagamento
+                      e non può essere annullata
+        '500':
+          $ref: '#/components/responses/500ServiceUnavailable'
+
+  # ============================================================
+  # PENDENZE (solo lettura/aggiornamento puntuale: niente PUT)
+  # ============================================================
+
+  '/pendenze/{idA2A}':
+    get:
+      tags:
+        - Pendenze
+      summary: Elenco delle pendenze
+      operationId: findPendenze
+      description: >-
+        Fornisce la lista delle pendenze del gestionale corrispondenti a un
+        avviso di pagamento.
+      parameters:
+        - in: path
+          name: idA2A
+          description: Identificativo del gestionale
+          required: true
+          schema:
+            type: string
+            pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
+        - $ref: '#/components/parameters/numeroAvviso'
+        - $ref: '#/components/parameters/idDominio'
+        - $ref: '#/components/parameters/offset'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/sort'
+        - $ref: '#/components/parameters/fields'
+        - $ref: '#/components/parameters/metadatiPaginazione'
+        - $ref: '#/components/parameters/maxRisultati'
+      responses:
+        '200':
+          description: Elenco delle pendenze che rispettano i filtri di ricerca
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Pendenze'
+        '401':
+          $ref: '#/components/responses/401NotAuthenticated'
+        '403':
+          $ref: '#/components/responses/403NotAuthorized'
+        '500':
+          $ref: '#/components/responses/500ServiceUnavailable'
+
+  '/pendenze/{idA2A}/{idPendenza}':
+    patch:
+      description: aggiornamento puntuale di una pendenza
+      tags:
+        - Pendenze
+      summary: Aggiornamento di uno o più campi di una pendenza
+      operationId: updatePendenza
+      parameters:
+        - in: path
+          name: idA2A
+          description: Identificativo del gestionale
+          required: true
+          schema:
+            type: string
+            pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
+        - in: path
+          name: idPendenza
+          description: Identificativo della pendenza
+          required: true
+          schema:
+            type: string
+            pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
+      requestBody:
+        content:
+          application/json-patch+json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/PatchOp'
+              description: Lista di operazioni JSON Patch (RFC 6902) da applicare
+      responses:
+        '200':
+          description: Pendenza aggiornata con successo
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+        '401':
+          $ref: '#/components/responses/401NotAuthenticated'
+        '403':
+          $ref: '#/components/responses/403NotAuthorized'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+        '500':
+          $ref: '#/components/responses/500ServiceUnavailable'
+    get:
+      tags:
+        - Pendenze
+      summary: Dettaglio di una pendenza per identificativo
+      operationId: getPendenza
+      description: >-
+        Acquisisce il dettaglio di una pendenza, comprensivo dei dati di
+        pagamento, dell'opzione di pagamento e della posizione debitoria a
+        cui appartiene.
+      parameters:
+        - in: path
+          name: idA2A
+          description: Identificativo del gestionale
+          required: true
+          schema:
+            type: string
+            pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
+        - in: path
+          name: idPendenza
+          description: Identificativo della pendenza
+          required: true
+          schema:
+            type: string
+            pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
+      responses:
+        '200':
+          description: Informazioni dettagliate della pendenza
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Pendenza'
+        '401':
+          $ref: '#/components/responses/401NotAuthenticated'
+        '403':
+          $ref: '#/components/responses/403NotAuthorized'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+        '500':
+          $ref: '#/components/responses/500ServiceUnavailable'
+
+  '/pendenze/{idA2A}/{idPendenza}/stampa':
+    get:
+      tags:
+        - Pendenze
+      summary: Stampa dell'avviso di una pendenza
+      operationId: getStampaPendenza
+      description: >-
+        Fornisce la stampa dell'avviso di pagamento della pendenza,
+        identificata tramite gli identificativi del gestionale (idA2A e
+        idPendenza) invece che tramite numeroAvviso. Le opzioni di
+        personalizzazione testuale/traduzione dell'avviso (lingua
+        secondaria, testi tradotti) si specificano nei parametri di questa
+        chiamata.
+      parameters:
+        - in: path
+          name: idA2A
+          description: Identificativo del gestionale
+          required: true
+          schema:
+            type: string
+            pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
+        - in: path
+          name: idPendenza
+          description: Identificativo della pendenza
+          required: true
+          schema:
+            type: string
+            pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
+        - $ref: '#/components/parameters/linguaSecondaria'
+        - $ref: '#/components/parameters/causaleTradotta'
+        - $ref: '#/components/parameters/informativaImporto'
+        - $ref: '#/components/parameters/informativaImportoTradotta'
+      responses:
+        '200':
+          description: Avviso di pagamento
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Avviso'
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/401NotAuthenticated'
+        '403':
+          $ref: '#/components/responses/403NotAuthorized'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+        '500':
+          $ref: '#/components/responses/500ServiceUnavailable'
+
+  '/pendenze/{idA2A}/{idPendenza}/ricevute':
+    get:
+      tags:
+        - Pendenze
+      summary: Elenco delle ricevute di pagamento di una pendenza
+      operationId: findRicevutePendenza
+      description: >-
+        Fornisce l'elenco delle ricevute di pagamento (RT) ricevute da
+        pagoPA per la pendenza. Il contenuto di ciascuna ricevuta si
+        recupera tramite `GET .../ricevute/{iur}`.
+      parameters:
+        - in: path
+          name: idA2A
+          description: Identificativo del gestionale
+          required: true
+          schema:
+            type: string
+            pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
+        - in: path
+          name: idPendenza
+          description: Identificativo della pendenza
+          required: true
+          schema:
+            type: string
+            pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
+        - $ref: '#/components/parameters/offset'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/sort'
+        - $ref: '#/components/parameters/fields'
+      responses:
+        '200':
+          description: Elenco delle ricevute di pagamento della pendenza
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ricevute'
+        '401':
+          $ref: '#/components/responses/401NotAuthenticated'
+        '403':
+          $ref: '#/components/responses/403NotAuthorized'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+        '500':
+          $ref: '#/components/responses/500ServiceUnavailable'
+
+  '/pendenze/{idA2A}/{idPendenza}/ricevute/{iur}':
+    get:
+      tags:
+        - Pendenze
+      summary: Ricevuta di pagamento di una pendenza
+      operationId: getRicevutaPendenza
+      description: >-
+        Fornisce una ricevuta di pagamento (RT) della pendenza, così come
+        ricevuta da pagoPA. La forma varia in base al campo `tipo`, che
+        indica il formato XML pagoPA da cui la ricevuta è stata convertita
+        (`ctRicevutaTelematica`, `ctReceipt` o `ctReceiptV2`, ciascuno con
+        i propri campi).
+      parameters:
+        - in: path
+          name: idA2A
+          description: Identificativo del gestionale
+          required: true
+          schema:
+            type: string
+            pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
+        - in: path
+          name: idPendenza
+          description: Identificativo della pendenza
+          required: true
+          schema:
+            type: string
+            pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
+        - in: path
+          name: iur
+          description: Identificativo univoco di riscossione della ricevuta
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Ricevuta di pagamento
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ricevuta'
+              examples:
+                ctReceiptV2:
+                  summary: >-
+                    Ricevuta nel formato ctReceiptV2, il più recente del
+                    Nodo dei Pagamenti
+                  value:
+                    tipo: ctReceiptV2
+                    receiptId: 9a1e6b2e-1234-4c1a-9f3b-1234567890ab
+                    noticeNumber: '302012345678901234'
+                    fiscalCode: '01234567890'
+                    outcome: OK
+                    creditorReferenceId: IMU2026-000017-UNICA
+                    paymentAmount: 600.00
+                    description: 'IMU 2026 - saldo unico'
+                    companyName: Comune Dimostrativo
+                    officeName: Ufficio Tributi
+                    debtor:
+                      uniqueIdentifier:
+                        entityUniqueIdentifierType: F
+                        entityUniqueIdentifierValue: VRDGNN80A01H501W
+                      fullName: Giovanna Verdi
+                    idPSP: BPPONZI
+                    PSPCompanyName: Banco Popolare Ponzi
+                    idChannel: CH-01
+                    channelDescription: App IO
+                    paymentMethod: creditCard
+                    fee: 1.00
+                    paymentDateTime: '2026-06-10T09:32:00Z'
+                    applicationDate: '2026-06-10'
+                    transferDate: '2026-06-11'
+                    transferList:
+                      - idTransfer: '1'
+                        transferAmount: 600.00
+                        fiscalCodePA: '01234567890'
+                        IBAN: IT60X0542811101000000123456
+                        remittanceInformation: 'IMU 2026 - saldo unico'
+                        transferCategory: '9/0101002IM/'
+                    paymentNote: Pagamento effettuato tramite AppIO
+                    standIn: false
+        '401':
+          $ref: '#/components/responses/401NotAuthenticated'
+        '403':
+          $ref: '#/components/responses/403NotAuthorized'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+        '500':
+          $ref: '#/components/responses/500ServiceUnavailable'
+
+  '/pendenze/{idA2A}/{idPendenza}/rendicontazioni':
+    get:
+      tags:
+        - Pendenze
+      summary: Elenco delle rendicontazioni di una pendenza
+      operationId: findRendicontazioniPendenza
+      description: >-
+        Fornisce le rendicontazioni ricevute da pagoPA per la pendenza,
+        comprensive dei dati di testata del flusso di rendicontazione a
+        cui appartengono.
+      parameters:
+        - in: path
+          name: idA2A
+          description: Identificativo del gestionale
+          required: true
+          schema:
+            type: string
+            pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
+        - in: path
+          name: idPendenza
+          description: Identificativo della pendenza
+          required: true
+          schema:
+            type: string
+            pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
+        - $ref: '#/components/parameters/offset'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/sort'
+        - $ref: '#/components/parameters/fields'
+      responses:
+        '200':
+          description: Elenco delle rendicontazioni della pendenza
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Rendicontazioni'
+        '401':
+          $ref: '#/components/responses/401NotAuthenticated'
+        '403':
+          $ref: '#/components/responses/403NotAuthorized'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+        '500':
+          $ref: '#/components/responses/500ServiceUnavailable'
+
+  # ============================================================
+  # ANAGRAFICHE
+  # ============================================================
+
+  '/domini':
+    get:
+      tags:
+        - Anagrafiche
+      summary: Elenco dei domini
+      operationId: findDomini
+      description: Fornisce la lista dei domini, filtrata ed ordinata.
+      parameters:
+        - in: query
+          name: idDominio
+          description: Ricerca parziale (case-insensitive) sull'identificativo del dominio.
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: ragioneSociale
+          description: Ricerca parziale (case-insensitive) sulla ragione sociale.
+          required: false
+          schema:
+            type: string
+        - $ref: '#/components/parameters/offset'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/sort'
+        - $ref: '#/components/parameters/fields'
+      responses:
+        '200':
+          description: Elenco dei domini che rispettano i filtri di ricerca
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Domini'
+        '401':
+          $ref: '#/components/responses/401NotAuthenticated'
+        '403':
+          $ref: '#/components/responses/403NotAuthorized'
+        '500':
+          $ref: '#/components/responses/500ServiceUnavailable'
+
+  '/domini/{idDominio}':
+    get:
+      tags:
+        - Anagrafiche
+      summary: Anagrafica di un dominio
+      operationId: getDominio
+      description: >-
+        Fornisce l'anagrafica del dominio creditore, referenziato per
+        identificativo da posizioni debitorie, pendenze e voci di pendenza.
+      parameters:
+        - in: path
+          name: idDominio
+          description: Identificativo del dominio
+          required: true
+          schema:
+            type: string
+            pattern: '(^([0-9]){11}$)'
+      responses:
+        '200':
+          description: Anagrafica del dominio
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Dominio'
+        '401':
+          $ref: '#/components/responses/401NotAuthenticated'
+        '403':
+          $ref: '#/components/responses/403NotAuthorized'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+        '500':
+          $ref: '#/components/responses/500ServiceUnavailable'
+
+  '/domini/{idDominio}/unita-operative':
+    get:
+      tags:
+        - Anagrafiche
+      summary: Elenco delle unità operative di un dominio
+      operationId: findUnitaOperative
+      description: Fornisce la lista delle unità operative del dominio, filtrata ed ordinata.
+      parameters:
+        - in: path
+          name: idDominio
+          description: Identificativo del dominio
+          required: true
+          schema:
+            type: string
+            pattern: '(^([0-9]){11}$)'
+        - in: query
+          name: idUnitaOperativa
+          description: Ricerca parziale (case-insensitive) sull'identificativo dell'unità operativa.
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: ragioneSociale
+          description: Ricerca parziale (case-insensitive) sulla ragione sociale.
+          required: false
+          schema:
+            type: string
+        - $ref: '#/components/parameters/offset'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/sort'
+        - $ref: '#/components/parameters/fields'
+      responses:
+        '200':
+          description: Elenco delle unità operative che rispettano i filtri di ricerca
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnitaOperative'
+        '401':
+          $ref: '#/components/responses/401NotAuthenticated'
+        '403':
+          $ref: '#/components/responses/403NotAuthorized'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+        '500':
+          $ref: '#/components/responses/500ServiceUnavailable'
+
+  '/domini/{idDominio}/unita-operative/{idUnitaOperativa}':
+    get:
+      tags:
+        - Anagrafiche
+      summary: Anagrafica di un'unità operativa
+      operationId: getUnitaOperativa
+      description: >-
+        Fornisce l'anagrafica dell'unità operativa, referenziata per
+        identificativo dalle posizioni debitorie.
+      parameters:
+        - in: path
+          name: idDominio
+          description: Identificativo del dominio
+          required: true
+          schema:
+            type: string
+            pattern: '(^([0-9]){11}$)'
+        - in: path
+          name: idUnitaOperativa
+          description: Identificativo dell'unità operativa
+          required: true
+          schema:
+            type: string
+            pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
+      responses:
+        '200':
+          description: Anagrafica dell'unità operativa
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnitaOperativa'
+        '401':
+          $ref: '#/components/responses/401NotAuthenticated'
+        '403':
+          $ref: '#/components/responses/403NotAuthorized'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+        '500':
+          $ref: '#/components/responses/500ServiceUnavailable'
+
+  '/domini/{idDominio}/tipi-pendenza':
+    get:
+      tags:
+        - Anagrafiche
+      summary: Elenco delle tipologie di pendenza di un dominio
+      operationId: findTipiPendenza
+      description: Fornisce la lista delle tipologie di pendenza del dominio, filtrata ed ordinata.
+      parameters:
+        - in: path
+          name: idDominio
+          description: Identificativo del dominio
+          required: true
+          schema:
+            type: string
+            pattern: '(^([0-9]){11}$)'
+        - in: query
+          name: idTipoPendenza
+          description: Ricerca parziale (case-insensitive) sull'identificativo della tipologia di pendenza.
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: descrizione
+          description: Ricerca parziale (case-insensitive) sulla descrizione.
+          required: false
+          schema:
+            type: string
+        - $ref: '#/components/parameters/offset'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/sort'
+        - $ref: '#/components/parameters/fields'
+      responses:
+        '200':
+          description: Elenco delle tipologie di pendenza che rispettano i filtri di ricerca
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TipiPendenza'
+        '401':
+          $ref: '#/components/responses/401NotAuthenticated'
+        '403':
+          $ref: '#/components/responses/403NotAuthorized'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+        '500':
+          $ref: '#/components/responses/500ServiceUnavailable'
+
+  '/domini/{idDominio}/tipi-pendenza/{idTipoPendenza}':
+    get:
+      tags:
+        - Anagrafiche
+      summary: Anagrafica di una tipologia di pendenza
+      operationId: getTipoPendenza
+      description: >-
+        Fornisce l'anagrafica della tipologia di pendenza, referenziata per
+        identificativo (`idTipoPendenza`) dalle pendenze.
+      parameters:
+        - in: path
+          name: idDominio
+          description: Identificativo del dominio
+          required: true
+          schema:
+            type: string
+            pattern: '(^([0-9]){11}$)'
+        - in: path
+          name: idTipoPendenza
+          description: Identificativo della tipologia di pendenza
+          required: true
+          schema:
+            type: string
+            pattern: '(^[a-zA-Z0-9\-_\.]{1,35}$)'
+      responses:
+        '200':
+          description: Anagrafica della tipologia di pendenza
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TipoPendenza'
+        '401':
+          $ref: '#/components/responses/401NotAuthenticated'
+        '403':
+          $ref: '#/components/responses/403NotAuthorized'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+        '500':
+          $ref: '#/components/responses/500ServiceUnavailable'
+
+  '/domini/{idDominio}/iban-accredito':
+    get:
+      tags:
+        - Anagrafiche
+      summary: Elenco degli IBAN di accredito di un dominio
+      operationId: findIbanAccredito
+      description: Fornisce la lista degli IBAN di accredito abilitati per il dominio, filtrata ed ordinata.
+      parameters:
+        - in: path
+          name: idDominio
+          description: Identificativo del dominio
+          required: true
+          schema:
+            type: string
+            pattern: '(^([0-9]){11}$)'
+        - in: query
+          name: iban
+          description: Ricerca parziale (case-insensitive) sull'IBAN.
+          required: false
+          schema:
+            type: string
+        - $ref: '#/components/parameters/offset'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/sort'
+        - $ref: '#/components/parameters/fields'
+      responses:
+        '200':
+          description: Elenco degli IBAN di accredito che rispettano i filtri di ricerca
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IbanAccrediti'
+        '401':
+          $ref: '#/components/responses/401NotAuthenticated'
+        '403':
+          $ref: '#/components/responses/403NotAuthorized'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+        '500':
+          $ref: '#/components/responses/500ServiceUnavailable'
+
+  '/domini/{idDominio}/iban-accredito/{iban}':
+    get:
+      tags:
+        - Anagrafiche
+      summary: Anagrafica di un IBAN di accredito
+      operationId: getIbanAccredito
+      description: >-
+        Fornisce l'anagrafica di un IBAN di accredito abilitato per il
+        dominio, referenziato dalle voci di pendenza (`ibanAccredito`).
+      parameters:
+        - in: path
+          name: idDominio
+          description: Identificativo del dominio
+          required: true
+          schema:
+            type: string
+            pattern: '(^([0-9]){11}$)'
+        - in: path
+          name: iban
+          description: IBAN di accredito
+          required: true
+          schema:
+            type: string
+            pattern: "[a-zA-Z]{2,2}[0-9]{2,2}[a-zA-Z0-9]{1,30}"
+      responses:
+        '200':
+          description: Anagrafica dell'IBAN di accredito
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IbanAccredito'
+        '401':
+          $ref: '#/components/responses/401NotAuthenticated'
+        '403':
+          $ref: '#/components/responses/403NotAuthorized'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+        '500':
+          $ref: '#/components/responses/500ServiceUnavailable'
+
+  '/domini/{idDominio}/tipi-entrata':
+    get:
+      tags:
+        - Anagrafiche
+      summary: Elenco dei tipi di entrata di un dominio
+      operationId: findTipiEntrata
+      description: Fornisce la lista dei tipi di entrata del dominio, filtrata ed ordinata.
+      parameters:
+        - in: path
+          name: idDominio
+          description: Identificativo del dominio
+          required: true
+          schema:
+            type: string
+            pattern: '(^([0-9]){11}$)'
+        - in: query
+          name: codEntrata
+          description: Ricerca parziale (case-insensitive) sull'identificativo del tipo di entrata.
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: descrizione
+          description: Ricerca parziale (case-insensitive) sulla descrizione.
+          required: false
+          schema:
+            type: string
+        - $ref: '#/components/parameters/offset'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/sort'
+        - $ref: '#/components/parameters/fields'
+      responses:
+        '200':
+          description: Elenco dei tipi di entrata che rispettano i filtri di ricerca
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TipiEntrata'
+        '401':
+          $ref: '#/components/responses/401NotAuthenticated'
+        '403':
+          $ref: '#/components/responses/403NotAuthorized'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+        '500':
+          $ref: '#/components/responses/500ServiceUnavailable'
+
+  '/domini/{idDominio}/tipi-entrata/{codEntrata}':
+    get:
+      tags:
+        - Anagrafiche
+      summary: Anagrafica di un tipo di entrata
+      operationId: getTipoEntrata
+      description: >-
+        Fornisce l'anagrafica del tipo di entrata, referenziato per
+        identificativo (`codEntrata`) dalle voci di pendenza con
+        riferimento a un'entrata configurata in GovPay.
+      parameters:
+        - in: path
+          name: idDominio
+          description: Identificativo del dominio
+          required: true
+          schema:
+            type: string
+            pattern: '(^([0-9]){11}$)'
+        - in: path
+          name: codEntrata
+          description: Identificativo del tipo di entrata
+          required: true
+          schema:
+            type: string
+            pattern: '(^[a-zA-Z0-9\-_\.]{1,35}$)'
+      responses:
+        '200':
+          description: Anagrafica del tipo di entrata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TipoEntrata'
+        '401':
+          $ref: '#/components/responses/401NotAuthenticated'
+        '403':
+          $ref: '#/components/responses/403NotAuthorized'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+        '500':
+          $ref: '#/components/responses/500ServiceUnavailable'
+
+components:
+
+  securitySchemes:
+    basicAuth:
+      type: http
+      scheme: basic
+
+  parameters:
+    idDominio:
+      name: idDominio
+      in: query
+      description: >-
+        Identificativo del dominio dell'ente. Filtro aggiuntivo opzionale,
+        utilizzabile solo insieme a `numeroAvviso`: non è consentita una
+        ricerca per solo idDominio.
+      required: false
+      schema:
+        type: string
+    numeroAvviso:
+      name: numeroAvviso
+      in: query
+      description: >-
+        Identificativo dell'avviso di pagamento pagoPA. Unico criterio di
+        ricerca delle pendenze, da solo o abbinato a `idDominio`.
+      required: true
+      schema:
+        type: string
+        pattern: '(^[0-9]{18}$)'
+      example: '123456789012345678'
+    idDebitore:
+      name: idDebitore
+      in: query
+      description: >-
+        Identificativo (codice fiscale o partita IVA) di un soggetto
+        debitore. In presenza di più debitori in solido, la ricerca trova
+        la posizione debitoria se il valore corrisponde a QUALSIASI dei
+        soggetti in soggettiDebitori. Unico criterio di ricerca delle
+        posizioni debitorie.
+      required: true
+      schema:
+        type: string
+      example: 'RSSMRA30A01H501I'
+    fields:
+      name: fields
+      in: query
+      description: >-
+        Elenco separato da virgole dei campi da restituire per ciascun
+        risultato, per limitare la dimensione della risposta.
+      required: false
+      schema:
+        type: string
+    maxRisultati:
+      name: maxRisultati
+      in: query
+      description: >-
+        Indica se il servizio deve impostare o meno il limite sul calcolo del numero di risultati
+      required: false
+      schema:
+        type: boolean
+        default: true
+      example: true
+    metadatiPaginazione:
+      name: metadatiPaginazione
+      in: query
+      description: >-
+        Indica se il servizio calcola e valorizza i dati di paginazione o meno
+      required: false
+      schema:
+        type: boolean
+        default: true
+      example: true
+    limit:
+      name: limit
+      in: query
+      description: Numero massimo di risultati da restituire (max 200).
+      required: false
+      schema:
+        $ref: '#/components/schemas/Limit'
+    offset:
+      name: offset
+      in: query
+      description: Numero di risultati da saltare rispetto all'inizio dell'elenco.
+      required: false
+      schema:
+        $ref: '#/components/schemas/Offset'
+    sort:
+      name: sort
+      in: query
+      description: Criterio di ordinamento dei risultati.
+      required: false
+      schema:
+        type: string
+      example: +name
+    linguaSecondaria:
+      name: linguaSecondaria
+      in: query
+      description: >-
+        Indica se creare l'avviso in modalita' multilingua e quale seconda
+        lingua affiancare all'italiano all'interno dell'avviso.
+      required: false
+      schema:
+        $ref: '#/components/schemas/LinguaSecondaria'
+    causaleTradotta:
+      name: causaleTradotta
+      in: query
+      description: >-
+        Causale della pendenza tradotta nella lingua secondaria, da inserire
+        nell'avviso.
+      required: false
+      schema:
+        type: string
+    informativaImporto:
+      name: informativaImporto
+      in: query
+      description: >-
+        Se valorizzato, sostituisce il testo standard della nota informativa
+        sull'importo. Se valorizzato con stringa vuota, l'informativa viene
+        omessa.
+      required: false
+      schema:
+        type: string
+        maxLength: 255
+    informativaImportoTradotta:
+      name: informativaImportoTradotta
+      in: query
+      description: Versione tradotta di `informativaImporto`, nella lingua secondaria.
+      required: false
+      schema:
+        type: string
+        maxLength: 255
+
+  responses:
+    400BadRequest:
+      description: Richiesta non valida
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            default:
+              value:
+                status: 400
+                title: Richiesta non valida
+                detail: "Il campo 'importo' non può essere negativo"
+    401NotAuthenticated:
+      description: Utenza non autenticata
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            default:
+              value:
+                status: 401
+                title: Utenza non autenticata
+    403NotAuthorized:
+      description: Utenza non autorizzata a eseguire l'operazione richiesta
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            default:
+              value:
+                status: 403
+                title: Utenza non autorizzata a eseguire l'operazione richiesta
+    404NotFound:
+      description: Risorsa non trovata
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            default:
+              value:
+                status: 404
+                title: Risorsa non trovata
+    500ServiceUnavailable:
+      description: Errore interno del servizio
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            default:
+              value:
+                status: 500
+                title: Errore interno del servizio
+                type: 'https://govpay.readthedocs.io/it/latest/manuale/errori/INTERNO'
+
+  schemas:
+
+    # ============================================================
+    # POSIZIONE DEBITORIA - SCRITTURA
+    # ============================================================
+
+    NuovaPosizioneDebitoria:
+      type: object
+      required:
+        - idPosizioneDebitoria
+        - idDominio
+        - descrizione
+        - soggettiDebitori
+        - opzioniPagamento
+      properties:
+        idPosizioneDebitoria:
+          type: string
+          description: >-
+            Identificativo della posizione debitoria nel gestionale
+            proprietario. Deve essere univoco per idA2A: la richiesta viene
+            rifiutata con 409 se esiste già una posizione con questo
+            identificativo per lo stesso idA2A.
+          examples:
+            - abcdef12345
+          pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
+        idDominio:
+          type: string
+          description: Identificativo del dominio creditore
+          examples:
+            - '1234567890'
+          minLength: 1
+          maxLength: 35
+          pattern: '(^([0-9]){11}$)'
+        idUnitaOperativa:
+          type: string
+          description: Identificativo dell'unita' operativa
+          examples:
+            - UO33132
+          minLength: 1
+          maxLength: 35
+          pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
+        descrizione:
+          type: string
+          description: Descrizione generale della posizione debitoria
+          examples:
+            - 'Sanzione CdS n. abc00000'
+          maxLength: 140
+        soggettiDebitori:
+          type: array
+          description: >-
+            Elenco dei soggetti obbligati al pagamento della posizione
+            debitoria. In presenza di più soggetti (debitori in solido),
+            ciascuno di essi può autenticarsi e gestire/pagare per intero
+            qualsiasi pendenza della posizione. Il primo elemento
+            dell'elenco è quello utilizzato come "soggetto pagatore"
+            nell'RPT verso il Nodo dei Pagamenti e nelle comunicazioni che
+            richiedono un unico destinatario, essendo il Nodo dei Pagamenti
+            vincolato a un solo soggetto pagatore per avviso.
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/Soggetto'
+        dataPubblicazione:
+          type: string
+          format: date
+          description: >-
+            Data a partire dalla quale la posizione debitoria (e tutte le
+            sue pendenze) diventa visibile e pagabile. Fino a tale data si
+            comporta come se non esistesse per qualsiasi ricerca/pagamento
+            esterno (Nodo dei Pagamenti, ricerca per avviso); resta invece
+            sempre visibile e gestibile per l'applicazione che l'ha creata.
+            Al momento della pubblicazione viene, tra le altre cose, inviata
+            la notifica ai debitori (email/AppIO/altro canale configurato).
+            Se non specificata, la posizione debitoria è pubblicata
+            immediatamente.
+          examples:
+            - '2026-01-15'
+        notificaSend:
+          type: boolean
+          description: >-
+            Indica se la posizione debitoria è notificata (o va notificata)
+            tramite SEND. Se attivo, GovPay maggiora l'importo pagato in
+            sede di pagamento con le spese di notifica SEND. Non va
+            attivato se le pendenze della posizione includono già tali
+            spese nel proprio importo (voce con dettaglioContabile di tipo
+            SPESE_NOTIFICA). Se assente, equivale a `false`.
+        navNotifica:
+          type: string
+          description: >-
+            NAV (numero avviso) con cui la posizione debitoria è notificata
+            tramite SEND. Deve corrispondere al `numeroAvviso` di una delle
+            pendenze della posizione: GovPay lo verifica e rifiuta la
+            richiesta se non corrisponde a nessuna. Se non indicato mentre
+            `notificaSend` è attivo, GovPay lo assegna automaticamente
+            (tipicamente la pendenza dell'opzione SOLUZIONE_UNICA se
+            presente, altrimenti la rata 1 dell'unico PIANO_RATEALE).
+          pattern: '(^[0-9]{18}$)'
+        opzioniPagamento:
+          type: array
+          description: >-
+            Modalità alternative con cui può essere estinta la posizione
+            debitoria (es. pagamento in un'unica soluzione oppure piano
+            rateale). Ricalca il modello "Opzioni di pagamento" di pagoPA
+            (https://developer.pagopa.it/pago-pa/guides/sanp/ente-creditore/opzioni-di-pagamento).
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/NuovaOpzionePagamento'
+
+    NuovaOpzionePagamento:
+      type: object
+      description: >-
+        Modalità con cui può essere estinta la posizione debitoria (es.
+        pagamento in un'unica soluzione oppure piano rateale). Ogni
+        tipologia impone un proprio vincolo sulla cardinalità di `pendenze`
+        e sui campi obbligatori.
+      oneOf:
+        - $ref: '#/components/schemas/NuovaOpzionePagamentoPianoRateale'
+        - $ref: '#/components/schemas/NuovaOpzionePagamentoSoluzioneUnica'
+        - $ref: '#/components/schemas/NuovaOpzionePagamentoSoluzioneUnicaEntro'
+        - $ref: '#/components/schemas/NuovaOpzionePagamentoSoluzioneUnicaOltre'
+      discriminator:
+        propertyName: tipologia
+        mapping:
+          PIANO_RATEALE: '#/components/schemas/NuovaOpzionePagamentoPianoRateale'
+          SOLUZIONE_UNICA: '#/components/schemas/NuovaOpzionePagamentoSoluzioneUnica'
+          SOLUZIONE_UNICA_ENTRO: '#/components/schemas/NuovaOpzionePagamentoSoluzioneUnicaEntro'
+          SOLUZIONE_UNICA_OLTRE: '#/components/schemas/NuovaOpzionePagamentoSoluzioneUnicaOltre'
+
+    NuovaOpzionePagamentoPianoRateale:
+      type: object
+      required: [tipologia, pendenze]
+      properties:
+        tipologia:
+          type: string
+          enum: [PIANO_RATEALE]
+        dataInizioValidita:
+          $ref: '#/components/schemas/dataInizioValiditaOpzionePagamento'
+        dataScadenza:
+          $ref: '#/components/schemas/dataScadenzaOpzionePagamento'
+        pendenze:
+          type: array
+          description: >-
+            Le rate del piano, nell'ordine in cui vanno pagate: GovPay
+            assegna `numeroRata` in base alla posizione di ciascuna
+            pendenza in questo array. Servono almeno due rate: con una
+            sola si usa SOLUZIONE_UNICA.
+          minItems: 2
+          items:
+            $ref: '#/components/schemas/NuovaPendenza'
+
+    NuovaOpzionePagamentoSoluzioneUnica:
+      type: object
+      required: [tipologia, pendenze]
+      properties:
+        tipologia:
+          type: string
+          enum: [SOLUZIONE_UNICA]
+        dataInizioValidita:
+          $ref: '#/components/schemas/dataInizioValiditaOpzionePagamento'
+        dataScadenza:
+          $ref: '#/components/schemas/dataScadenzaOpzionePagamento'
+        pendenze:
+          type: array
+          description: Esattamente una pendenza per l'intero importo.
+          minItems: 1
+          maxItems: 1
+          items:
+            $ref: '#/components/schemas/NuovaPendenza'
+
+    NuovaOpzionePagamentoSoluzioneUnicaEntro:
+      type: object
+      required: [tipologia, giorni, pendenze]
+      properties:
+        tipologia:
+          type: string
+          enum: [SOLUZIONE_UNICA_ENTRO]
+        giorni:
+          type: number
+          minimum: 1
+          description: >-
+            Numero di giorni entro cui va eseguito il pagamento. Il
+            conteggio non decorre necessariamente dalla creazione della
+            posizione debitoria: può ad esempio partire dal momento in cui
+            il debitore seleziona questa opzione tra quelle disponibili.
+          examples:
+            - 30
+        dataInizioValidita:
+          $ref: '#/components/schemas/dataInizioValiditaOpzionePagamento'
+        dataScadenza:
+          $ref: '#/components/schemas/dataScadenzaOpzionePagamento'
+        pendenze:
+          type: array
+          description: Esattamente una pendenza per l'intero importo.
+          minItems: 1
+          maxItems: 1
+          items:
+            $ref: '#/components/schemas/NuovaPendenza'
+
+    NuovaOpzionePagamentoSoluzioneUnicaOltre:
+      type: object
+      required: [tipologia, giorni, pendenze]
+      properties:
+        tipologia:
+          type: string
+          enum: [SOLUZIONE_UNICA_OLTRE]
+        giorni:
+          type: number
+          minimum: 1
+          description: >-
+            Numero di giorni decorsi i quali il pagamento diventa possibile
+            (non prima). Il conteggio non decorre necessariamente dalla
+            creazione della posizione debitoria: può ad esempio partire dal
+            momento in cui il debitore seleziona questa opzione tra quelle
+            disponibili.
+          examples:
+            - 30
+        dataInizioValidita:
+          $ref: '#/components/schemas/dataInizioValiditaOpzionePagamento'
+        dataScadenza:
+          $ref: '#/components/schemas/dataScadenzaOpzionePagamento'
+        pendenze:
+          type: array
+          description: Esattamente una pendenza per l'intero importo.
+          minItems: 1
+          maxItems: 1
+          items:
+            $ref: '#/components/schemas/NuovaPendenza'
+
+    dataInizioValiditaOpzionePagamento:
+      type: string
+      format: date
+      description: >-
+        Data a partire dalla quale questa opzione di pagamento (e tutte le
+        pendenze/rate che la compongono) diventa pagabile. Se assente, è
+        pagabile da subito.
+      examples:
+        - '2026-01-15'
+    dataScadenzaOpzionePagamento:
+      type: string
+      format: date
+      description: >-
+        Data fino alla quale questa opzione di pagamento (e tutte le
+        pendenze/rate che la compongono) resta pagabile. Governa un piano
+        rateale nel suo complesso: superata questa data nessuna rata resta
+        pagabile, indipendentemente dalle rate già scadute individualmente,
+        così che un piano avviato non decada rata per rata. Se assente,
+        l'opzione non ha una scadenza di pagamento.
+      examples:
+        - '2026-06-30'
+    NuovaPendenza:
+      type: object
+      required:
+        - idPendenza
+        - idTipoPendenza
+        - importo
+        - voci
+      properties:
+        idPendenza:
+          type: string
+          description: Identificativo della pendenza (rata) nel gestionale proprietario.
+          examples:
+            - abcdef12345
+          pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
+        idTipoPendenza:
+          type: string
+          description: Identificativo della tipologia pendenza
+          examples:
+            - IMU
+          pattern: '(^[a-zA-Z0-9\-_\.]{1,35}$)'
+        importo:
+          type: number
+          description: Importo della pendenza. Deve corrispondere alla somma delle singole voci.
+          examples:
+            - 10.01
+          minimum: 0.00
+          maximum: 10000000000000000.00
+        numeroAvviso:
+          type: string
+          description: >-
+            Identificativo univoco versamento. Opzionale: se non fornito,
+            viene generato automaticamente da GovPay.
+          examples:
+            - '123456789012345678'
+          pattern: '(^[0-9]{18}$)'
+        dataValidita:
+          type: string
+          format: date
+          description: >-
+            Data fino alla quale i dati della pendenza sono da considerarsi
+            validi e non necessitano di essere attualizzati. Se assente, i
+            dati vengono attualizzati a ogni richiesta.
+          examples:
+            - '2019-12-31'
+        dataScadenzaAvviso:
+          type: string
+          format: date
+          description: >-
+            Data di scadenza da stampare sull'avviso di pagamento mostrato
+            al debitore. Se assente, si usa la data di scadenza dell'opzione
+            di pagamento a cui la pendenza appartiene; se anche questa è
+            assente, sull'avviso non viene stampata alcuna scadenza.
+          examples:
+            - '2020-12-15'
+        voci:
+          type: array
+          minItems: 1
+          maxItems: 5
+          items:
+            $ref: '#/components/schemas/NuovaVocePendenza'
+
+    NuovaVocePendenza:
+      type: object
+      description: >-
+        Voce di pendenza. La forma varia in base al tipo di riferimento di
+        incasso: `dettaglioContabile` è disponibile solo per
+        NuovaVocePendenzaRiferimentoEntrata e NuovaVocePendenzaEntrata; per
+        una marca da bollo (NuovaVocePendenzaBollo) la classificazione
+        contabile avviene solo tramite `tassonomia`.
+      oneOf:
+        - $ref: '#/components/schemas/NuovaVocePendenzaRiferimentoEntrata'
+        - $ref: '#/components/schemas/NuovaVocePendenzaEntrata'
+        - $ref: '#/components/schemas/NuovaVocePendenzaBollo'
+
+    DatiComuniVocePendenza:
+      type: object
+      required:
+        - idVocePendenza
+        - importo
+        - descrizione
+      properties:
+        idVocePendenza:
+          type: string
+          description: Identificativo della voce di pedenza nel gestionale proprietario
+          examples:
+            - abcdef12345_1
+          minLength: 1
+          maxLength: 35
+        importo:
+          type: number
+          description: Importo della voce
+          examples:
+            - 10.01
+          minimum: 0.00
+          maximum: 10000000000000000.00
+        descrizione:
+          type: string
+          description: descrizione della voce di pagamento
+          examples:
+            - 'Sanzione CdS n. abc00000'
+          minLength: 1
+          maxLength: 140
+        idDominio:
+          type: string
+          description: Identificativo del dominio creditore
+          examples:
+            - '1234567890'
+          minLength: 1
+          maxLength: 35
+          pattern: '(^([0-9]){11}$)'
+
+    NuovaVocePendenzaRiferimentoEntrata:
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/RiferimentoEntrata'
+        - $ref: '#/components/schemas/DatiComuniVocePendenza'
+        - type: object
+          properties:
+            dettaglioContabile:
+              type: array
+              description: >-
+                Dettaglio di riconciliazione contabile per il transfer
+                generato da questa voce, secondo il Dizionario dei metadata
+                pagoPA (sezione "Riconciliazione contabile"). Solo le
+                tipologie catalogate sono accettate in scrittura.
+              items:
+                $ref: '#/components/schemas/dettaglio'
+
+    NuovaVocePendenzaEntrata:
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/Entrata'
+        - $ref: '#/components/schemas/DatiComuniVocePendenza'
+        - type: object
+          properties:
+            dettaglioContabile:
+              type: array
+              description: >-
+                Dettaglio di riconciliazione contabile per il transfer
+                generato da questa voce, secondo il Dizionario dei metadata
+                pagoPA (sezione "Riconciliazione contabile"). Solo le
+                tipologie catalogate sono accettate in scrittura.
+              items:
+                $ref: '#/components/schemas/dettaglio'
+
+    NuovaVocePendenzaBollo:
+      type: object
+      description: >-
+        Nessuna proprietà `dettaglioContabile`: per il bollo la
+        classificazione avviene solo tramite `tassonomia` (vedi schema Bollo).
+      allOf:
+        - $ref: '#/components/schemas/Bollo'
+        - $ref: '#/components/schemas/DatiComuniVocePendenza'
+
+    # ============================================================
+    # POSIZIONE DEBITORIA - LETTURA
+    # ============================================================
+
+    PosizioneDebitoriaIndex:
+      type: object
+      required:
+        - idA2A
+        - idPosizioneDebitoria
+        - idDominio
+        - descrizione
+        - soggettiDebitori
+      properties:
+        idA2A:
+          type: string
+          description: Identificativo del gestionale responsabile della posizione debitoria
+          examples:
+            - A2A-12345
+        idPosizioneDebitoria:
+          type: string
+          description: Identificativo della posizione debitoria nel gestionale responsabile
+          examples:
+            - abcdef12345
+        idDominio:
+          type: string
+          description: >-
+            Identificativo del dominio creditore. Anagrafica consultabile su
+            `GET /domini/{idDominio}`.
+          examples:
+            - '01234567890'
+        idUnitaOperativa:
+          type: string
+          description: >-
+            Identificativo dell'unità operativa, se presente. Anagrafica
+            consultabile su `GET /domini/{idDominio}/unita-operative/{idUnitaOperativa}`.
+          examples:
+            - UO33132
+        descrizione:
+          type: string
+          examples:
+            - 'Sanzione CdS n. abc00000'
+        soggettiDebitori:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/Soggetto'
+        dataPubblicazione:
+          type: string
+          format: date
+        notificaSend:
+          type: boolean
+        navNotifica:
+          type: string
+
+    PosizioneDebitoria:
+      description: >-
+        Dettaglio completo di una posizione debitoria, comprensivo di tutte
+        le sue opzioni di pagamento e delle pendenze che le compongono.
+      type: object
+      required:
+        - idA2A
+        - idPosizioneDebitoria
+        - idDominio
+        - descrizione
+        - soggettiDebitori
+        - opzioniPagamento
+      properties:
+        idA2A:
+          type: string
+          description: Identificativo del gestionale responsabile della posizione debitoria
+          examples:
+            - A2A-12345
+        idPosizioneDebitoria:
+          type: string
+          description: Identificativo della posizione debitoria nel gestionale responsabile
+          examples:
+            - abcdef12345
+        idDominio:
+          type: string
+          description: >-
+            Identificativo del dominio creditore. Anagrafica consultabile su
+            `GET /domini/{idDominio}`.
+          examples:
+            - '01234567890'
+        idUnitaOperativa:
+          type: string
+          description: >-
+            Identificativo dell'unità operativa, se presente. Anagrafica
+            consultabile su `GET /domini/{idDominio}/unita-operative/{idUnitaOperativa}`.
+          examples:
+            - UO33132
+        descrizione:
+          type: string
+          examples:
+            - 'Sanzione CdS n. abc00000'
+        soggettiDebitori:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/Soggetto'
+        dataPubblicazione:
+          type: string
+          format: date
+        notificaSend:
+          type: boolean
+        navNotifica:
+          type: string
+        opzioniPagamento:
+          type: array
+          items:
+            $ref: '#/components/schemas/OpzionePagamento'
+
+    OpzionePagamentoIndex:
+      type: object
+      description: >-
+        Riferimento all'opzione di pagamento a cui appartiene una pendenza,
+        senza l'elenco delle pendenze che la compongono.
+      oneOf:
+        - $ref: '#/components/schemas/OpzionePagamentoIndexPianoRateale'
+        - $ref: '#/components/schemas/OpzionePagamentoIndexSoluzioneUnica'
+        - $ref: '#/components/schemas/OpzionePagamentoIndexSoluzioneUnicaEntro'
+        - $ref: '#/components/schemas/OpzionePagamentoIndexSoluzioneUnicaOltre'
+      discriminator:
+        propertyName: tipologia
+        mapping:
+          PIANO_RATEALE: '#/components/schemas/OpzionePagamentoIndexPianoRateale'
+          SOLUZIONE_UNICA: '#/components/schemas/OpzionePagamentoIndexSoluzioneUnica'
+          SOLUZIONE_UNICA_ENTRO: '#/components/schemas/OpzionePagamentoIndexSoluzioneUnicaEntro'
+          SOLUZIONE_UNICA_OLTRE: '#/components/schemas/OpzionePagamentoIndexSoluzioneUnicaOltre'
+
+    StatoOpzionePagamento:
+      type: string
+      description: >-
+        Stato dell'opzione di pagamento. Un'opzione nasce DISPONIBILE, cioè
+        ancora selezionabile dal debitore. Quando arriva un pagamento su una
+        delle sue pendenze, l'opzione passa automaticamente ad ATTIVATA: è
+        quella con cui il debitore ha effettivamente pagato. Nello stesso
+        momento tutte le altre opzioni della stessa posizione debitoria,
+        se ancora DISPONIBILI, passano automaticamente ad ANNULLATA, essendo
+        alternative non più applicabili. Un'opzione DISPONIBILE può anche
+        essere annullata manualmente tramite PATCH su
+        `/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}`
+        (`{"op": "replace", "path": "/stato", "value": "ANNULLATA"}`); un'opzione
+        già ATTIVATA non può invece essere annullata, perché corrisponde a un
+        pagamento già eseguito. ANNULLATA è uno stato definitivo.
+      enum:
+        - DISPONIBILE
+        - ATTIVATA
+        - ANNULLATA
+      examples:
+        - DISPONIBILE
+    OpzionePagamentoIndexPianoRateale:
+      type: object
+      required: [idOpzionePagamento, tipologia, stato]
+      properties:
+        idOpzionePagamento:
+          type: string
+          format: uuid
+          description: >-
+            Identificativo dell'opzione di pagamento, generato da GovPay
+            alla creazione. Usato nel path di
+            `PATCH .../opzioni-pagamento/{idOpzionePagamento}`. Stabile per
+            tutta la vita della posizione debitoria, indipendentemente da
+            eventuali altre opzioni aggiunte in seguito.
+          examples:
+            - 3fa85f64-5717-4562-b3fc-2c963f66afa6
+        tipologia:
+          type: string
+          enum: [PIANO_RATEALE]
+        stato:
+          $ref: '#/components/schemas/StatoOpzionePagamento'
+        dataInizioValidita:
+          type: string
+          format: date
+        dataScadenza:
+          type: string
+          format: date
+
+    OpzionePagamentoIndexSoluzioneUnica:
+      type: object
+      required: [idOpzionePagamento, tipologia, stato]
+      properties:
+        idOpzionePagamento:
+          type: string
+          format: uuid
+          examples:
+            - 3fa85f64-5717-4562-b3fc-2c963f66afa6
+        tipologia:
+          type: string
+          enum: [SOLUZIONE_UNICA]
+        stato:
+          $ref: '#/components/schemas/StatoOpzionePagamento'
+        dataInizioValidita:
+          type: string
+          format: date
+        dataScadenza:
+          type: string
+          format: date
+
+    OpzionePagamentoIndexSoluzioneUnicaEntro:
+      type: object
+      required: [idOpzionePagamento, tipologia, giorni, stato]
+      properties:
+        idOpzionePagamento:
+          type: string
+          format: uuid
+          examples:
+            - 3fa85f64-5717-4562-b3fc-2c963f66afa6
+        tipologia:
+          type: string
+          enum: [SOLUZIONE_UNICA_ENTRO]
+        giorni:
+          type: number
+          examples:
+            - 30
+        stato:
+          $ref: '#/components/schemas/StatoOpzionePagamento'
+        dataInizioValidita:
+          type: string
+          format: date
+        dataScadenza:
+          type: string
+          format: date
+
+    OpzionePagamentoIndexSoluzioneUnicaOltre:
+      type: object
+      required: [idOpzionePagamento, tipologia, giorni, stato]
+      properties:
+        idOpzionePagamento:
+          type: string
+          format: uuid
+          examples:
+            - 3fa85f64-5717-4562-b3fc-2c963f66afa6
+        tipologia:
+          type: string
+          enum: [SOLUZIONE_UNICA_OLTRE]
+        giorni:
+          type: number
+          examples:
+            - 30
+        stato:
+          $ref: '#/components/schemas/StatoOpzionePagamento'
+        dataInizioValidita:
+          type: string
+          format: date
+        dataScadenza:
+          type: string
+          format: date
+
+    OpzionePagamento:
+      type: object
+      description: >-
+        Vista completa di un'opzione di pagamento, comprensiva delle
+        pendenze che la compongono.
+      oneOf:
+        - $ref: '#/components/schemas/OpzionePagamentoPianoRateale'
+        - $ref: '#/components/schemas/OpzionePagamentoSoluzioneUnica'
+        - $ref: '#/components/schemas/OpzionePagamentoSoluzioneUnicaEntro'
+        - $ref: '#/components/schemas/OpzionePagamentoSoluzioneUnicaOltre'
+      discriminator:
+        propertyName: tipologia
+        mapping:
+          PIANO_RATEALE: '#/components/schemas/OpzionePagamentoPianoRateale'
+          SOLUZIONE_UNICA: '#/components/schemas/OpzionePagamentoSoluzioneUnica'
+          SOLUZIONE_UNICA_ENTRO: '#/components/schemas/OpzionePagamentoSoluzioneUnicaEntro'
+          SOLUZIONE_UNICA_OLTRE: '#/components/schemas/OpzionePagamentoSoluzioneUnicaOltre'
+
+    OpzionePagamentoPianoRateale:
+      description: >-
+        Opzione di pagamento a piano rateale, comprensiva delle rate
+        (pendenze) che la compongono.
+      type: object
+      required: [idOpzionePagamento, tipologia, stato, pendenze]
+      properties:
+        idOpzionePagamento:
+          type: string
+          format: uuid
+          description: >-
+            Identificativo dell'opzione di pagamento, generato da GovPay
+            alla creazione.
+          examples:
+            - 3fa85f64-5717-4562-b3fc-2c963f66afa6
+        tipologia:
+          type: string
+          enum: [PIANO_RATEALE]
+        stato:
+          $ref: '#/components/schemas/StatoOpzionePagamento'
+        dataInizioValidita:
+          type: string
+          format: date
+        dataScadenza:
+          type: string
+          format: date
+        pendenze:
+          type: array
+          minItems: 2
+          items:
+            $ref: '#/components/schemas/PendenzaOpzionePagamento'
+
+    OpzionePagamentoSoluzioneUnica:
+      description: >-
+        Opzione di pagamento in unica soluzione, comprensiva della pendenza
+        che la compone.
+      type: object
+      required: [idOpzionePagamento, tipologia, stato, pendenze]
+      properties:
+        idOpzionePagamento:
+          type: string
+          format: uuid
+          examples:
+            - 3fa85f64-5717-4562-b3fc-2c963f66afa6
+        tipologia:
+          type: string
+          enum: [SOLUZIONE_UNICA]
+        stato:
+          $ref: '#/components/schemas/StatoOpzionePagamento'
+        dataInizioValidita:
+          type: string
+          format: date
+        dataScadenza:
+          type: string
+          format: date
+        pendenze:
+          type: array
+          minItems: 1
+          maxItems: 1
+          items:
+            $ref: '#/components/schemas/PendenzaOpzionePagamento'
+
+    OpzionePagamentoSoluzioneUnicaEntro:
+      description: >-
+        Opzione di pagamento in unica soluzione con termine di pagamento
+        espresso in giorni, comprensiva della pendenza che la compone.
+      type: object
+      required: [idOpzionePagamento, tipologia, giorni, stato, pendenze]
+      properties:
+        idOpzionePagamento:
+          type: string
+          format: uuid
+          examples:
+            - 3fa85f64-5717-4562-b3fc-2c963f66afa6
+        tipologia:
+          type: string
+          enum: [SOLUZIONE_UNICA_ENTRO]
+        giorni:
+          type: number
+          examples:
+            - 30
+        stato:
+          $ref: '#/components/schemas/StatoOpzionePagamento'
+        dataInizioValidita:
+          type: string
+          format: date
+        dataScadenza:
+          type: string
+          format: date
+        pendenze:
+          type: array
+          minItems: 1
+          maxItems: 1
+          items:
+            $ref: '#/components/schemas/PendenzaOpzionePagamento'
+
+    OpzionePagamentoSoluzioneUnicaOltre:
+      description: >-
+        Opzione di pagamento in unica soluzione disponibile solo decorso un
+        termine espresso in giorni, comprensiva della pendenza che la compone.
+      type: object
+      required: [idOpzionePagamento, tipologia, giorni, stato, pendenze]
+      properties:
+        idOpzionePagamento:
+          type: string
+          format: uuid
+          examples:
+            - 3fa85f64-5717-4562-b3fc-2c963f66afa6
+        tipologia:
+          type: string
+          enum: [SOLUZIONE_UNICA_OLTRE]
+        giorni:
+          type: number
+          examples:
+            - 30
+        stato:
+          $ref: '#/components/schemas/StatoOpzionePagamento'
+        dataInizioValidita:
+          type: string
+          format: date
+        dataScadenza:
+          type: string
+          format: date
+        pendenze:
+          type: array
+          minItems: 1
+          maxItems: 1
+          items:
+            $ref: '#/components/schemas/PendenzaOpzionePagamento'
+
+    # ============================================================
+    # PENDENZA - LETTURA
+    # ============================================================
+
+    PendenzaBase:
+      type: object
+      required:
+        - idA2A
+        - idPendenza
+        - idDominio
+        - stato
+        - opzionePagamento
+        - numeroRata
+        - importo
+        - iuv
+        - numeroAvviso
+        - dataCaricamento
+      properties:
+        idA2A:
+          type: string
+          description: Identificativo del gestionale responsabile della pendenza
+          examples:
+            - A2A-12345
+        idPendenza:
+          type: string
+          description: Identificativo della pendenza nel gestionale responsabile
+          examples:
+            - abcdef12345
+        idTipoPendenza:
+          type: string
+          description: Identificativo della tipologia pendenza
+          examples:
+            - IMU
+        idDominio:
+          type: string
+          description: >-
+            Identificativo del dominio creditore. Anagrafica consultabile su
+            `GET /domini/{idDominio}`.
+          examples:
+            - '01234567890'
+        stato:
+          $ref: '#/components/schemas/StatoPendenza'
+        iuv:
+          type: string
+          description: Identificativo Univoco di Versamento assegnato alla pendenza.
+          examples:
+            - '000000000012345'
+        dataPagamento:
+          type: string
+          format: date
+          description: Data di pagamento della pendenza
+          examples:
+            - '2018-12-31'
+        opzionePagamento:
+          $ref: '#/components/schemas/OpzionePagamentoIndex'
+        numeroRata:
+          type: integer
+          minimum: 1
+          description: >-
+            Numero di rata della pendenza all'interno della sua opzione di
+            pagamento: corrisponde alla posizione (1-based) della pendenza
+            nell'array `pendenze` dell'opzione. Per le opzioni SOLUZIONE_UNICA,
+            SOLUZIONE_UNICA_ENTRO e SOLUZIONE_UNICA_OLTRE, che hanno
+            un'unica pendenza, vale sempre 1. Non richiesto in scrittura: è
+            GovPay ad assegnarlo in base all'ordine delle pendenze
+            nell'array della relativa opzione di pagamento.
+          examples:
+            - 1
+        importo:
+          type: number
+          description: Importo della pendenza. Deve corrispondere alla somma delle singole voci.
+          examples:
+            - 10.01
+          minimum: 0.00
+          maximum: 10000000000000000.00
+        numeroAvviso:
+          type: string
+          description: Identificativo dell'avviso di pagamento pagoPA associato alla pendenza.
+          examples:
+            - '123456789012345678'
+          pattern: '(^[0-9]{18}$)'
+        dataCaricamento:
+          type: string
+          format: date
+          description: Data di emissione della pendenza
+          examples:
+            - '2010-12-31'
+        dataValidita:
+          type: string
+          format: date
+          description: >-
+            Data fino alla quale i dati della pendenza sono da considerarsi
+            validi e non necessitano di essere attualizzati. Se assente, i
+            dati vengono attualizzati a ogni richiesta.
+          examples:
+            - '2019-12-31'
+        dataScadenzaAvviso:
+          type: string
+          format: date
+          description: >-
+            Data di scadenza da stampare sull'avviso di pagamento mostrato
+            al debitore. Se assente, si usa la data di scadenza dell'opzione
+            di pagamento a cui la pendenza appartiene; se anche questa è
+            assente, sull'avviso non viene stampata alcuna scadenza.
+          examples:
+            - '2020-12-15'
+
+    Pendenza:
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/PendenzaBase'
+        - type: object
+          required:
+            - voci
+            - posizioneDebitoria
+          properties:
+            voci:
+              type: array
+              minItems: 1
+              maxItems: 5
+              items:
+                $ref: '#/components/schemas/VocePendenza'
+            posizioneDebitoria:
+              $ref: '#/components/schemas/PosizioneDebitoriaIndex'
+
+    PendenzaIndex:
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/PendenzaBase'
+        - type: object
+          required:
+            - posizioneDebitoria
+          properties:
+            posizioneDebitoria:
+              $ref: '#/components/schemas/PosizioneDebitoriaIndex'
+
+    PendenzaOpzionePagamento:
+      type: object
+      description: >-
+        Pendenza (rata) vista dall'interno della sua opzione di pagamento:
+        a differenza di `PendenzaIndex`, non riporta `posizioneDebitoria`,
+        già noto da chi la contiene (la posizione debitoria stessa).
+      allOf:
+        - $ref: '#/components/schemas/PendenzaBase'
+
+    Pendenze:
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/Lista'
+        - type: object
+          properties:
+            risultati:
+              type: array
+              items:
+                $ref: '#/components/schemas/PendenzaIndex'
+
+    PosizioniDebitorie:
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/Lista'
+        - type: object
+          properties:
+            risultati:
+              type: array
+              items:
+                $ref: '#/components/schemas/PosizioneDebitoriaIndex'
+
+    VocePendenza:
+      type: object
+      description: >-
+        Voce di pendenza in lettura. La forma varia in base al tipo di
+        riferimento di incasso: `dettaglioContabile` è disponibile solo per
+        VocePendenzaRiferimentoEntrata e VocePendenzaEntrata; per una marca
+        da bollo (VocePendenzaBollo) la classificazione contabile risulta
+        solo tramite `tassonomia`.
+      oneOf:
+        - $ref: '#/components/schemas/VocePendenzaRiferimentoEntrata'
+        - $ref: '#/components/schemas/VocePendenzaEntrata'
+        - $ref: '#/components/schemas/VocePendenzaBollo'
+
+    DatiComuniVocePendenzaLettura:
+      type: object
+      required:
+        - idVocePendenza
+        - importo
+        - descrizione
+        - indice
+        - stato
+      properties:
+        idVocePendenza:
+          type: string
+          description: Identificativo della voce di pedenza nel gestionale proprietario
+          examples:
+            - abcdef12345_1
+          minLength: 1
+          maxLength: 35
+        importo:
+          type: number
+          description: Importo della voce
+          examples:
+            - 10.01
+          minimum: 0.00
+          maximum: 10000000000000000.00
+        descrizione:
+          type: string
+          description: descrizione della voce di pagamento
+          examples:
+            - 'Sanzione CdS n. abc00000'
+          minLength: 1
+          maxLength: 140
+        indice:
+          type: number
+          description: indice di voce all'interno della pendenza
+          examples:
+            - 1
+          minimum: 1
+          maximum: 5
+        stato:
+          $ref: '#/components/schemas/StatoVocePendenza'
+        idDominio:
+          type: string
+          description: >-
+            Identificativo del dominio creditore di questa voce (se
+            diverso da quello della pendenza, caso multi-beneficiario).
+            Anagrafica consultabile su `GET /domini/{idDominio}`.
+          examples:
+            - '01234567890'
+    VocePendenzaRiferimentoEntrata:
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/RiferimentoEntrata'
+        - $ref: '#/components/schemas/DatiComuniVocePendenzaLettura'
+        - type: object
+          properties:
+            dettaglioContabile:
+              type: array
+              description: >-
+                Dettaglio di riconciliazione contabile letto dai metadata
+                della RT/RPT, secondo il Dizionario dei metadata pagoPA.
+              items:
+                $ref: '#/components/schemas/dettaglioLetto'
+
+    VocePendenzaEntrata:
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/Entrata'
+        - $ref: '#/components/schemas/DatiComuniVocePendenzaLettura'
+        - type: object
+          properties:
+            dettaglioContabile:
+              type: array
+              description: >-
+                Dettaglio di riconciliazione contabile letto dai metadata
+                della RT/RPT, secondo il Dizionario dei metadata pagoPA.
+              items:
+                $ref: '#/components/schemas/dettaglioLetto'
+
+    VocePendenzaBollo:
+      type: object
+      description: >-
+        Nessuna proprietà `dettaglioContabile`: per il bollo la
+        classificazione avviene solo tramite `tassonomia` (vedi schema Bollo).
+      allOf:
+        - $ref: '#/components/schemas/Bollo'
+        - $ref: '#/components/schemas/DatiComuniVocePendenzaLettura'
+
+    # ============================================================
+    # SOGGETTO
+    # ============================================================
+
+    Soggetto:
+      description: dati anagrafici di un versante o pagatore.
+      type: object
+      required:
+        - tipo
+        - identificativo
+      properties:
+        tipo:
+          $ref: '#/components/schemas/TipoSoggetto'
+        identificativo:
+          description: codice fiscale o partita iva del soggetto
+          type: string
+          examples:
+            - RSSMRA30A01H501I
+          minLength: 2
+          maxLength: 16
+        anagrafica:
+          description: nome e cognome o altra ragione sociale del soggetto
+          type: string
+          examples:
+            - Mario Rossi
+          minLength: 1
+          maxLength: 70
+        indirizzo:
+          type: string
+          examples:
+            - Piazza della Vittoria
+          minLength: 1
+          maxLength: 70
+        civico:
+          type: string
+          examples:
+            - 10/A
+          minLength: 1
+          maxLength: 16
+        cap:
+          type: string
+          examples:
+            - '00000'
+          minLength: 1
+          maxLength: 16
+        localita:
+          type: string
+          examples:
+            - Roma
+          minLength: 1
+          maxLength: 35
+        provincia:
+          type: string
+          examples:
+            - RM
+        nazione:
+          type: string
+          examples:
+            - IT
+        email:
+          type: string
+          examples:
+            - mario.rossi@email.it
+    TipoSoggetto:
+      description: >-
+        tipologia di soggetto, se persona fisica (F) o giuridica (G)
+      type: string
+      enum:
+        - G
+        - F
+      examples:
+        - F
+    RiferimentoEntrata:
+      description: Definisce i dettagli di incasso tramite riferimento in anagrafica GovPay.
+      type: object
+      required:
+        - codEntrata
+      properties:
+        codEntrata:
+          type: string
+          examples:
+            - SRV-12345
+          pattern: '(^[a-zA-Z0-9\-_\.]{1,35}$)'
+
+    Bollo:
+      description: >-
+        Definisce i dati di un bollo telematico. Non ammette
+        `dettaglioContabile` (il Dizionario dei metadata di riconciliazione
+        contabile pagoPA non si applica al bollo): la classificazione
+        avviene solo tramite `tassonomia`.
+      type: object
+      required:
+        - tipoBollo
+        - hashDocumento
+        - provinciaResidenza
+        - tassonomia
+      not:
+        required:
+          - dettaglioContabile
+      properties:
+        tipoBollo:
+          description: Tipologia di Bollo digitale
+          type: string
+          enum:
+            - '01'
+        hashDocumento:
+          description: Digest in base64 del documento informatico associato alla marca da bollo
+          type: string
+          examples:
+            - "--- base64 ---"
+          maxLength: 70
+        provinciaResidenza:
+          description: Sigla automobilistica della provincia di residenza del soggetto pagatore
+          type: string
+          examples:
+            - "RO"
+          pattern: "[A-Z]{2,2}"
+        tassonomia:
+          $ref: '#/components/schemas/tassonomia'
+
+    Entrata:
+      description: Definisce i dettagli di una entrata.
+      type: object
+      required:
+        - ibanAccredito
+        - tassonomia
+      properties:
+        ibanAccredito:
+          type: string
+          examples:
+            - IT60X0542811101000000123456
+          pattern: "[a-zA-Z]{2,2}[0-9]{2,2}[a-zA-Z0-9]{1,30}"
+        ibanAppoggio:
+          type: string
+          examples:
+            - IT60X0542811101000000123456
+          pattern: "[a-zA-Z]{2,2}[0-9]{2,2}[a-zA-Z0-9]{1,30}"
+        tassonomia:
+          $ref: '#/components/schemas/tassonomia'
+
+    tassonomia:
+      type: string
+      description: >-
+        Tassonomia dei servizi di incasso pagoPA, secondo la sintassi
+        Prefisso/CodiceEC/MacroArea/Tipologia/MotivoGiuridico descritta in
+        https://developer.pagopa.it/pago-pa/guides/sanp/ente-creditore/tassonomia-dei-servizi-di-incasso.
+        Viene riportata così com'è nel campo `transferCategory` dell'RPT
+        verso il Nodo dei Pagamenti.
+      examples:
+        - '9/0101002IM/'
+      pattern: '^[6789]/[0-9]{7}(IM|TS|SP|SA|AP)/$'
+
+    # ============================================================
+    # DETTAGLIO CONTABILE (issue #877)
+    # ============================================================
+
+    dettaglio:
+      type: object
+      description: >-
+        Ogni value prodotto verso pagoPA non può eccedere 140 caratteri
+        (spazi compresi), per vincolo del dizionario dei metadata.
+        SPESE_NOTIFICA va indicato in scrittura solo se l'importo della
+        voce include già le spese di notifica SEND calcolate autonomamente
+        dall'applicativo; in tal caso `notificaSend` non va attivato sulla
+        posizione debitoria, altrimenti le spese verrebbero applicate due
+        volte.
+      oneOf:
+        - $ref: '#/components/schemas/dettaglioContabileCorrispettivoDL118'
+        - $ref: '#/components/schemas/dettaglioContabileIncassoTipico'
+        - $ref: '#/components/schemas/dettaglioContabileCivilistico'
+        - $ref: '#/components/schemas/dettaglioContabileImportoNotifica'
+      discriminator:
+        propertyName: tipo
+        mapping:
+          CORRISPETTIVO_DL118: '#/components/schemas/dettaglioContabileCorrispettivoDL118'
+          INCASSO_TIPICO: '#/components/schemas/dettaglioContabileIncassoTipico'
+          CIVILISTICO: '#/components/schemas/dettaglioContabileCivilistico'
+          SPESE_NOTIFICA: '#/components/schemas/dettaglioContabileImportoNotifica'
+
+    dettaglioLetto:
+      type: object
+      description: >-
+        Variante in lettura di 'dettaglio': oltre alle tipologie ammesse in
+        scrittura, include anche UNKNOWN_ENTRIES (metadata non riconosciuti,
+        generati da un intermediario/tecnologia terza).
+      oneOf:
+        - $ref: '#/components/schemas/dettaglioContabileCorrispettivoDL118'
+        - $ref: '#/components/schemas/dettaglioContabileIncassoTipico'
+        - $ref: '#/components/schemas/dettaglioContabileCivilistico'
+        - $ref: '#/components/schemas/dettaglioContabileImportoNotifica'
+        - $ref: '#/components/schemas/dettaglioContabileSconosciuto'
+      discriminator:
+        propertyName: tipo
+        mapping:
+          CORRISPETTIVO_DL118: '#/components/schemas/dettaglioContabileCorrispettivoDL118'
+          INCASSO_TIPICO: '#/components/schemas/dettaglioContabileIncassoTipico'
+          CIVILISTICO: '#/components/schemas/dettaglioContabileCivilistico'
+          SPESE_NOTIFICA: '#/components/schemas/dettaglioContabileImportoNotifica'
+          UNKNOWN_ENTRIES: '#/components/schemas/dettaglioContabileSconosciuto'
+
+    dettaglioContabileCorrispettivoDL118:
+      type: object
+      required: [tipo, annoCompetenza, importo]
+      properties:
+        tipo:
+          type: string
+          enum: [CORRISPETTIVO_DL118]
+        annoCompetenza:
+          type: string
+          pattern: '^[0-9]{4}$'
+          description: Anno di competenza (RC_AC).
+          examples:
+            - '2026'
+        codiceUfficio:
+          type: string
+          maxLength: 140
+          description: Codice ufficio (RC_CU).
+        capitolo:
+          type: string
+          maxLength: 140
+          description: >-
+            Capitolo di bilancio (RC_CAP). Alternativo ad "accertamento" e a
+            "pianoFinanziario5Livello": deve essere presente uno dei tre.
+        accertamento:
+          type: string
+          maxLength: 140
+          description: >-
+            Accertamento (RC_ACC), es. "2023/1233". Alternativo a "capitolo"
+            e a "pianoFinanziario5Livello".
+        articolo:
+          type: string
+          maxLength: 140
+          description: Articolo di bilancio (RC_ART).
+        pianoFinanziario5Livello:
+          type: string
+          maxLength: 140
+          description: Piano finanziario 5° livello (RC_PF5).
+          examples:
+            - 'E.1.01.01.20.001'
+        importo:
+          type: number
+          format: double
+          minimum: 0.01
+          description: Importo del dettaglio (RC_IMP).
+
+    dettaglioContabileIncassoTipico:
+      type: object
+      required: [tipo, annoCompetenza, tipoIncasso, importo]
+      properties:
+        tipo:
+          type: string
+          enum: [INCASSO_TIPICO]
+        annoCompetenza:
+          type: string
+          pattern: '^[0-9]{4}$'
+          description: Anno di competenza (RC_AC).
+        codiceUfficio:
+          type: string
+          maxLength: 140
+          description: Codice ufficio (RC_CU).
+        tipoIncasso:
+          type: string
+          maxLength: 140
+          description: Tipo incasso / voce economica (RC_TI).
+          examples:
+            - 'DIRITTI DI SEGRETERIA'
+        emissioneFattura:
+          type: string
+          enum: [SI, NO]
+          description: 'Emissione fattura (RC_EF). Alternativo a "nrDocumento".'
+        nrDocumento:
+          type: string
+          maxLength: 140
+          description: 'Numero documento (RC_ND). Alternativo a "emissioneFattura".'
+        importo:
+          type: number
+          format: double
+          minimum: 0.01
+          description: Importo del dettaglio (RC_IMP).
+
+    dettaglioContabileCivilistico:
+      type: object
+      required: [tipo, annoCompetenza, importo]
+      properties:
+        tipo:
+          type: string
+          enum: [CIVILISTICO]
+        annoCompetenza:
+          type: string
+          pattern: '^[0-9]{4}$'
+          description: Anno di competenza (RC_AC).
+        codiceUfficio:
+          type: string
+          maxLength: 140
+          description: Codice ufficio (RC_CU).
+        conto:
+          type: string
+          maxLength: 140
+          description: >-
+            Conto (RC_CON), es. "14.01.03". Alternativo a "commessa" e
+            "nrDocumento": uno dei tre deve essere presente.
+        commessa:
+          type: string
+          maxLength: 140
+          description: 'Commessa (RC_COM). Alternativo a "conto" e "nrDocumento".'
+        nrDocumento:
+          type: string
+          maxLength: 140
+          description: 'Numero documento (RC_ND). Alternativo a "conto" e "commessa".'
+        importo:
+          type: number
+          format: double
+          minimum: 0.01
+          description: Importo del dettaglio (RC_IMP).
+
+    dettaglioContabileImportoNotifica:
+      type: object
+      description: >-
+        Corrisponde alla sezione "Spese di notifica SEND" del Dizionario
+        dei metadata pagoPA. In lettura è normalmente generato da GovPay
+        stesso, quando `notificaSend` è attivo sulla posizione debitoria.
+        Può essere indicato anche in scrittura dall'applicativo, ma solo
+        nel caso in cui l'importo della voce includa già tali spese
+        calcolate autonomamente (vedi `dettaglio`).
+      required: [tipo, importo]
+      properties:
+        tipo:
+          type: string
+          enum: [SPESE_NOTIFICA]
+        importo:
+          type: number
+          format: double
+          minimum: 0.01
+          description: Importo del dettaglio.
+
+    dettaglioContabileSconosciuto:
+      type: object
+      description: >-
+        Fallback per metadata che non corrispondono a nessuna delle
+        tipologie catalogate: presente solo se generato da un altro
+        intermediario/tecnologia terza, non da GovPay in scrittura.
+      required: [tipo, entries]
+      properties:
+        tipo:
+          type: string
+          enum: [UNKNOWN_ENTRIES]
+        entries:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [chiave, valore]
+            properties:
+              chiave:
+                type: string
+              valore:
+                type: string
+
+    # ============================================================
+    # AVVISO
+    # ============================================================
+
+    Avviso:
+      type: object
+      required:
+        - stato
+      properties:
+        stato:
+          $ref: '#/components/schemas/StatoAvviso'
+        importo:
+          type: number
+          description: Importo della pendenza associata all'avviso.
+          examples:
+            - 10.01
+        idDominio:
+          type: string
+          description: Identificativo del creditore dell'avviso
+          examples:
+            - '01234567890'
+        numeroAvviso:
+          type: string
+          description: Numero identificativo dell'avviso di pagamento
+          examples:
+            - '00100000000000012'
+        dataValidita:
+          type: string
+          format: date
+          description: Data di validita dei dati dell'avviso, decorsa la quale l'importo può subire variazioni.
+          examples:
+            - '2019-12-31'
+        dataScadenza:
+          type: string
+          format: date
+          description: >-
+            Data di scadenza dell'avviso, decorsa la quale non è più
+            pagabile: coincide con la data di scadenza da stampare della
+            pendenza, o in assenza con quella dell'opzione di pagamento a
+            cui appartiene.
+          examples:
+            - '2020-12-31'
+        dataPagamento:
+          type: string
+          format: date
+          description: Data di pagamento dell'avviso.
+          examples:
+            - '2020-12-31'
+        descrizione:
+          type: string
+          description: Descrizione da inserire nell'avviso di pagamento
+          examples:
+            - 'Sanzione CdS n. abc00000'
+        qrcode:
+          type: string
+          description: Testo da codificare nel qr-code dell'avviso
+        barcode:
+          type: string
+          description: Testo da codificare nel bar-code dell'avviso
+
+    StatoAvviso:
+      description: Stato dell'avviso
+      examples:
+        - Non pagato
+      type: string
+      enum:
+        - DUPLICATA
+        - NON_ESEGUITA
+        - ANNULLATA
+        - SCONOSCIUTA
+        - SCADUTA
+
+    # ============================================================
+    # RICEVUTE
+    # ============================================================
+
+    Ricevute:
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/Lista'
+        - type: object
+          properties:
+            risultati:
+              type: array
+              items:
+                $ref: '#/components/schemas/RicevutaIndex'
+
+    RicevutaIndex:
+      type: object
+      description: >-
+        Riferimento a una ricevuta di pagamento (RT) emessa da pagoPA per
+        la pendenza. Il contenuto della ricevuta si recupera tramite
+        `GET /pendenze/{idA2A}/{idPendenza}/ricevute/{iur}`.
+      required:
+        - iur
+        - tipo
+        - data
+      properties:
+        iur:
+          type: string
+          description: Identificativo univoco di riscossione.
+          examples:
+            - '1234acdc'
+        tipo:
+          $ref: '#/components/schemas/TipoRicevuta'
+        data:
+          type: string
+          format: date-time
+          description: Data di acquisizione della ricevuta.
+          examples:
+            - '2020-12-31T12:55:12Z'
+
+    TipoRicevuta:
+      type: string
+      description: >-
+        Formato XML della ricevuta: `ctRicevutaTelematica` è il formato
+        SANP storico, `ctReceipt` e `ctReceiptV2` sono i formati più
+        recenti del Nodo dei Pagamenti.
+      enum:
+        - ctRicevutaTelematica
+        - ctReceipt
+        - ctReceiptV2
+      examples:
+        - ctReceiptV2
+
+    Ricevuta:
+      type: object
+      description: >-
+        Ricevuta di pagamento (RT) originale emessa da pagoPA. La forma
+        varia in base al campo `tipo`, che identifica il formato XML
+        pagoPA da cui la ricevuta è stata convertita: ciascun formato ha
+        i propri campi.
+      oneOf:
+        - $ref: '#/components/schemas/RicevutaCtRicevutaTelematica'
+        - $ref: '#/components/schemas/RicevutaCtReceipt'
+        - $ref: '#/components/schemas/RicevutaCtReceiptV2'
+      discriminator:
+        propertyName: tipo
+        mapping:
+          ctRicevutaTelematica: '#/components/schemas/RicevutaCtRicevutaTelematica'
+          ctReceipt: '#/components/schemas/RicevutaCtReceipt'
+          ctReceiptV2: '#/components/schemas/RicevutaCtReceiptV2'
+
+    # --- ctRicevutaTelematica (formato SANP storico) ---
+
+    RTIdentificativoUnivoco:
+      type: object
+      required:
+        - tipoIdentificativoUnivoco
+        - codiceIdentificativoUnivoco
+      properties:
+        tipoIdentificativoUnivoco:
+          $ref: '#/components/schemas/TipoSoggetto'
+        codiceIdentificativoUnivoco:
+          type: string
+
+    RTAnagrafica:
+      type: object
+      description: >-
+        Anagrafica di un soggetto (versante, pagatore, ente beneficiario o
+        istituto attestante) come riportata nella ricevuta
+        `ctRicevutaTelematica`.
+      required:
+        - identificativoUnivoco
+        - denominazione
+      properties:
+        identificativoUnivoco:
+          $ref: '#/components/schemas/RTIdentificativoUnivoco'
+        denominazione:
+          type: string
+          description: Nominativo o ragione sociale del soggetto.
+        codiceUnitaOperativa:
+          type: string
+        denominazioneUnitaOperativa:
+          type: string
+        indirizzo:
+          type: string
+        civico:
+          type: string
+        cap:
+          type: string
+        localita:
+          type: string
+        provincia:
+          type: string
+        nazione:
+          type: string
+        email:
+          type: string
+
+    RTAllegatoRicevuta:
+      type: object
+      required:
+        - tipoAllegatoRicevuta
+        - testoAllegato
+      properties:
+        tipoAllegatoRicevuta:
+          type: string
+          description: Tipo dell'allegato trasportato con la ricevuta.
+        testoAllegato:
+          type: string
+          format: byte
+          description: Contenuto dell'allegato, codificato in base64.
+
+    RTDatiSingoloPagamento:
+      type: object
+      required:
+        - singoloImportoPagato
+        - dataEsitoSingoloPagamento
+        - identificativoUnivocoRiscossione
+        - causaleVersamento
+        - datiSpecificiRiscossione
+      properties:
+        singoloImportoPagato:
+          type: number
+          description: Importo versato. Se il pagamento non è stato eseguito, vale 0.00.
+        esitoSingoloPagamento:
+          type: string
+          description: >-
+            Descrizione testuale dell'esito del singolo pagamento.
+            Presente se `singoloImportoPagato` vale 0.00.
+        dataEsitoSingoloPagamento:
+          type: string
+          format: date
+        identificativoUnivocoRiscossione:
+          type: string
+        causaleVersamento:
+          type: string
+        datiSpecificiRiscossione:
+          type: string
+          description: >-
+            Imputazione della specifica entrata, nella forma
+            "tipo contabilità"/"codice contabilità".
+        commissioniApplicatePSP:
+          type: number
+        commissioniApplicatePA:
+          type: number
+        allegatoRicevuta:
+          $ref: '#/components/schemas/RTAllegatoRicevuta'
+
+    RicevutaCtRicevutaTelematica:
+      type: object
+      description: Ricevuta nel formato XML SANP storico `ctRicevutaTelematica`.
+      required:
+        - tipo
+        - versioneOggetto
+        - dominio
+        - identificativoMessaggioRicevuta
+        - dataOraMessaggioRicevuta
+        - riferimentoMessaggioRichiesta
+        - riferimentoDataRichiesta
+        - istitutoAttestante
+        - enteBeneficiario
+        - soggettoPagatore
+        - datiPagamento
+      properties:
+        tipo:
+          type: string
+          enum:
+            - ctRicevutaTelematica
+          examples:
+            - ctRicevutaTelematica
+        versioneOggetto:
+          type: string
+        dominio:
+          type: object
+          required:
+            - identificativoDominio
+          properties:
+            identificativoDominio:
+              type: string
+            identificativoStazioneRichiedente:
+              type: string
+        identificativoMessaggioRicevuta:
+          type: string
+        dataOraMessaggioRicevuta:
+          type: string
+          format: date-time
+        riferimentoMessaggioRichiesta:
+          type: string
+        riferimentoDataRichiesta:
+          type: string
+          format: date
+        istitutoAttestante:
+          $ref: '#/components/schemas/RTAnagrafica'
+        enteBeneficiario:
+          $ref: '#/components/schemas/RTAnagrafica'
+        soggettoVersante:
+          $ref: '#/components/schemas/RTAnagrafica'
+        soggettoPagatore:
+          $ref: '#/components/schemas/RTAnagrafica'
+        datiPagamento:
+          type: object
+          required:
+            - codiceEsitoPagamento
+            - importoTotalePagato
+            - identificativoUnivocoVersamento
+            - codiceContestoPagamento
+          properties:
+            codiceEsitoPagamento:
+              type: integer
+              description: >-
+                Esito del pagamento:
+                 * 0 = Pagamento eseguito
+                 * 1 = Pagamento non eseguito
+                 * 2 = Pagamento parzialmente eseguito
+                 * 3 = Decorrenza termini
+                 * 4 = Decorrenza termini parziale
+              enum:
+                - 0
+                - 1
+                - 2
+                - 3
+                - 4
+            importoTotalePagato:
+              type: number
+            identificativoUnivocoVersamento:
+              type: string
+            codiceContestoPagamento:
+              type: string
+            datiSingoloPagamento:
+              type: array
+              maxItems: 5
+              items:
+                $ref: '#/components/schemas/RTDatiSingoloPagamento'
+
+    # --- ctReceipt / ctReceiptV2 (formati recenti del Nodo dei Pagamenti) ---
+
+    RTMetadata:
+      type: array
+      description: Metadata pagoPA associati (Dizionario dei metadata).
+      items:
+        type: object
+        required:
+          - chiave
+          - valore
+        properties:
+          chiave:
+            type: string
+          valore:
+            type: string
+
+    RTSubject:
+      type: object
+      required:
+        - uniqueIdentifier
+        - fullName
+      properties:
+        uniqueIdentifier:
+          type: object
+          required:
+            - entityUniqueIdentifierType
+            - entityUniqueIdentifierValue
+          properties:
+            entityUniqueIdentifierType:
+              $ref: '#/components/schemas/TipoSoggetto'
+            entityUniqueIdentifierValue:
+              type: string
+        fullName:
+          type: string
+        streetName:
+          type: string
+        civicNumber:
+          type: string
+        postalCode:
+          type: string
+        city:
+          type: string
+        stateProvinceRegion:
+          type: string
+        country:
+          type: string
+        email:
+          type: string
+
+    RTTransfer:
+      type: object
+      description: Transfer secondo il formato `ctReceipt`.
+      required:
+        - idTransfer
+        - transferAmount
+        - fiscalCodePA
+        - IBAN
+        - remittanceInformation
+        - transferCategory
+      properties:
+        idTransfer:
+          type: string
+        transferAmount:
+          type: number
+        fiscalCodePA:
+          type: string
+        IBAN:
+          type: string
+        remittanceInformation:
+          type: string
+        transferCategory:
+          type: string
+        metadata:
+          $ref: '#/components/schemas/RTMetadata'
+
+    RTTransferV2:
+      type: object
+      description: Transfer secondo il formato `ctReceiptV2`.
+      required:
+        - idTransfer
+        - transferAmount
+        - fiscalCodePA
+        - remittanceInformation
+        - transferCategory
+      properties:
+        idTransfer:
+          type: string
+        transferAmount:
+          type: number
+        fiscalCodePA:
+          type: string
+        companyName:
+          type: string
+        IBAN:
+          type: string
+          description: Alternativo a `MBDAttachment`. Esattamente uno dei due è presente.
+        MBDAttachment:
+          type: string
+          format: byte
+          description: Alternativo a `IBAN`, codificato in base64. Esattamente uno dei due è presente.
+        remittanceInformation:
+          type: string
+        transferCategory:
+          type: string
+        metadata:
+          $ref: '#/components/schemas/RTMetadata'
+
+    RTReceiptBase:
+      type: object
+      description: Campi comuni a `ctReceipt` e `ctReceiptV2`, esclusi `tipo` e `transferList`.
+      required:
+        - receiptId
+        - noticeNumber
+        - fiscalCode
+        - outcome
+        - creditorReferenceId
+        - paymentAmount
+        - description
+        - companyName
+        - debtor
+        - idPSP
+        - PSPCompanyName
+        - idChannel
+        - channelDescription
+      properties:
+        receiptId:
+          type: string
+        noticeNumber:
+          type: string
+        fiscalCode:
+          type: string
+        outcome:
+          type: string
+          enum:
+            - OK
+            - KO
+        creditorReferenceId:
+          type: string
+        paymentAmount:
+          type: number
+        description:
+          type: string
+        companyName:
+          type: string
+        officeName:
+          type: string
+        debtor:
+          $ref: '#/components/schemas/RTSubject'
+        idPSP:
+          type: string
+        pspFiscalCode:
+          type: string
+        pspPartitaIVA:
+          type: string
+        PSPCompanyName:
+          type: string
+        idChannel:
+          type: string
+        channelDescription:
+          type: string
+        payer:
+          $ref: '#/components/schemas/RTSubject'
+        paymentMethod:
+          type: string
+        fee:
+          type: number
+        paymentDateTime:
+          type: string
+          format: date-time
+        applicationDate:
+          type: string
+          format: date
+        transferDate:
+          type: string
+          format: date
+        metadata:
+          $ref: '#/components/schemas/RTMetadata'
+        standIn:
+          type: boolean
+
+    RicevutaCtReceipt:
+      type: object
+      description: Ricevuta nel formato `ctReceipt` del Nodo dei Pagamenti.
+      allOf:
+        - $ref: '#/components/schemas/RTReceiptBase'
+        - type: object
+          required:
+            - tipo
+            - transferList
+          properties:
+            tipo:
+              type: string
+              enum:
+                - ctReceipt
+              examples:
+                - ctReceipt
+            transferList:
+              type: array
+              maxItems: 5
+              items:
+                $ref: '#/components/schemas/RTTransfer'
+
+    RicevutaCtReceiptV2:
+      type: object
+      description: Ricevuta nel formato `ctReceiptV2` del Nodo dei Pagamenti.
+      allOf:
+        - $ref: '#/components/schemas/RTReceiptBase'
+        - type: object
+          required:
+            - tipo
+            - transferList
+          properties:
+            tipo:
+              type: string
+              enum:
+                - ctReceiptV2
+              examples:
+                - ctReceiptV2
+            transferList:
+              type: array
+              maxItems: 5
+              items:
+                $ref: '#/components/schemas/RTTransferV2'
+            paymentNote:
+              type: string
+            primaryCiIncurredFee:
+              type: number
+            idBundle:
+              type: string
+            idCiBundle:
+              type: string
+
+    # ============================================================
+    # RENDICONTAZIONI
+    # ============================================================
+
+    Rendicontazioni:
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/Lista'
+        - type: object
+          properties:
+            risultati:
+              type: array
+              items:
+                $ref: '#/components/schemas/Rendicontazione'
+
+    Rendicontazione:
+      type: object
+      description: >-
+        Occorrenza di pagamento della pendenza all'interno di un flusso di
+        rendicontazione ricevuto da pagoPA.
+      required:
+        - iuv
+        - iur
+        - importo
+        - esito
+        - data
+        - stato
+        - flusso
+      properties:
+        iuv:
+          type: string
+          description: Identificativo univoco di versamento.
+          examples:
+            - '01000000202012345'
+        iur:
+          type: string
+          description: Identificativo univoco di riscossione.
+          examples:
+            - '1234acdc'
+        indice:
+          type: number
+          description: >-
+            Indice dell'occorrenza del pagamento all'interno della
+            struttura `datiSingoloPagamento` della ricevuta telematica.
+          examples:
+            - 1
+        importo:
+          type: number
+          description: Importo rendicontato.
+          examples:
+            - 10.01
+        esito:
+          type: number
+          description: >-
+            Codice di esito dell'operazione rendicontata:
+             * 0 = Pagamento eseguito
+             * 3 = Pagamento revocato
+             * 9 = Pagamento eseguito in assenza di RPT
+          enum:
+            - 0
+            - 3
+            - 9
+          examples:
+            - 0
+        data:
+          type: string
+          format: date
+          description: Data di esito.
+          examples:
+            - '2018-12-31'
+        stato:
+          $ref: '#/components/schemas/StatoRendicontazione'
+        flusso:
+          $ref: '#/components/schemas/FlussoRendicontazione'
+
+    StatoRendicontazione:
+      description: Stato della rendicontazione.
+      type: string
+      enum:
+        - OK
+        - ANOMALA
+        - ALTRO_INTERMEDIARIO
+      examples:
+        - OK
+
+    FlussoRendicontazione:
+      type: object
+      description: Dati di testata del flusso di rendicontazione.
+      required:
+        - idFlusso
+        - dataFlusso
+        - trn
+        - dataRegolamento
+        - idPsp
+        - numeroPagamenti
+        - importoTotale
+        - stato
+      properties:
+        idFlusso:
+          type: string
+          description: Identificativo del flusso di rendicontazione.
+          examples:
+            - '2017-11-21GovPAYPsp1-10:27:27.903'
+        dataFlusso:
+          type: string
+          format: date-time
+          description: Data di emissione del flusso.
+          examples:
+            - '2020-12-31T10:27:27.903Z'
+        trn:
+          type: string
+          description: >-
+            Identificativo dell'operazione di riversamento assegnato dal
+            PSP debitore.
+          examples:
+            - idriversamento12345
+        dataRegolamento:
+          type: string
+          format: date-time
+          description: Data dell'operazione di riversamento fondi.
+          examples:
+            - '2020-12-31T10:27:27.903Z'
+        idPsp:
+          type: string
+          description: Identificativo dell'istituto mittente.
+          examples:
+            - ABI-12345
+        bicRiversamento:
+          type: string
+          description: Codice BIC della banca che ha generato il riversamento.
+          examples:
+            - BIC-12345
+        numeroPagamenti:
+          type: number
+          description: Numero di pagamenti oggetto della rendicontazione.
+          examples:
+            - 3
+        importoTotale:
+          type: number
+          format: double
+          description: Somma degli importi rendicontati.
+          examples:
+            - 100.01
+        stato:
+          $ref: '#/components/schemas/StatoFlussoRendicontazione'
+
+    StatoFlussoRendicontazione:
+      description: Stato del flusso di rendicontazione.
+      type: string
+      enum:
+        - Acquisito
+        - Anomalo
+        - Rifiutato
+      examples:
+        - Acquisito
+
+    StatoPendenza:
+      examples:
+        - NON_ESEGUITA
+      type: string
+      enum:
+        - ESEGUITA
+        - NON_ESEGUITA
+        - ESEGUITA_PARZIALE
+        - ANNULLATA
+        - SCADUTA
+        - ANOMALA
+        - INCASSATA
+
+    StatoVocePendenza:
+      type: string
+      description: Stato della voce di pagamento
+      enum:
+        - Eseguito
+        - Non eseguito
+        - Anomalo
+
+    Dominio:
+      type: object
+      required:
+        - idDominio
+        - ragioneSociale
+      properties:
+        idDominio:
+          type: string
+          description: Codice fiscale
+          examples:
+            - '01234567890'
+          minLength: 1
+          maxLength: 35
+        ragioneSociale:
+          type: string
+          description: Ragione sociale
+          examples:
+            - Comune Dimostrativo
+          minLength: 1
+          maxLength: 70
+        indirizzo:
+          type: string
+          examples:
+            - Piazza della Vittoria
+          minLength: 1
+          maxLength: 70
+        civico:
+          type: string
+          examples:
+            - 10/A
+          minLength: 1
+          maxLength: 16
+        cap:
+          type: string
+          examples:
+            - '00000'
+          minLength: 1
+          maxLength: 16
+        localita:
+          type: string
+          examples:
+            - Roma
+          minLength: 1
+          maxLength: 35
+        provincia:
+          type: string
+          examples:
+            - Roma
+          minLength: 1
+          maxLength: 35
+        nazione:
+          type: string
+          examples:
+            - IT
+          pattern: "[A-Z]{2,2}"
+        email:
+          type: string
+          description: Posta elettronica ordinaria
+          examples:
+            - peo@creditore.it
+          pattern: "[A-Za-z0-9_]+([\\-\\+\\.'][A-Za-z0-9_]+)*@[A-Za-z0-9_]+([\\-\\.][A-Za-z0-9_]+)*\\.[A-Za-z0-9_]+([\\-\\.][A-Za-z0-9_]+)*"
+        pec:
+          type: string
+          description: Posta elettronica certificata
+          examples:
+            - pec@creditore.it
+          pattern: "[A-Za-z0-9_]+([\\-\\+\\.'][A-Za-z0-9_]+)*@[A-Za-z0-9_]+([\\-\\.][A-Za-z0-9_]+)*\\.[A-Za-z0-9_]+([\\-\\.][A-Za-z0-9_]+)*"
+        tel:
+          type: string
+          description: Numero di telefono dell'help desk di primo livello
+          examples:
+            - '021234567890'
+        fax:
+          type: string
+          description: Numero di fax dell'help desk di primo livello
+          examples:
+            - '021234567890'
+        web:
+          type: string
+          description: Url del sito web
+          examples:
+            - http://www.comune.it/
+        gln:
+          type: string
+          description: Global Location Number del creditore
+          examples:
+            - '0011223344556'
+        cbill:
+          type: string
+          description: Codice creditore sul circuito CBILL
+          examples:
+            - '12345'
+        logo:
+          type: string
+          description: Logo del creditore, codificato in base64
+          examples:
+            - /9j/4AA...base64...FFFFABRRRQB/9k=
+
+    Domini:
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/Lista'
+        - type: object
+          properties:
+            risultati:
+              type: array
+              items:
+                $ref: '#/components/schemas/Dominio'
+
+    UnitaOperativa:
+      type: object
+      required:
+        - ragioneSociale
+      properties:
+        idUnita:
+          type: string
+          description: Codice fiscale
+          examples:
+            - '01234567890'
+          minLength: 1
+          maxLength: 35
+        ragioneSociale:
+          type: string
+          description: Ragione sociale
+          examples:
+            - Ufficio due
+          minLength: 1
+          maxLength: 70
+        indirizzo:
+          type: string
+          examples:
+            - Piazza della Vittoria
+          minLength: 1
+          maxLength: 70
+        civico:
+          type: string
+          examples:
+            - 10/A
+          minLength: 1
+          maxLength: 16
+        cap:
+          type: string
+          examples:
+            - '00000'
+          minLength: 1
+          maxLength: 16
+        localita:
+          type: string
+          examples:
+            - Roma
+          minLength: 1
+          maxLength: 35
+        provincia:
+          type: string
+          examples:
+            - Roma
+          minLength: 1
+          maxLength: 35
+        nazione:
+          type: string
+          examples:
+            - IT
+          pattern: "[A-Z]{2,2}"
+        email:
+          type: string
+          description: Posta elettronica ordinaria
+          examples:
+            - peo@creditore.it
+          pattern: "[A-Za-z0-9_]+([\\-\\+\\.'][A-Za-z0-9_]+)*@[A-Za-z0-9_]+([\\-\\.][A-Za-z0-9_]+)*\\.[A-Za-z0-9_]+([\\-\\.][A-Za-z0-9_]+)*"
+        pec:
+          type: string
+          description: Posta elettronica certificata
+          examples:
+            - peo@creditore.it
+          pattern: "[A-Za-z0-9_]+([\\-\\+\\.'][A-Za-z0-9_]+)*@[A-Za-z0-9_]+([\\-\\.][A-Za-z0-9_]+)*\\.[A-Za-z0-9_]+([\\-\\.][A-Za-z0-9_]+)*"
+        tel:
+          type: string
+          description: Numero di telefono dell'help desk di primo livello
+          examples:
+            - '021234567890'
+        fax:
+          type: string
+          description: Numero di fax dell'help desk di primo livello
+          examples:
+            - '021234567890'
+        web:
+          type: string
+          description: Url del sito web
+          examples:
+            - http://www.comune.it/
+        area:
+          type: string
+          description: Nome dell'area di competenza
+          examples:
+            - Affari generali e istituzionali
+
+    UnitaOperative:
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/Lista'
+        - type: object
+          properties:
+            risultati:
+              type: array
+              items:
+                $ref: '#/components/schemas/UnitaOperativa'
+
+    TipoPendenza:
+      type: object
+      required:
+        - idTipoPendenza
+        - descrizione
+        - notificaAppIO
+      properties:
+        idTipoPendenza:
+          type: string
+          examples:
+            - REFNIDO
+        descrizione:
+          type: string
+          examples:
+            - Refezione scolastica Asilo Nido
+        notificaAppIO:
+          type: boolean
+          description: >-
+            Indica se per questa tipologia di pendenza è configurato l'invio
+            di notifiche tramite AppIO.
+          examples:
+            - true
+
+    TipiPendenza:
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/Lista'
+        - type: object
+          properties:
+            risultati:
+              type: array
+              items:
+                $ref: '#/components/schemas/TipoPendenza'
+
+    IbanAccredito:
+      type: object
+      required:
+        - iban
+        - abilitato
+      properties:
+        iban:
+          type: string
+          examples:
+            - IT60X0542811101000000123456
+          pattern: "[a-zA-Z]{2,2}[0-9]{2,2}[a-zA-Z0-9]{1,30}"
+        bic:
+          type: string
+          examples:
+            - DABAIE2D
+        abilitato:
+          type: boolean
+          description: Indica se l'IBAN è abilitato a operare sulla piattaforma.
+          examples:
+            - true
+        postale:
+          type: boolean
+          description: Indica se è un conto corrente postale.
+          examples:
+            - false
+
+    IbanAccrediti:
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/Lista'
+        - type: object
+          properties:
+            risultati:
+              type: array
+              items:
+                $ref: '#/components/schemas/IbanAccredito'
+
+    TipoEntrata:
+      type: object
+      description: >-
+        Tipo di entrata configurato per il dominio, referenziato per
+        identificativo (`codEntrata`) dalle voci di pendenza che vi fanno
+        riferimento.
+      required:
+        - codEntrata
+        - ibanAccredito
+        - tassonomia
+      properties:
+        codEntrata:
+          type: string
+          examples:
+            - SRV-12345
+        descrizione:
+          type: string
+          examples:
+            - Imposta municipale unica
+        ibanAccredito:
+          type: string
+          examples:
+            - IT60X0542811101000000123456
+          pattern: "[a-zA-Z]{2,2}[0-9]{2,2}[a-zA-Z0-9]{1,30}"
+        ibanAppoggio:
+          type: string
+          examples:
+            - IT60X0542811101000000123456
+          pattern: "[a-zA-Z]{2,2}[0-9]{2,2}[a-zA-Z0-9]{1,30}"
+        tassonomia:
+          $ref: '#/components/schemas/tassonomia'
+
+    TipiEntrata:
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/Lista'
+        - type: object
+          properties:
+            risultati:
+              type: array
+              items:
+                $ref: '#/components/schemas/TipoEntrata'
+
+    LinguaSecondaria:
+      examples:
+        - 'false'
+      type: string
+      enum:
+        - 'false'
+        - 'de'
+        - 'en'
+        - 'fr'
+        - 'sl'
+
+    Lista:
+      type: object
+      description: >-
+        Metadati di paginazione, coerenti con i parametri di query
+        standardizzati `limit`/`offset` (Linee guida di interoperabilità
+        AGID, RAC_REST_NAME_005).
+      required:
+        - numRisultati
+        - limit
+        - offset
+      properties:
+        numRisultati:
+          type: number
+          format: integer
+          description: Numero totale di risultati che rispettano i filtri di ricerca.
+          examples:
+            - '100'
+        limit:
+          type: number
+          format: integer
+          description: Numero massimo di risultati per pagina usato per produrre questa risposta.
+          examples:
+            - '25'
+        offset:
+          type: number
+          format: integer
+          description: Numero di risultati saltati rispetto all'inizio dell'elenco per produrre questa risposta.
+          examples:
+            - '0'
+        prossimiRisultati:
+          type: string
+          description: >-
+            URI relativo alla pagina di risultati successiva, secondo la
+            raccomandazione AGID di non usare l'header HTTP Link per i link
+            applicativi (RAC_REST_NAME_006). Assente se non esistono altri
+            risultati.
+          examples:
+            - '/risorsa?offset=25&limit=25'
+    Offset:
+      type: integer
+      minimum: 0
+      default: 0
+
+    Limit:
+      type: integer
+      default: 25
+      maximum: 200
+
+    PatchOp:
+      type: object
+      description: >-
+        Singola operazione JSON Patch (RFC 6902). Sottoinsieme supportato:
+        add/remove/replace (non supportati move/copy/test).
+      required:
+        - op
+        - path
+      properties:
+        op:
+          type: string
+          enum:
+            - add
+            - remove
+            - replace
+          description: Operazione da eseguire.
+          examples:
+            - replace
+        path:
+          type: string
+          description: JSON Pointer (RFC 6901) del campo su cui operare.
+          examples:
+            - "/stato"
+        value:
+          description: >-
+            Nuovo valore. Obbligatorio per `add`/`replace`, assente per
+            `remove`. Può essere di qualsiasi tipo JSON (stringa, numero,
+            booleano, oggetto, array), non solo oggetto.
+          examples:
+            - "ANNULLATA"
+    # ============================================================
+    # ERRORI
+    # ============================================================
+
+    Problem:
+      type: object
+      description: >-
+        Descrizione di un errore in formato "Problem Details for HTTP APIs"
+        (RFC 7807), come previsto dalle Linee guida di interoperabilità
+        AGID. Restituito con Content-Type `application/problem+json`.
+      required:
+        - status
+      properties:
+        type:
+          type: string
+          format: uri
+          description: >-
+            URI che identifica il tipo di errore GovPay, puntando alla
+            pagina del manuale che lo documenta: l'ultimo segmento del path
+            è il codice errore, da cui è univocamente ricavabile anche la
+            relativa categoria (consultando la stessa pagina). Se assente,
+            equivale a "about:blank", cioè il problema non ha semantica
+            oltre quella del codice di stato HTTP.
+          examples:
+            - 'https://govpay.readthedocs.io/it/latest/manuale/errori/PPT_CANALE_IRRAGGIUNGIBILE'
+        title:
+          type: string
+          description: >-
+            Riassunto sintetico e leggibile del tipo di problema, invariato
+            tra le diverse occorrenze dello stesso `type`.
+          examples:
+            - Richiesta non valida
+        status:
+          type: integer
+          description: Codice di stato HTTP di questa occorrenza del problema.
+          examples:
+            - 400
+        detail:
+          type: string
+          description: >-
+            Spiegazione specifica di questa occorrenza del problema, utile
+            al debug (non è detto sia adatta a essere mostrata all'utente
+            finale).
+          examples:
+            - "Il campo 'importo' non può essere negativo"
+        instance:
+          type: string
+          format: uri
+          description: Identificatore URI di questa specifica occorrenza del problema.
+
