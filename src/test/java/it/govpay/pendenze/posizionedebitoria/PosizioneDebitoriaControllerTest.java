@@ -2,8 +2,10 @@ package it.govpay.pendenze.posizionedebitoria;
 
 import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.startsWith;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -394,5 +396,54 @@ class PosizioneDebitoriaControllerTest {
                         .content(body.formatted("pendenza-b", "voce-b")))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.status").value(409));
+    }
+
+    @Test
+    @DisplayName("GET restituisce la posizione appena creata, stesso contenuto della risposta del POST "
+            + "(promessa esplicita dello YAML: \"risposta 201 = stesso payload di una GET\")")
+    void getPosizioneDebitoriaTrovaLaPosizioneAppenaCreata() throws Exception {
+        String body = """
+                {
+                  "idPosizioneDebitoria": "pos-get-1",
+                  "idDominio": "12345678901",
+                  "descrizione": "test GET",
+                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y", "anagrafica": "Paola Ferrari" } ],
+                  "opzioniPagamento": [ {
+                    "tipologia": "SOLUZIONE_UNICA",
+                    "pendenze": [ {
+                      "idPendenza": "pendenza-get-1",
+                      "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                      "importo": 16.00,
+                      "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-get-1", "importo": 16.00,
+                                  "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
+                    } ]
+                  } ]
+                }
+                """;
+
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}", "A2A-TEST")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isCreated())
+                .andExpect(header().exists("Location"));
+
+        mockMvc.perform(get("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", "pos-get-1"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.idA2A").value("A2A-TEST"))
+                .andExpect(jsonPath("$.idPosizioneDebitoria").value("pos-get-1"))
+                .andExpect(jsonPath("$.descrizione").value("test GET"))
+                .andExpect(jsonPath("$.soggettiDebitori.length()").value(1))
+                .andExpect(jsonPath("$.soggettiDebitori[0].identificativo").value("FRRPLA90C41H501Y"))
+                .andExpect(jsonPath("$.opzioniPagamento[0].pendenze[0].idPendenza").value("pendenza-get-1"));
+    }
+
+    @Test
+    @DisplayName("GET restituisce 404 se la posizione non esiste")
+    void getPosizioneDebitoriaRestituisce404SeNonEsiste() throws Exception {
+        mockMvc.perform(get("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", "pos-inesistente"))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(404));
     }
 }
