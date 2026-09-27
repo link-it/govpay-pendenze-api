@@ -394,6 +394,29 @@ public class PosizioneDebitoriaMapper {
     }
 
     /**
+     * Costruisce un elemento di {@code GET /posizioni-debitorie/{idA2A}} (ricerca per
+     * debitore): {@code PosizioneDebitoriaIndex}, senza {@code opzioniPagamento} — coerente
+     * con lo YAML, che riserva l'elenco completo delle opzioni al solo dettaglio puntuale.
+     */
+    public it.govpay.pendenze.api.model.PosizioneDebitoriaIndex toIndexDto(
+            it.govpay.pendenze.entity.PosizioneDebitoria entity) {
+        it.govpay.pendenze.api.model.PosizioneDebitoriaIndex dto =
+                new it.govpay.pendenze.api.model.PosizioneDebitoriaIndex();
+        dto.setIdA2A(risolviCodApplicazione(entity.getIdApplicazione()));
+        dto.setIdPosizioneDebitoria(entity.getIdPosizioneDebitoria());
+        dto.setIdDominio(risolviCodDominio(entity.getIdDominio()));
+        dto.setIdUnitaOperativa(risolviCodUnitaOperativa(entity.getIdUnitaOperativa()));
+        dto.setDescrizione(entity.getDescrizione());
+        for (SoggettoDebitore soggetto : entity.getSoggettiDebitori()) {
+            dto.addSoggettiDebitoriItem(toSoggettoDto(soggetto));
+        }
+        dto.setDataPubblicazione(entity.getDataPubblicazione());
+        dto.setNotificaSend(entity.isNotificaSend());
+        dto.setNavNotifica(entity.getNavNotifica());
+        return dto;
+    }
+
+    /**
      * Bug del lead, 2026-09-27: {@code toDto} non copiava affatto {@code soggettiDebitori} —
      * una posizione con un solo debitore tornava con {@code "soggettiDebitori":[]},
      * contrario al {@code minItems: 1} dello YAML.

@@ -446,4 +446,108 @@ class PosizioneDebitoriaControllerTest {
                 .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
                 .andExpect(jsonPath("$.status").value(404));
     }
+
+    private void creaPosizioneMinimaConDebitore(String idPosizioneDebitoria, String idDebitore) throws Exception {
+        String body = """
+                {
+                  "idPosizioneDebitoria": "%s",
+                  "idDominio": "12345678901",
+                  "descrizione": "test ricerca",
+                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "%s" } ],
+                  "opzioniPagamento": [ {
+                    "tipologia": "SOLUZIONE_UNICA",
+                    "pendenze": [ {
+                      "idPendenza": "pendenza-%s",
+                      "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                      "importo": 16.00,
+                      "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-%s", "importo": 16.00,
+                                  "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
+                    } ]
+                  } ]
+                }
+                """.formatted(idPosizioneDebitoria, idDebitore, idPosizioneDebitoria, idPosizioneDebitoria);
+
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}", "A2A-TEST")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isCreated());
+    }
+
+    @Test
+    @DisplayName("GET /posizioni-debitorie/{idA2A} trova le posizioni del debitore indicato, non altre")
+    void findPosizioniDebitorieTrovaLePosizioniDelDebitore() throws Exception {
+        creaPosizioneMinimaConDebitore("pos-find-1", "FRRPLA90C41H501Y");
+        creaPosizioneMinimaConDebitore("pos-find-2", "FRRPLA90C41H501Y");
+        creaPosizioneMinimaConDebitore("pos-find-altro-debitore", "VRDGNN80A01H501W");
+
+        mockMvc.perform(get("/posizioni-debitorie/{idA2A}", "A2A-TEST")
+                        .param("idDebitore", "FRRPLA90C41H501Y"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.numRisultati").value(2))
+                .andExpect(jsonPath("$.offset").value(0))
+                .andExpect(jsonPath("$.limit").value(25))
+                .andExpect(jsonPath("$.prossimiRisultati").doesNotExist())
+                .andExpect(jsonPath("$.risultati.length()").value(2))
+                .andExpect(jsonPath("$.risultati[*].idPosizioneDebitoria",
+                        org.hamcrest.Matchers.containsInAnyOrder("pos-find-1", "pos-find-2")));
+    }
+
+    @Test
+    @DisplayName("GET /posizioni-debitorie/{idA2A} popola prossimiRisultati quando ce ne sono altri, "
+            + "con lo stesso idDebitore/limit e l'offset avanzato")
+    void findPosizioniDebitoriePopolaProssimiRisultati() throws Exception {
+        creaPosizioneMinimaConDebitore("pos-pagina-1", "FRRPLA90C41H501Y");
+        creaPosizioneMinimaConDebitore("pos-pagina-2", "FRRPLA90C41H501Y");
+        creaPosizioneMinimaConDebitore("pos-pagina-3", "FRRPLA90C41H501Y");
+
+        mockMvc.perform(get("/posizioni-debitorie/{idA2A}", "A2A-TEST")
+                        .param("idDebitore", "FRRPLA90C41H501Y")
+                        .param("limit", "2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.numRisultati").value(3))
+                .andExpect(jsonPath("$.risultati.length()").value(2))
+                .andExpect(jsonPath("$.prossimiRisultati")
+                        .value("/posizioni-debitorie/A2A-TEST?idDebitore=FRRPLA90C41H501Y&offset=2&limit=2"));
+    }
+
+    @Test
+    @DisplayName("GET /posizioni-debitorie/{idA2A} restituisce 400 (non 500) se manca idDebitore, obbligatorio")
+    void findPosizioniDebitorieRestituisce400SeMancaIdDebitoreObbligatorio() throws Exception {
+        mockMvc.perform(get("/posizioni-debitorie/{idA2A}", "A2A-TEST"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    @DisplayName("GET /posizioni-debitorie/{idA2A} restituisce 400 (non 500) se offset non e' un numero")
+    void findPosizioniDebitorieRestituisce400SeOffsetNonENumerico() throws Exception {
+        mockMvc.perform(get("/posizioni-debitorie/{idA2A}", "A2A-TEST")
+                        .param("idDebitore", "FRRPLA90C41H501Y")
+                        .param("offset", "abc"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    @DisplayName("GET /posizioni-debitorie/{idA2A} applica fields: restituisce solo i campi richiesti, "
+            + "e li mantiene in prossimiRisultati")
+    void findPosizioniDebitorieApplicaFields() throws Exception {
+        creaPosizioneMinimaConDebitore("pos-fields-1", "FRRPLA90C41H501Y");
+        creaPosizioneMinimaConDebitore("pos-fields-2", "FRRPLA90C41H501Y");
+
+        mockMvc.perform(get("/posizioni-debitorie/{idA2A}", "A2A-TEST")
+                        .param("idDebitore", "FRRPLA90C41H501Y")
+                        .param("limit", "1")
+                        .param("fields", "idPosizioneDebitoria"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.risultati[0].idPosizioneDebitoria").exists())
+                .andExpect(jsonPath("$.risultati[0].descrizione").doesNotExist())
+                .andExpect(jsonPath("$.risultati[0].soggettiDebitori").doesNotExist())
+                .andExpect(jsonPath("$.risultati[0].idA2A").doesNotExist())
+                .andExpect(jsonPath("$.prossimiRisultati")
+                        .value("/posizioni-debitorie/A2A-TEST?idDebitore=FRRPLA90C41H501Y&offset=1&limit=1"
+                                + "&fields=idPosizioneDebitoria"));
+    }
 }

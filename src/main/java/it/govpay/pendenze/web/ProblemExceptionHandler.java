@@ -10,8 +10,10 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import it.govpay.pendenze.api.model.Problem;
 import it.govpay.pendenze.exception.RisorsaGiaEsistenteException;
@@ -56,6 +58,27 @@ public class ProblemExceptionHandler {
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<Problem> handleNotReadable(HttpMessageNotReadableException ex, HttpServletRequest request) {
         return build(HttpStatus.BAD_REQUEST, "Body della richiesta non leggibile.", request, ex);
+    }
+
+    /**
+     * Bug del lead, 2026-09-27: un parametro di query obbligatorio mancante (es. {@code idDebitore})
+     * o non convertibile al tipo atteso (es. {@code offset=abc}) finivano nel gestore generico
+     * (500) — sono invece errori della richiesta, non del servizio.
+     */
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ResponseEntity<Problem> handleMissingParameter(MissingServletRequestParameterException ex,
+            HttpServletRequest request) {
+        return build(HttpStatus.BAD_REQUEST,
+                "Parametro obbligatorio mancante: '" + ex.getParameterName() + "'.", request, ex);
+    }
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<Problem> handleTypeMismatch(MethodArgumentTypeMismatchException ex,
+            HttpServletRequest request) {
+        return build(HttpStatus.BAD_REQUEST,
+                "Valore non valido per il parametro '" + ex.getName() + "': "
+                        + (ex.getValue() != null ? ex.getValue() : "<assente>") + ".",
+                request, ex);
     }
 
     @ExceptionHandler(ValidazioneNonSuperataException.class)
