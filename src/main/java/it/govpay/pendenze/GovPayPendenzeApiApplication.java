@@ -25,8 +25,14 @@ import tools.jackson.databind.type.LogicalType;
 import it.govpay.common.entity.ApplicazioneEntity;
 import it.govpay.common.entity.ConnettoreEntity;
 import it.govpay.common.entity.DominioEntity;
+import it.govpay.common.entity.IbanAccreditoEntity;
 import it.govpay.common.entity.IntermediarioEntity;
 import it.govpay.common.entity.StazioneEntity;
+import it.govpay.common.entity.TipoTributoEntity;
+import it.govpay.common.entity.TipoVersamentoDominioEntity;
+import it.govpay.common.entity.TipoVersamentoEntity;
+import it.govpay.common.entity.TributoEntity;
+import it.govpay.common.entity.UnitaOperativaEntity;
 import it.govpay.common.repository.ApplicazioneRepository;
 import it.govpay.common.repository.ConfigurazioneRepository;
 import it.govpay.common.repository.ConnettoreEntityRepository;
@@ -83,6 +89,17 @@ public class GovPayPendenzeApiApplication extends SpringBootServletInitializer {
      * <li>{@link ConnettoreEntity}: {@code ApplicazioneRepository.findConnettoreIntegrazione}
      * la referenzia nella propria query JPQL — Spring Data valida la query di OGNI metodo
      * del repository alla creazione del bean, non solo di quelli effettivamente chiamati.</li>
+     * <li>{@link TipoVersamentoEntity}/{@link TipoVersamentoDominioEntity}/
+     * {@link UnitaOperativaEntity}: usate direttamente da {@code PosizioneDebitoriaMapper}
+     * per risolvere {@code idTipoPendenza}/{@code idUnitaOperativa} (decisione del lead,
+     * 2026-09-28, dopo govpay-common#9: questa libreria mappava prima le stesse tabelle con
+     * proprie entita' "slim", rimosse in favore di quelle a piena fedelta' di
+     * govpay-common).</li>
+     * <li>{@link TipoTributoEntity}/{@link TributoEntity}/{@link IbanAccreditoEntity}: usate
+     * da {@code PosizioneDebitoriaMapper} per risolvere {@code VocePendenza.idTributo}/
+     * {@code idIbanAccredito}/{@code idIbanAppoggio} (decisione del lead, 2026-09-28:
+     * {@code codEntrata}/gli IBAN della richiesta sono codici di anagrafica censita, non
+     * stringhe libere — vedi Javadoc di classe di {@code VocePendenza}).</li>
      * </ul>
      */
     @Bean
@@ -96,6 +113,12 @@ public class GovPayPendenzeApiApplication extends SpringBootServletInitializer {
         nomiClassi.add(StazioneEntity.class.getName());
         nomiClassi.add(IntermediarioEntity.class.getName());
         nomiClassi.add(ConnettoreEntity.class.getName());
+        nomiClassi.add(TipoVersamentoEntity.class.getName());
+        nomiClassi.add(TipoVersamentoDominioEntity.class.getName());
+        nomiClassi.add(UnitaOperativaEntity.class.getName());
+        nomiClassi.add(TipoTributoEntity.class.getName());
+        nomiClassi.add(TributoEntity.class.getName());
+        nomiClassi.add(IbanAccreditoEntity.class.getName());
 
         return PersistenceManagedTypes.of(nomiClassi, List.of("it.govpay.pendenze.entity"));
     }

@@ -64,10 +64,12 @@ paths:
             type: string
             pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
         - $ref: '#/components/parameters/idDebitore'
-        - $ref: '#/components/parameters/offset'
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/cursor'
         - $ref: '#/components/parameters/limit'
         - $ref: '#/components/parameters/sort'
         - $ref: '#/components/parameters/fields'
+        - $ref: '#/components/parameters/total'
       responses:
         '200':
           description: Elenco delle posizioni debitorie che rispettano i filtri di ricerca
@@ -502,12 +504,12 @@ paths:
             pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
         - $ref: '#/components/parameters/numeroAvviso'
         - $ref: '#/components/parameters/idDominio'
-        - $ref: '#/components/parameters/offset'
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/cursor'
         - $ref: '#/components/parameters/limit'
         - $ref: '#/components/parameters/sort'
         - $ref: '#/components/parameters/fields'
-        - $ref: '#/components/parameters/metadatiPaginazione'
-        - $ref: '#/components/parameters/maxRisultati'
+        - $ref: '#/components/parameters/total'
       responses:
         '200':
           description: Elenco delle pendenze che rispettano i filtri di ricerca
@@ -682,10 +684,12 @@ paths:
           schema:
             type: string
             pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
-        - $ref: '#/components/parameters/offset'
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/cursor'
         - $ref: '#/components/parameters/limit'
         - $ref: '#/components/parameters/sort'
         - $ref: '#/components/parameters/fields'
+        - $ref: '#/components/parameters/total'
       responses:
         '200':
           description: Elenco delle ricevute di pagamento della pendenza
@@ -815,10 +819,12 @@ paths:
           schema:
             type: string
             pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
-        - $ref: '#/components/parameters/offset'
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/cursor'
         - $ref: '#/components/parameters/limit'
         - $ref: '#/components/parameters/sort'
         - $ref: '#/components/parameters/fields'
+        - $ref: '#/components/parameters/total'
       responses:
         '200':
           description: Elenco delle rendicontazioni della pendenza
@@ -859,10 +865,12 @@ paths:
           required: false
           schema:
             type: string
-        - $ref: '#/components/parameters/offset'
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/cursor'
         - $ref: '#/components/parameters/limit'
         - $ref: '#/components/parameters/sort'
         - $ref: '#/components/parameters/fields'
+        - $ref: '#/components/parameters/total'
       responses:
         '200':
           description: Elenco dei domini che rispettano i filtri di ricerca
@@ -937,10 +945,12 @@ paths:
           required: false
           schema:
             type: string
-        - $ref: '#/components/parameters/offset'
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/cursor'
         - $ref: '#/components/parameters/limit'
         - $ref: '#/components/parameters/sort'
         - $ref: '#/components/parameters/fields'
+        - $ref: '#/components/parameters/total'
       responses:
         '200':
           description: Elenco delle unità operative che rispettano i filtri di ricerca
@@ -1024,10 +1034,12 @@ paths:
           required: false
           schema:
             type: string
-        - $ref: '#/components/parameters/offset'
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/cursor'
         - $ref: '#/components/parameters/limit'
         - $ref: '#/components/parameters/sort'
         - $ref: '#/components/parameters/fields'
+        - $ref: '#/components/parameters/total'
       responses:
         '200':
           description: Elenco delle tipologie di pendenza che rispettano i filtri di ricerca
@@ -1105,10 +1117,12 @@ paths:
           required: false
           schema:
             type: string
-        - $ref: '#/components/parameters/offset'
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/cursor'
         - $ref: '#/components/parameters/limit'
         - $ref: '#/components/parameters/sort'
         - $ref: '#/components/parameters/fields'
+        - $ref: '#/components/parameters/total'
       responses:
         '200':
           description: Elenco degli IBAN di accredito che rispettano i filtri di ricerca
@@ -1192,10 +1206,12 @@ paths:
           required: false
           schema:
             type: string
-        - $ref: '#/components/parameters/offset'
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/cursor'
         - $ref: '#/components/parameters/limit'
         - $ref: '#/components/parameters/sort'
         - $ref: '#/components/parameters/fields'
+        - $ref: '#/components/parameters/total'
       responses:
         '200':
           description: Elenco dei tipi di entrata che rispettano i filtri di ricerca
@@ -1304,48 +1320,67 @@ components:
       required: false
       schema:
         type: string
-    maxRisultati:
-      name: maxRisultati
+    page:
+      name: page
       in: query
       description: >-
-        Indica se il servizio deve impostare o meno il limite sul calcolo del numero di risultati
+        Numero di pagina (1-based), in modalità di paginazione a offset.
+        Alternativo a `cursor`: non è consentito specificare entrambi
+        nella stessa richiesta. Se nessuno dei due è specificato, si
+        applica la modalità a offset con `page=1`.
       required: false
       schema:
-        type: boolean
-        default: true
-      example: true
-    metadatiPaginazione:
-      name: metadatiPaginazione
+        type: integer
+        minimum: 1
+        default: 1
+      example: 1
+    cursor:
+      name: cursor
       in: query
       description: >-
-        Indica se il servizio calcola e valorizza i dati di paginazione o meno
-      required: false
-      schema:
-        type: boolean
-        default: true
-      example: true
-    limit:
-      name: limit
-      in: query
-      description: Numero massimo di risultati da restituire (max 200).
-      required: false
-      schema:
-        $ref: '#/components/schemas/Limit'
-    offset:
-      name: offset
-      in: query
-      description: Numero di risultati da saltare rispetto all'inizio dell'elenco.
-      required: false
-      schema:
-        $ref: '#/components/schemas/Offset'
-    sort:
-      name: sort
-      in: query
-      description: Criterio di ordinamento dei risultati.
+        Cursore opaco (il valore `nextCursor` della risposta precedente)
+        da cui continuare l'elenco, in modalità di paginazione a cursore.
+        Alternativo a `page`: non è consentito specificare entrambi
+        nella stessa richiesta. In questa modalità l'ordinamento dei
+        risultati è quello fisso previsto per la risorsa, e non è
+        influenzato da `sort`.
       required: false
       schema:
         type: string
-      example: +name
+    total:
+      name: total
+      in: query
+      description: >-
+        Se `true`, calcola e restituisce in `pagination.totalResults` e
+        `pagination.totalPages` il conteggio complessivo dei risultati
+        che rispettano i filtri di ricerca (richiede una query aggiuntiva
+        di conteggio). Ignorato in modalità cursore.
+      required: false
+      schema:
+        type: boolean
+        default: false
+      example: false
+    limit:
+      name: limit
+      in: query
+      description: Numero massimo di risultati per pagina (max 200).
+      required: false
+      schema:
+        $ref: '#/components/schemas/Limit'
+    sort:
+      name: sort
+      in: query
+      description: >-
+        Criterio di ordinamento dei risultati: uno o più campi nella
+        forma `campo:asc` o `campo:desc`, separati da virgola (priorità
+        nell'ordine specificato). Ignorato in modalità cursore, dove
+        l'ordinamento è quello fisso previsto per la risorsa. Se assente
+        (in modalità a offset), si applica l'ordinamento predefinito
+        della risorsa.
+      required: false
+      schema:
+        type: string
+      example: 'dataCreazione:desc'
     linguaSecondaria:
       name: linguaSecondaria
       in: query
@@ -2440,10 +2475,10 @@ components:
     Pendenze:
       type: object
       allOf:
-        - $ref: '#/components/schemas/Lista'
+        - $ref: '#/components/schemas/PaginatedResponse'
         - type: object
           properties:
-            risultati:
+            results:
               type: array
               items:
                 $ref: '#/components/schemas/PendenzaIndex'
@@ -2451,10 +2486,10 @@ components:
     PosizioniDebitorie:
       type: object
       allOf:
-        - $ref: '#/components/schemas/Lista'
+        - $ref: '#/components/schemas/PaginatedResponse'
         - type: object
           properties:
-            risultati:
+            results:
               type: array
               items:
                 $ref: '#/components/schemas/PosizioneDebitoriaIndex'
@@ -2705,10 +2740,14 @@ components:
         Prefisso/CodiceEC/MacroArea/Tipologia/MotivoGiuridico descritta in
         https://developer.pagopa.it/pago-pa/guides/sanp/ente-creditore/tassonomia-dei-servizi-di-incasso.
         Viene riportata così com'è nel campo `transferCategory` dell'RPT
-        verso il Nodo dei Pagamenti.
+        verso il Nodo dei Pagamenti. Alcuni clienti usano un ulteriore `/`
+        seguito da testo libero, in coda alla sintassi standard, per
+        annotarvi informazioni proprie: ammesso, ma non interpretato da
+        GovPay.
       examples:
         - '9/0101002IM/'
-      pattern: '^[6789]/[0-9]{7}(IM|TS|SP|SA|AP)/$'
+        - '9/0101002IM//rif.pratica123'
+      pattern: '^[6789]/[0-9]{7}(IM|TS|SP|SA|AP)/(/.*)?$'
 
     # ============================================================
     # DETTAGLIO CONTABILE (issue #877)
@@ -3013,10 +3052,10 @@ components:
     Ricevute:
       type: object
       allOf:
-        - $ref: '#/components/schemas/Lista'
+        - $ref: '#/components/schemas/PaginatedResponse'
         - type: object
           properties:
-            risultati:
+            results:
               type: array
               items:
                 $ref: '#/components/schemas/RicevutaIndex'
@@ -3491,10 +3530,10 @@ components:
     Rendicontazioni:
       type: object
       allOf:
-        - $ref: '#/components/schemas/Lista'
+        - $ref: '#/components/schemas/PaginatedResponse'
         - type: object
           properties:
-            risultati:
+            results:
               type: array
               items:
                 $ref: '#/components/schemas/Rendicontazione'
@@ -3777,10 +3816,10 @@ components:
     Domini:
       type: object
       allOf:
-        - $ref: '#/components/schemas/Lista'
+        - $ref: '#/components/schemas/PaginatedResponse'
         - type: object
           properties:
-            risultati:
+            results:
               type: array
               items:
                 $ref: '#/components/schemas/Dominio'
@@ -3875,10 +3914,10 @@ components:
     UnitaOperative:
       type: object
       allOf:
-        - $ref: '#/components/schemas/Lista'
+        - $ref: '#/components/schemas/PaginatedResponse'
         - type: object
           properties:
-            risultati:
+            results:
               type: array
               items:
                 $ref: '#/components/schemas/UnitaOperativa'
@@ -3909,10 +3948,10 @@ components:
     TipiPendenza:
       type: object
       allOf:
-        - $ref: '#/components/schemas/Lista'
+        - $ref: '#/components/schemas/PaginatedResponse'
         - type: object
           properties:
-            risultati:
+            results:
               type: array
               items:
                 $ref: '#/components/schemas/TipoPendenza'
@@ -3946,10 +3985,10 @@ components:
     IbanAccrediti:
       type: object
       allOf:
-        - $ref: '#/components/schemas/Lista'
+        - $ref: '#/components/schemas/PaginatedResponse'
         - type: object
           properties:
-            risultati:
+            results:
               type: array
               items:
                 $ref: '#/components/schemas/IbanAccredito'
@@ -3989,10 +4028,10 @@ components:
     TipiEntrata:
       type: object
       allOf:
-        - $ref: '#/components/schemas/Lista'
+        - $ref: '#/components/schemas/PaginatedResponse'
         - type: object
           properties:
-            risultati:
+            results:
               type: array
               items:
                 $ref: '#/components/schemas/TipoEntrata'
@@ -4008,48 +4047,71 @@ components:
         - 'fr'
         - 'sl'
 
-    Lista:
+    Pagination:
       type: object
       description: >-
-        Metadati di paginazione, coerenti con i parametri di query
-        standardizzati `limit`/`offset` (Linee guida di interoperabilità
-        AGID, RAC_REST_NAME_005).
+        Metadati di paginazione a offset (richiesta con `page`, o senza
+        alcun parametro di paginazione): assenti in modalità cursore
+        (richiesta con `cursor`), dove l'unico metadato di paginazione è
+        `nextCursor`.
       required:
-        - numRisultati
+        - page
         - limit
-        - offset
+        - hasNextPage
       properties:
-        numRisultati:
-          type: number
-          format: integer
-          description: Numero totale di risultati che rispettano i filtri di ricerca.
+        page:
+          type: integer
+          description: Numero della pagina restituita.
           examples:
-            - '100'
+            - 1
         limit:
-          type: number
-          format: integer
+          type: integer
           description: Numero massimo di risultati per pagina usato per produrre questa risposta.
           examples:
-            - '25'
-        offset:
-          type: number
-          format: integer
-          description: Numero di risultati saltati rispetto all'inizio dell'elenco per produrre questa risposta.
+            - 25
+        hasNextPage:
+          type: boolean
+          description: Indica se esiste una pagina successiva.
           examples:
-            - '0'
-        prossimiRisultati:
+            - true
+        totalResults:
+          type: integer
+          description: >-
+            Numero totale di risultati che rispettano i filtri di
+            ricerca. Presente solo se richiesto con `total=true`.
+          examples:
+            - 100
+        totalPages:
+          type: integer
+          description: >-
+            Numero totale di pagine, calcolato da `totalResults` e
+            `limit`. Presente solo se richiesto con `total=true`.
+          examples:
+            - 4
+
+    PaginatedResponse:
+      type: object
+      description: >-
+        Busta generica di risposta per un elenco paginato, specializzata
+        per singola risorsa tramite `allOf` con l'array `results`
+        tipizzato. Riporta `pagination` in modalità a offset, `nextCursor`
+        in modalità a cursore (vedi parametri `page`/`cursor`): mai
+        entrambi, e nessuno dei due se non esistono altri
+        risultati/pagine.
+      required:
+        - results
+      properties:
+        results:
+          type: array
+          items: {}
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+        nextCursor:
           type: string
           description: >-
-            URI relativo alla pagina di risultati successiva, secondo la
-            raccomandazione AGID di non usare l'header HTTP Link per i link
-            applicativi (RAC_REST_NAME_006). Assente se non esistono altri
-            risultati.
-          examples:
-            - '/risorsa?offset=25&limit=25'
-    Offset:
-      type: integer
-      minimum: 0
-      default: 0
+            Cursore opaco da passare come parametro `cursor` per ottenere
+            la pagina successiva, in modalità cursore. Assente se non
+            esistono altri risultati.
 
     Limit:
       type: integer

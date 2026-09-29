@@ -8,8 +8,18 @@ import org.springframework.stereotype.Component;
 
 import it.govpay.common.entity.ApplicazioneEntity;
 import it.govpay.common.entity.DominioEntity;
+import it.govpay.common.entity.IbanAccreditoEntity;
+import it.govpay.common.entity.TipoTributoEntity;
+import it.govpay.common.entity.TipoVersamentoDominioEntity;
+import it.govpay.common.entity.TributoEntity;
+import it.govpay.common.entity.UnitaOperativaEntity;
 import it.govpay.common.repository.ApplicazioneRepository;
 import it.govpay.common.repository.DominioRepository;
+import it.govpay.common.repository.IbanAccreditoRepository;
+import it.govpay.common.repository.TipoTributoRepository;
+import it.govpay.common.repository.TipoVersamentoDominioRepository;
+import it.govpay.common.repository.TributoRepository;
+import it.govpay.common.repository.UnitaOperativaRepository;
 import it.govpay.pendenze.api.model.Dettaglio;
 import it.govpay.pendenze.api.model.DettaglioContabileCivilistico;
 import it.govpay.pendenze.api.model.DettaglioContabileCorrispettivoDL118;
@@ -42,14 +52,10 @@ import it.govpay.pendenze.api.model.StatoPendenza;
 import it.govpay.pendenze.api.model.TipoSoggetto;
 import it.govpay.pendenze.api.model.TipologiaOpzionePagamento;
 import it.govpay.pendenze.entity.SoggettoDebitore;
-import it.govpay.pendenze.entity.TipoVersamentoDominio;
-import it.govpay.pendenze.entity.UnitaOperativa;
 import it.govpay.pendenze.entity.VocePendenza;
+import it.govpay.pendenze.exception.ValidazioneNonSuperataException;
 import it.govpay.pendenze.model.DettaglioContabile;
 import it.govpay.pendenze.model.StatoVocePendenza;
-import it.govpay.pendenze.model.TipoRiferimentoVocePendenza;
-import it.govpay.pendenze.repository.TipoVersamentoDominioRepository;
-import it.govpay.pendenze.repository.UnitaOperativaRepository;
 import it.govpay.pendenze.web.AnagraficaNonTrovataException;
 
 /**
@@ -78,15 +84,22 @@ public class PosizioneDebitoriaMapper {
     private final DominioRepository dominioRepository;
     private final UnitaOperativaRepository unitaOperativaRepository;
     private final TipoVersamentoDominioRepository tipoVersamentoDominioRepository;
+    private final TipoTributoRepository tipoTributoRepository;
+    private final TributoRepository tributoRepository;
+    private final IbanAccreditoRepository ibanAccreditoRepository;
     private final Clock clock;
 
     public PosizioneDebitoriaMapper(ApplicazioneRepository applicazioneRepository,
             DominioRepository dominioRepository, UnitaOperativaRepository unitaOperativaRepository,
-            TipoVersamentoDominioRepository tipoVersamentoDominioRepository, Clock clock) {
+            TipoVersamentoDominioRepository tipoVersamentoDominioRepository, TipoTributoRepository tipoTributoRepository,
+            TributoRepository tributoRepository, IbanAccreditoRepository ibanAccreditoRepository, Clock clock) {
         this.applicazioneRepository = applicazioneRepository;
         this.dominioRepository = dominioRepository;
         this.unitaOperativaRepository = unitaOperativaRepository;
         this.tipoVersamentoDominioRepository = tipoVersamentoDominioRepository;
+        this.tipoTributoRepository = tipoTributoRepository;
+        this.tributoRepository = tributoRepository;
+        this.ibanAccreditoRepository = ibanAccreditoRepository;
         this.clock = clock;
     }
 
@@ -125,24 +138,96 @@ public class PosizioneDebitoriaMapper {
     }
 
     /**
+     * Rifiuta un'unita' operativa disabilitata (bug del lead, 2026-09-29: mancava, come per
+     * {@link #risolviIdTributo}/{@link #risolviIdIban} — v2 lo fa in
+     * {@code VersamentoUtils.setUo}, {@code UOP_001}).
+     *
      * @return {@code null} se {@code idUnitaOperativa} e' {@code null} (campo opzionale)
      * @throws AnagraficaNonTrovataException se {@code idUnitaOperativa} e' valorizzato ma
      *                                        non corrisponde a nessuna unita' operativa del
      *                                        dominio indicato
+     * @throws ValidazioneNonSuperataException se l'unita' operativa esiste per il dominio ma
+     *                                          e' disabilitata
      */
     private Long risolviIdUnitaOperativa(Long idDominio, String idUnitaOperativa) {
         if (idUnitaOperativa == null) {
             return null;
         }
-        return unitaOperativaRepository.findByIdDominioAndCodUo(idDominio, idUnitaOperativa)
-                .map(UnitaOperativa::getId)
+        UnitaOperativaEntity unitaOperativa = unitaOperativaRepository
+                .findByCodUoAndDominioId(idUnitaOperativa, idDominio)
                 .orElseThrow(() -> new AnagraficaNonTrovataException("nessuna unita' operativa con idUnitaOperativa ["
                         + idUnitaOperativa + "] per il dominio [id:" + idDominio + "]"));
+        if (Boolean.FALSE.equals(unitaOperativa.getAbilitato())) {
+            throw new ValidazioneNonSuperataException("l'unita' operativa [" + idUnitaOperativa
+                    + "] per il dominio [id:" + idDominio + "] non e' abilitata");
+        }
+        return unitaOperativa.getId();
     }
 
     private String risolviCodUnitaOperativa(Long idUnitaOperativa) {
         return idUnitaOperativa == null ? null
-                : unitaOperativaRepository.findById(idUnitaOperativa).map(UnitaOperativa::getCodUo).orElse(null);
+                : unitaOperativaRepository.findById(idUnitaOperativa).map(UnitaOperativaEntity::getCodUo)
+                        .orElse(null);
+    }
+
+    /**
+     * {@code codEntrata} della richiesta REST condivide il namespace di
+     * {@code tipi_tributo.cod_tributo} (catalogo globale), ma {@code VocePendenza.idTributo}
+     * punta a {@code tributi.id} (l'override/configurazione IBAN e contabilita' per QUESTO
+     * dominio) — stessa risoluzione a due livelli di {@link #risolviTipoVersamentoDominio}
+     * per {@code idTipoPendenza}/{@code idTipoVersamento}.
+     *
+     * <p>Rifiuta un tributo disabilitato per il dominio (bug del lead, 2026-09-29: mancava —
+     * v2 lo fa in {@code VersamentoUtils}, {@code TRB_001}: una POST con un tributo
+     * disabilitato tornava 201 invece di essere rifiutata).</p>
+     *
+     * @throws AnagraficaNonTrovataException se {@code codEntrata} non esiste nel catalogo
+     *                                        globale, o non e' configurato per il dominio
+     *                                        indicato (nessun fallback su un dominio di
+     *                                        default)
+     * @throws ValidazioneNonSuperataException se il tributo esiste per il dominio ma e'
+     *                                          disabilitato
+     */
+    private Long risolviIdTributo(String codEntrata, Long idDominio) {
+        TipoTributoEntity tipoTributo = tipoTributoRepository.findByCodTributo(codEntrata)
+                .orElseThrow(() -> new AnagraficaNonTrovataException("nessun tipo tributo con codEntrata ["
+                        + codEntrata + "]"));
+        TributoEntity tributo = tributoRepository.findByDominioIdAndTipoTributoId(idDominio, tipoTributo.getId())
+                .orElseThrow(() -> new AnagraficaNonTrovataException("nessun tributo [" + codEntrata
+                        + "] configurato per il dominio [id:" + idDominio + "]"));
+        if (Boolean.FALSE.equals(tributo.getAbilitato())) {
+            throw new ValidazioneNonSuperataException("il tributo [" + codEntrata + "] per il dominio [id:"
+                    + idDominio + "] non e' abilitato");
+        }
+        return tributo.getId();
+    }
+
+    /**
+     * L'IBAN di {@code ENTRATA} e' sempre un IBAN censito in anagrafica (mai una stringa
+     * libera — v2 lo referenzia gia' cosi'), per questo dominio.
+     *
+     * Rifiuta un IBAN disabilitato per il dominio (bug del lead, 2026-09-29: mancava — v2 lo
+     * fa in {@code VersamentoUtils}, {@code VER_032}/{@code VER_034} per accredito/appoggio).
+     *
+     * @return {@code null} se {@code codIban} e' {@code null} (campo opzionale, es.
+     *         {@code ibanAppoggio})
+     * @throws AnagraficaNonTrovataException se {@code codIban} e' valorizzato ma non censito
+     *                                        per il dominio indicato
+     * @throws ValidazioneNonSuperataException se l'IBAN esiste per il dominio ma e'
+     *                                          disabilitato
+     */
+    private Long risolviIdIban(String codIban, Long idDominio) {
+        if (codIban == null) {
+            return null;
+        }
+        IbanAccreditoEntity iban = ibanAccreditoRepository.findByCodIbanAndDominioId(codIban, idDominio)
+                .orElseThrow(() -> new AnagraficaNonTrovataException("nessun IBAN [" + codIban
+                        + "] censito per il dominio [id:" + idDominio + "]"));
+        if (Boolean.FALSE.equals(iban.getAbilitato())) {
+            throw new ValidazioneNonSuperataException("l'IBAN [" + codIban + "] per il dominio [id:" + idDominio
+                    + "] non e' abilitato");
+        }
+        return iban.getId();
     }
 
     /**
@@ -151,10 +236,10 @@ public class PosizioneDebitoriaMapper {
      *                                        catalogo globale: nessun fallback su un dominio
      *                                        di default, stesso comportamento del legacy —
      *                                        vedi Javadoc di
-     *                                        {@link TipoVersamentoDominioRepository#findByCodTipoVersamentoAndIdDominio})
+     *                                        {@link TipoVersamentoDominioRepository#findByCodTipoVersamentoAndDominioId})
      */
-    private TipoVersamentoDominio risolviTipoVersamentoDominio(String idTipoPendenza, Long idDominio) {
-        return tipoVersamentoDominioRepository.findByCodTipoVersamentoAndIdDominio(idTipoPendenza, idDominio)
+    private TipoVersamentoDominioEntity risolviTipoVersamentoDominio(String idTipoPendenza, Long idDominio) {
+        return tipoVersamentoDominioRepository.findByCodTipoVersamentoAndDominioId(idTipoPendenza, idDominio)
                 .orElseThrow(() -> new AnagraficaNonTrovataException("nessun tipo pendenza [" + idTipoPendenza
                         + "] configurato per il dominio [id:" + idDominio + "]"));
     }
@@ -173,6 +258,17 @@ public class PosizioneDebitoriaMapper {
                 : tipoVersamentoDominioRepository.findByIdFetchTipoVersamento(idTipoVersamentoDominio)
                         .map(tvd -> tvd.getTipoVersamento().getCodTipoVersamento())
                         .orElse(null);
+    }
+
+    /**
+     * Override per questo dominio di {@code TipoVersamentoEntity.getCodificaIuv()} se
+     * presente, altrimenti il default del catalogo globale — stessa semantica gia' della
+     * rimossa {@code TipoVersamentoDominio.getCodificaIuvEffettiva()} di questa libreria,
+     * ora che {@code TipoVersamentoEntity}/{@code TipoVersamentoDominioEntity} vengono da
+     * govpay-common (issue govpay-common#9) e non hanno quel metodo di comodo.
+     */
+    private static String codificaIuvEffettiva(TipoVersamentoDominioEntity tvd) {
+        return tvd.getCodificaIuv() != null ? tvd.getCodificaIuv() : tvd.getTipoVersamento().getCodificaIuv();
     }
 
     // ── Richiesta -> entita' ─────────────────────────────────────────────────
@@ -256,14 +352,14 @@ public class PosizioneDebitoriaMapper {
         pendenza.setIdApplicazione(idApplicazione);
         pendenza.setIdPendenza(dto.getIdPendenza());
 
-        TipoVersamentoDominio tipoVersamentoDominio = risolviTipoVersamentoDominio(dto.getIdTipoPendenza(),
+        TipoVersamentoDominioEntity tipoVersamentoDominio = risolviTipoVersamentoDominio(dto.getIdTipoPendenza(),
                 idDominioPosizione);
         pendenza.setIdTipoPendenza(tipoVersamentoDominio.getId());
         pendenza.setIdTipoVersamento(tipoVersamentoDominio.getTipoVersamento().getId());
         // Necessaria a GeneratoreIuvStandard per risolvere %(p)/%(t) nel prefisso IUV di
         // dominio (bug del lead, 2026-09-27: dimenticata nel primo giro — la creazione
         // falliva con 500 per ogni dominio il cui prefisso usa quel placeholder).
-        pendenza.setCodificaIuvTipoPendenza(tipoVersamentoDominio.getCodificaIuvEffettiva());
+        pendenza.setCodificaIuvTipoPendenza(codificaIuvEffettiva(tipoVersamentoDominio));
 
         pendenza.setImporto(dto.getImporto().doubleValue());
         pendenza.setNumeroAvviso(dto.getNumeroAvviso());
@@ -271,7 +367,7 @@ public class PosizioneDebitoriaMapper {
         pendenza.setDataScadenzaAvviso(aInizioGiorno(dto.getDataScadenzaAvviso()));
 
         for (NuovaVocePendenza voce : dto.getVoci()) {
-            pendenza.addVocePendenza(toVocePendenza(voce));
+            pendenza.addVocePendenza(toVocePendenza(voce, idDominioPosizione));
         }
         return pendenza;
     }
@@ -286,35 +382,37 @@ public class PosizioneDebitoriaMapper {
         return data == null ? null : data.atStartOfDay(clock.getZone()).toOffsetDateTime();
     }
 
-    private VocePendenza toVocePendenza(NuovaVocePendenza dto) {
+    private VocePendenza toVocePendenza(NuovaVocePendenza dto, Long idDominioPosizione) {
         VocePendenza voce = new VocePendenza();
         // Il servizio non lo valorizza (a differenza di OpzionePagamento/Pendenza): sta al
         // chiamante — vedi Javadoc del campo VocePendenza.stato.
         voce.setStato(StatoVocePendenza.NON_ESEGUITO);
 
         if (dto instanceof NuovaVocePendenzaRiferimentoEntrata v) {
-            voce.setTipoRiferimento(TipoRiferimentoVocePendenza.RIFERIMENTO_ENTRATA);
-            voce.setCodEntrata(v.getCodEntrata());
-            popolaCampiComuni(voce, v.getIdVocePendenza(), v.getImporto(), v.getDescrizione(), v.getIdDominio());
+            Long idDominioEffettivo = popolaCampiComuni(voce, v.getIdVocePendenza(), v.getImporto(),
+                    v.getDescrizione(), v.getIdDominio(), idDominioPosizione);
+            // getTipoRiferimento() e' derivato da idTributo (vedi Javadoc di VocePendenza):
+            // nessun setTipoRiferimento esplicito, a differenza del primo giro.
+            voce.setIdTributo(risolviIdTributo(v.getCodEntrata(), idDominioEffettivo));
             for (Dettaglio dettaglio : v.getDettaglioContabile()) {
                 voce.getDettaglioContabile().add(toDettaglioContabile(dettaglio));
             }
         } else if (dto instanceof NuovaVocePendenzaEntrata v) {
-            voce.setTipoRiferimento(TipoRiferimentoVocePendenza.ENTRATA);
-            voce.setIbanAccredito(v.getIbanAccredito());
-            voce.setIbanAppoggio(v.getIbanAppoggio());
+            Long idDominioEffettivo = popolaCampiComuni(voce, v.getIdVocePendenza(), v.getImporto(),
+                    v.getDescrizione(), v.getIdDominio(), idDominioPosizione);
+            voce.setIdIbanAccredito(risolviIdIban(v.getIbanAccredito(), idDominioEffettivo));
+            voce.setIdIbanAppoggio(risolviIdIban(v.getIbanAppoggio(), idDominioEffettivo));
             voce.setTassonomia(v.getTassonomia());
-            popolaCampiComuni(voce, v.getIdVocePendenza(), v.getImporto(), v.getDescrizione(), v.getIdDominio());
             for (Dettaglio dettaglio : v.getDettaglioContabile()) {
                 voce.getDettaglioContabile().add(toDettaglioContabile(dettaglio));
             }
         } else if (dto instanceof NuovaVocePendenzaBollo v) {
-            voce.setTipoRiferimento(TipoRiferimentoVocePendenza.BOLLO);
+            popolaCampiComuni(voce, v.getIdVocePendenza(), v.getImporto(), v.getDescrizione(), v.getIdDominio(),
+                    idDominioPosizione);
             voce.setTipoBollo(v.getTipoBollo().getValue());
             voce.setHashDocumento(v.getHashDocumento());
             voce.setProvinciaResidenza(v.getProvinciaResidenza());
             voce.setTassonomia(v.getTassonomia());
-            popolaCampiComuni(voce, v.getIdVocePendenza(), v.getImporto(), v.getDescrizione(), v.getIdDominio());
             // Bollo non ammette dettaglioContabile (vincolo dello schema Bollo dello YAML).
         } else {
             throw new IllegalArgumentException("tipo di NuovaVocePendenza non gestito: " + dto.getClass());
@@ -323,20 +421,29 @@ public class PosizioneDebitoriaMapper {
     }
 
     /**
-     * {@code idDominio} qui non viene mai materializzato al default (a differenza di
+     * {@code voce.idDominio} non viene mai materializzato al default (a differenza di
      * {@code Pendenza.idDominio}): {@code null} resta {@code null}, e' compito di
      * {@code PosizioneDebitoriaService#crea} valorizzarlo con quello della posizione se il
      * chiamante non ha indicato un override esplicito — vedi Javadoc di
-     * {@code VocePendenza.idDominio}.
+     * {@code VocePendenza.idDominio}. Il valore di ritorno serve invece SUBITO al chiamante,
+     * per risolvere {@code idTributo}/{@code idIbanAccredito}/{@code idIbanAppoggio} —
+     * l'anagrafica del tributo/IBAN va cercata nel dominio effettivo della voce (l'override,
+     * se presente — caso multi-beneficiario pagoPA — altrimenti quello della posizione), non
+     * necessariamente in quello di default che il servizio applichera' solo dopo.
+     *
+     * @return il dominio effettivo di questa voce (mai {@code null})
      */
-    private void popolaCampiComuni(VocePendenza voce, String idVocePendenza, BigDecimal importo, String descrizione,
-            String idDominioVoce) {
+    private Long popolaCampiComuni(VocePendenza voce, String idVocePendenza, BigDecimal importo, String descrizione,
+            String idDominioVoce, Long idDominioPosizione) {
         voce.setIdVocePendenza(idVocePendenza);
         voce.setImporto(importo.doubleValue());
         voce.setDescrizione(descrizione);
-        if (idDominioVoce != null) {
-            voce.setIdDominio(risolviIdDominio(idDominioVoce));
+        if (idDominioVoce == null) {
+            return idDominioPosizione;
         }
+        Long idDominioRisolto = risolviIdDominio(idDominioVoce);
+        voce.setIdDominio(idDominioRisolto);
+        return idDominioRisolto;
     }
 
     private DettaglioContabile toDettaglioContabile(Dettaglio dto) {
@@ -547,10 +654,54 @@ public class PosizioneDebitoriaMapper {
         dto.setNumeroRata(entity.getNumeroRata());
         dto.setImporto(BigDecimal.valueOf(entity.getImporto()));
         dto.setNumeroAvviso(entity.getNumeroAvviso());
-        dto.setDataCaricamento(entity.getDataCaricamento());
+        // dataCaricamento non e' una colonna propria (decisione del lead, 2026-09-28, su
+        // richiesta esplicita — vedi Javadoc di classe di Pendenza): si deriva da
+        // dataCreazione, sempre valorizzata.
+        dto.setDataCaricamento(entity.getDataCreazione().toLocalDate());
         dto.setDataValidita(entity.getDataValidita() == null ? null : entity.getDataValidita().toLocalDate());
         dto.setDataScadenzaAvviso(
                 entity.getDataScadenzaAvviso() == null ? null : entity.getDataScadenzaAvviso().toLocalDate());
+        return dto;
+    }
+
+    /**
+     * Costruisce un elemento di {@code GET /pendenze/{idA2A}} (ricerca per numero avviso):
+     * {@code PendenzaIndex}, come {@link #toPendenzaOpzionePagamentoDto} ma con in piu'
+     * {@code posizioneDebitoria} ({@code PosizioneDebitoriaIndex}, richiesto dallo schema —
+     * a differenza di {@code PendenzaOpzionePagamento}, qui il chiamante non la conosce gia').
+     *
+     * @throws IllegalStateException se {@code entity.getOpzionePagamento()} e' {@code null} —
+     *         una pendenza creata da v2/migrazione, priva del concetto di opzione/posizione:
+     *         lo schema richiede sia {@code opzionePagamento} sia {@code posizioneDebitoria},
+     *         quindi non e' rappresentabile in questa risposta. Il chiamante (controller) deve
+     *         escludere questi elementi PRIMA di chiamare questo metodo, non affidarsi a
+     *         questa eccezione — resta qui solo come guardia esplicita, non come percorso
+     *         normale (nessun caso reale la esercita oggi: nessuna pendenza v2 e' mai stata
+     *         migrata finora).
+     */
+    public it.govpay.pendenze.api.model.PendenzaIndex toPendenzaIndexDto(it.govpay.pendenze.entity.Pendenza entity) {
+        if (entity.getOpzionePagamento() == null) {
+            throw new IllegalStateException("la pendenza [" + entity.getIdPendenza() + "] non ha un'opzione di "
+                    + "pagamento (creata da v2/migrazione): non rappresentabile in PendenzaIndex, il chiamante "
+                    + "doveva escluderla prima di chiamare questo metodo");
+        }
+        it.govpay.pendenze.api.model.PendenzaIndex dto = new it.govpay.pendenze.api.model.PendenzaIndex();
+        dto.setIdA2A(risolviCodApplicazione(entity.getIdApplicazione()));
+        dto.setIdPendenza(entity.getIdPendenza());
+        dto.setIdTipoPendenza(risolviCodTipoVersamento(entity.getIdTipoPendenza()));
+        dto.setIdDominio(risolviCodDominio(entity.getIdDominio()));
+        dto.setStato(StatoPendenza.valueOf(entity.getStato().name()));
+        dto.setIuv(entity.getIuv());
+        dto.setDataPagamento(entity.getDataPagamento() == null ? null : entity.getDataPagamento().toLocalDate());
+        dto.setOpzionePagamento(toOpzionePagamentoIndexDto(entity.getOpzionePagamento()));
+        dto.setNumeroRata(entity.getNumeroRata());
+        dto.setImporto(BigDecimal.valueOf(entity.getImporto()));
+        dto.setNumeroAvviso(entity.getNumeroAvviso());
+        dto.setDataCaricamento(entity.getDataCreazione().toLocalDate());
+        dto.setDataValidita(entity.getDataValidita() == null ? null : entity.getDataValidita().toLocalDate());
+        dto.setDataScadenzaAvviso(
+                entity.getDataScadenzaAvviso() == null ? null : entity.getDataScadenzaAvviso().toLocalDate());
+        dto.setPosizioneDebitoria(toIndexDto(entity.getOpzionePagamento().getPosizioneDebitoria()));
         return dto;
     }
 }

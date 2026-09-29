@@ -1,32 +1,33 @@
 package it.govpay.pendenze.posizionedebitoria;
 
-import java.math.BigDecimal;
 import java.net.URI;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
-import java.util.stream.Collectors;
 
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
-import org.springframework.web.util.UriComponentsBuilder;
 
 import it.govpay.pendenze.api.model.NuovaPosizioneDebitoria;
+import it.govpay.pendenze.api.model.Pagination;
 import it.govpay.pendenze.api.model.PosizioneDebitoriaIndex;
 import it.govpay.pendenze.api.model.PosizioniDebitorie;
 import it.govpay.pendenze.api.rest.PosizioniDebitorieApi;
 import it.govpay.pendenze.criteri.CriteriOrdinamento;
+import it.govpay.pendenze.criteri.CursorCodec;
 import it.govpay.pendenze.criteri.OffsetPageRequest;
 import it.govpay.pendenze.criteri.PaginaRisultati;
+import it.govpay.pendenze.criteri.PaginaSenzaConteggio;
+import it.govpay.pendenze.entity.PosizioneDebitoria;
 import it.govpay.pendenze.exception.RisorsaNonTrovataException;
 import it.govpay.pendenze.exception.ValidazioneNonSuperataException;
 import it.govpay.pendenze.service.PosizioneDebitoriaService;
-import tools.jackson.core.type.TypeReference;
+import it.govpay.pendenze.web.QueryParamUtils;
+import it.govpay.pendenze.web.SelezioneCampi;
+import jakarta.servlet.http.HttpServletRequest;
 import tools.jackson.databind.ObjectMapper;
 
 /**
@@ -37,15 +38,21 @@ import tools.jackson.databind.ObjectMapper;
 @RestController
 public class PosizioneDebitoriaController implements PosizioniDebitorieApi {
 
+    /** Ordinamento fisso in modalita' cursore, coerente con govpay-console-api. */
+    static final String ORDINAMENTO_FISSO_CURSORE = "dataCreazione desc, id desc";
+
     private final PosizioneDebitoriaMapper mapper;
     private final PosizioneDebitoriaService posizioneDebitoriaService;
     private final ObjectMapper objectMapper;
+    private final HttpServletRequest currentRequest;
 
     public PosizioneDebitoriaController(PosizioneDebitoriaMapper mapper,
-            PosizioneDebitoriaService posizioneDebitoriaService, ObjectMapper objectMapper) {
+            PosizioneDebitoriaService posizioneDebitoriaService, ObjectMapper objectMapper,
+            HttpServletRequest currentRequest) {
         this.mapper = mapper;
         this.posizioneDebitoriaService = posizioneDebitoriaService;
         this.objectMapper = objectMapper;
+        this.currentRequest = currentRequest;
     }
 
     @Override
@@ -96,7 +103,8 @@ public class PosizioneDebitoriaController implements PosizioniDebitorieApi {
      * Nessun campo ordinabile per default (vedi Javadoc di {@link CriteriOrdinamento}):
      * questo endpoint ne espone solo tre, ragionevoli per un elenco di posizioni e tutti
      * colonne dirette di {@code documenti} — nessuna indicazione esplicita nello YAML su
-     * quali offrire.
+     * quali offrire. Ignorati in modalita' cursore, dove l'ordinamento e' fisso (vedi
+     * {@link #ORDINAMENTO_FISSO_CURSORE}).
      */
     private static final Map<String, String> CAMPI_ORDINABILI = Map.of(
             "dataCreazione", "dataCreazione",
@@ -106,92 +114,90 @@ public class PosizioneDebitoriaController implements PosizioniDebitorieApi {
     /**
      * {@code @Transactional} qui per lo stesso motivo di {@link #getPosizioneDebitoria}:
      * {@code toIndexDto} legge {@code soggettiDebitori}, collezione LAZY.
+     *
+     * <p>Due modalita' di paginazione mutuamente esclusive (standard condiviso con
+     * govpay-console-api): a offset ({@code page}/{@code limit}, ordinamento libero via
+     * {@code sort}, conteggio opzionale via {@code total}) o a cursore ({@code cursor},
+     * ordinamento fisso {@link #ORDINAMENTO_FISSO_CURSORE}, nessun conteggio). La modalita'
+     * cursore e' attiva se {@code cursor} e' presente nella richiesta, anche vuoto (prima
+     * pagina cursore); in tal caso {@code page}/{@code sort} espliciti e {@code total=true}
+     * sono rifiutati con 400 ({@link #rifiutaSeIncompatibiliConCursore}).</p>
      */
     @Override
     @Transactional(readOnly = true)
-    public ResponseEntity<PosizioniDebitorie> findPosizioniDebitorie(String idA2A, String idDebitore, Integer offset,
-            Integer limit, String sort, String fields) {
-        Sort ordinamento = CriteriOrdinamento.parse(sort, CAMPI_ORDINABILI);
-        PaginaRisultati<it.govpay.pendenze.entity.PosizioneDebitoria> pagina = posizioneDebitoriaService
-                .cercaPerDebitore(idA2A, idDebitore, OffsetPageRequest.of(offset, limit, ordinamento));
+    public ResponseEntity<PosizioniDebitorie> findPosizioniDebitorie(String idA2A, String idDebitore, Integer page,
+            String cursor, Integer limit, String sort, String fields, Boolean total) {
+        boolean modalitaCursore = cursor != null;
+        if (modalitaCursore) {
+            rifiutaSeIncompatibiliConCursore(sort, total);
+        }
 
         PosizioniDebitorie dto = new PosizioniDebitorie();
-        dto.setNumRisultati(BigDecimal.valueOf(pagina.numeroRisultatiTotali()));
-        dto.setLimit(BigDecimal.valueOf(limit));
-        dto.setOffset(BigDecimal.valueOf(offset));
-        if (pagina.haAltriRisultati()) {
-            dto.setProssimiRisultati(prossimaPaginaUri(idA2A, idDebitore, sort, fields, offset + limit, limit));
+        List<PosizioneDebitoriaIndex> risultati;
+
+        if (modalitaCursore) {
+            CursorCodec.Cursore decodificato = cursor.isBlank() ? null : CursorCodec.decode(cursor);
+            PaginaSenzaConteggio<PosizioneDebitoria> pagina = posizioneDebitoriaService.cercaPerDebitoreDaCursore(
+                    idA2A, idDebitore, decodificato == null ? null : decodificato.dataCreazione(),
+                    decodificato == null ? null : decodificato.id(), limit);
+            risultati = pagina.risultati().stream().map(mapper::toIndexDto).toList();
+            if (pagina.haAltriRisultati() && !pagina.risultati().isEmpty()) {
+                PosizioneDebitoria ultima = pagina.risultati().get(pagina.risultati().size() - 1);
+                dto.setNextCursor(CursorCodec.encode(ultima.getDataCreazione(), ultima.getId()));
+            }
+        } else {
+            int paginaEffettiva = QueryParamUtils.isExplicit(currentRequest, "page") ? page : 1;
+            Sort ordinamento = CriteriOrdinamento.parse(sort, CAMPI_ORDINABILI);
+            Pageable pageable = OffsetPageRequest.of((long) (paginaEffettiva - 1) * limit, limit, ordinamento);
+
+            Pagination pagination = new Pagination(paginaEffettiva, limit, false);
+            if (Boolean.TRUE.equals(total)) {
+                PaginaRisultati<PosizioneDebitoria> pagina = posizioneDebitoriaService.cercaPerDebitore(idA2A,
+                        idDebitore, pageable);
+                risultati = pagina.risultati().stream().map(mapper::toIndexDto).toList();
+                pagination.setHasNextPage(pagina.haAltriRisultati());
+                pagination.setTotalResults(Math.toIntExact(pagina.numeroRisultatiTotali()));
+                pagination.setTotalPages(
+                        (int) Math.ceil(pagina.numeroRisultatiTotali() / (double) limit));
+            } else {
+                PaginaSenzaConteggio<PosizioneDebitoria> pagina = posizioneDebitoriaService
+                        .cercaPerDebitoreSenzaConteggio(idA2A, idDebitore, pageable);
+                risultati = pagina.risultati().stream().map(mapper::toIndexDto).toList();
+                pagination.setHasNextPage(pagina.haAltriRisultati());
+            }
+            dto.setPagination(pagination);
         }
-        List<PosizioneDebitoriaIndex> risultati = pagina.risultati().stream()
-                .map(mapper::toIndexDto)
-                .collect(Collectors.toCollection(ArrayList::new));
-        dto.setRisultati(applicaFields(risultati, fields));
+
+        dto.setResults(SelezioneCampi.applica(risultati, fields, objectMapper));
         return ResponseEntity.ok(dto);
     }
 
     /**
-     * Bug del lead, 2026-09-27: {@code fields} era dichiarato dallo YAML ma completamente
-     * ignorato — la risposta conteneva sempre tutti i campi. Riduce ciascun elemento di
-     * {@code risultati} alle sole proprieta' richieste (elenco separato da virgole).
-     *
-     * <p>{@code PosizioniDebitorie.risultati} e' tipizzato {@code List<PosizioneDebitoriaIndex>}
-     * dall'interfaccia generata: non possiamo restituire una lista di {@code Map} con quella
-     * firma. Jackson pero' serializza ogni elemento di una collezione in base alla sua classe
-     * <b>reale</b> a runtime, non al tipo generico dichiarato — un {@code LinkedHashMap} qui
-     * dentro produce comunque, in uscita, esattamente il JSON parziale voluto. Il cast e'
-     * quindi sicuro nonostante l'avviso "unchecked": nulla nel codice tenta piu' di leggere
-     * questi elementi come veri {@code PosizioneDebitoriaIndex} dopo questo punto.</p>
-     *
-     * @param fields elenco separato da virgole dei campi da mantenere, o {@code null}/vuoto
-     *               per non applicare alcuna riduzione
+     * In modalita' cursore sono incompatibili {@code page}/{@code sort} espliciti e
+     * {@code total=true} (stessa regola di govpay-console-api,
+     * {@code ListQueryValidator#rejectCursorIncompatible}). {@code page} richiede
+     * l'ispezione della query string grezza ({@link QueryParamUtils#isExplicit}) perche' lo
+     * YAML gli assegna un default (1): l'argomento del metodo generato vale sempre 1 se
+     * assente, indistinguibile da un {@code ?page=1} esplicito. {@code sort}/{@code total}
+     * non hanno questo problema ({@code sort} non ha default, {@code total} ha default
+     * {@code false}: solo un valore esplicito {@code true} e' possibile).
      */
-    @SuppressWarnings("unchecked")
-    private List<PosizioneDebitoriaIndex> applicaFields(List<PosizioneDebitoriaIndex> risultati, String fields) {
-        if (fields == null || fields.isBlank()) {
-            return risultati;
+    private void rifiutaSeIncompatibiliConCursore(String sort, Boolean total) {
+        if (QueryParamUtils.isExplicit(currentRequest, "page")) {
+            throw new ValidazioneNonSuperataException(
+                    "parametri 'page' e 'cursor' mutuamente esclusivi: usare solo uno dei due "
+                            + "(cursor per paginazione keyset, page per paginazione a offset)");
         }
-        Set<String> campiRichiesti = java.util.Arrays.stream(fields.split(","))
-                .map(String::trim)
-                .filter(campo -> !campo.isEmpty())
-                .collect(Collectors.toSet());
-
-        List<Object> ridotti = new ArrayList<>();
-        for (PosizioneDebitoriaIndex elemento : risultati) {
-            Map<String, Object> completo = objectMapper.convertValue(elemento,
-                    new TypeReference<Map<String, Object>>() {
-                    });
-            Map<String, Object> ridotto = new LinkedHashMap<>();
-            for (String campo : campiRichiesti) {
-                if (completo.containsKey(campo)) {
-                    ridotto.put(campo, completo.get(campo));
-                }
-            }
-            ridotti.add(ridotto);
-        }
-        return (List<PosizioneDebitoriaIndex>) (List<?>) ridotti;
-    }
-
-    /**
-     * URI relativo, non assoluto (esempio dello YAML: {@code /risorsa?offset=25&limit=25}) —
-     * costruito esplicitamente dai parametri della richiesta corrente, non da
-     * {@code ServletUriComponentsBuilder.fromCurrentRequest()} (che tornerebbe un URI assoluto
-     * con schema/host). Riporta anche {@code fields} (bug del lead, 2026-09-27: la selezione
-     * dei campi va mantenuta nelle pagine successive, altrimenti la seconda pagina tornerebbe
-     * con tutti i campi).
-     */
-    private String prossimaPaginaUri(String idA2A, String idDebitore, String sort, String fields, long nuovoOffset,
-            int limit) {
-        UriComponentsBuilder builder = UriComponentsBuilder
-                .fromPath(PosizioniDebitorieApi.PATH_FIND_POSIZIONI_DEBITORIE)
-                .queryParam("idDebitore", idDebitore)
-                .queryParam("offset", nuovoOffset)
-                .queryParam("limit", limit);
         if (sort != null && !sort.isBlank()) {
-            builder.queryParam("sort", sort);
+            throw new ValidazioneNonSuperataException(
+                    "in modalita' cursore (?cursor=...) l'ordinamento e' fisso (" + ORDINAMENTO_FISSO_CURSORE
+                            + "): non specificare 'sort'");
         }
-        if (fields != null && !fields.isBlank()) {
-            builder.queryParam("fields", fields);
+        if (Boolean.TRUE.equals(total)) {
+            throw new ValidazioneNonSuperataException(
+                    "in modalita' cursore (?cursor=...) il conteggio totale non e' disponibile: "
+                            + "'total=true' non e' compatibile. Usa la presenza di 'nextCursor' in "
+                            + "risposta per sapere se ci sono altre pagine");
         }
-        return builder.buildAndExpand(idA2A).toUriString();
     }
 }

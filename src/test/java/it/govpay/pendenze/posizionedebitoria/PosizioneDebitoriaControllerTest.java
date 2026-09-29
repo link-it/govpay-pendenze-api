@@ -19,16 +19,25 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 
 import it.govpay.common.entity.ApplicazioneEntity;
 import it.govpay.common.entity.DominioEntity;
+import it.govpay.common.entity.IbanAccreditoEntity;
+import it.govpay.common.entity.TipoTributoEntity;
+import it.govpay.common.entity.TipoVersamentoDominioEntity;
+import it.govpay.common.entity.TipoVersamentoEntity;
+import it.govpay.common.entity.TributoEntity;
+import it.govpay.common.entity.UnitaOperativaEntity;
 import it.govpay.common.repository.ApplicazioneRepository;
 import it.govpay.common.repository.DominioRepository;
-import it.govpay.pendenze.entity.TipoVersamento;
-import it.govpay.pendenze.entity.TipoVersamentoDominio;
+import it.govpay.common.repository.IbanAccreditoRepository;
+import it.govpay.common.repository.TipoTributoRepository;
+import it.govpay.common.repository.TipoVersamentoDominioRepository;
+import it.govpay.common.repository.TipoVersamentoRepository;
+import it.govpay.common.repository.TributoRepository;
+import it.govpay.common.repository.UnitaOperativaRepository;
 import it.govpay.pendenze.repository.PosizioneDebitoriaRepository;
-import it.govpay.pendenze.repository.TipoVersamentoDominioRepository;
-import it.govpay.pendenze.repository.TipoVersamentoRepository;
 
 /**
  * Verifica {@code POST /posizioni-debitorie/{idA2A}} a livello di integrazione (contesto
@@ -73,6 +82,18 @@ class PosizioneDebitoriaControllerTest {
     private TipoVersamentoDominioRepository tipoVersamentoDominioRepository;
 
     @Autowired
+    private TipoTributoRepository tipoTributoRepository;
+
+    @Autowired
+    private TributoRepository tributoRepository;
+
+    @Autowired
+    private IbanAccreditoRepository ibanAccreditoRepository;
+
+    @Autowired
+    private UnitaOperativaRepository unitaOperativaRepository;
+
+    @Autowired
     private PosizioneDebitoriaRepository posizioneDebitoriaRepository;
 
     private Long idDominio;
@@ -101,16 +122,62 @@ class PosizioneDebitoriaControllerTest {
         dominio = dominioRepository.save(dominio);
         idDominio = dominio.getId();
 
-        TipoVersamento tipoVersamento = new TipoVersamento();
-        tipoVersamento.setCodTipoVersamento("DIRITTI_SEGRETERIA");
-        tipoVersamento.setDescrizione("Diritti di segreteria");
-        tipoVersamento.setAbilitato(true);
+        TipoVersamentoEntity tipoVersamento = nuovoTipoVersamento("DIRITTI_SEGRETERIA", "Diritti di segreteria");
         tipoVersamentoRepository.save(tipoVersamento);
 
-        TipoVersamentoDominio override = new TipoVersamentoDominio();
+        TipoVersamentoDominioEntity override = new TipoVersamentoDominioEntity();
         override.setTipoVersamento(tipoVersamento);
-        override.setIdDominio(idDominio);
+        override.setDominio(dominioRepository.findById(idDominio).orElseThrow());
         tipoVersamentoDominioRepository.save(override);
+
+        configuraTributoPerDominio("DIRITTI_SEGRETERIA", dominio);
+    }
+
+    /**
+     * {@code codEntrata} di una voce RIFERIMENTO_ENTRATA va risolto contro {@code tipi_tributo}
+     * (catalogo globale)/{@code tributi} (override per questo dominio) — bug del lead,
+     * 2026-09-28: {@code VocePendenza} non aveva mai questa risoluzione, {@code codEntrata}
+     * era una colonna aggiunta senza legame con l'anagrafica reale.
+     */
+    private void configuraTributoPerDominio(String codEntrata, DominioEntity dominio) {
+        configuraTributoPerDominio(codEntrata, dominio, true);
+    }
+
+    private void configuraTributoPerDominio(String codEntrata, DominioEntity dominio, boolean abilitato) {
+        TipoTributoEntity tipoTributo = new TipoTributoEntity();
+        tipoTributo.setCodTributo(codEntrata);
+        tipoTributo.setDescrizione(codEntrata);
+        tipoTributoRepository.save(tipoTributo);
+
+        TributoEntity tributo = new TributoEntity();
+        tributo.setAbilitato(abilitato);
+        tributo.setDominio(dominio);
+        tributo.setTipoTributo(tipoTributo);
+        tributoRepository.save(tributo);
+    }
+
+    /**
+     * {@code tipi_versamento} ha 9 colonne {@code NOT NULL DEFAULT false} (configurazione
+     * BO/PAG/avvisatura mail/AppIO, mai {@code null} su una riga reale) — valorizzate qui
+     * esplicitamente a {@code false} ("nessuna integrazione attiva"), altrimenti l'INSERT
+     * fallisce (il default SQL non si applica: Hibernate invia sempre un valore esplicito,
+     * {@code NULL} se il campo Java non e' stato impostato).
+     */
+    private TipoVersamentoEntity nuovoTipoVersamento(String codTipoVersamento, String descrizione) {
+        TipoVersamentoEntity tipoVersamento = new TipoVersamentoEntity();
+        tipoVersamento.setCodTipoVersamento(codTipoVersamento);
+        tipoVersamento.setDescrizione(descrizione);
+        tipoVersamento.setAbilitato(true);
+        tipoVersamento.setPagaTerzi(false);
+        tipoVersamento.setBoAbilitato(false);
+        tipoVersamento.setPagAbilitato(false);
+        tipoVersamento.setAvvMailPromAvvAbilitato(false);
+        tipoVersamento.setAvvMailPromRicAbilitato(false);
+        tipoVersamento.setAvvMailPromScadAbilitato(false);
+        tipoVersamento.setAvvAppIoPromAvvAbilitato(false);
+        tipoVersamento.setAvvAppIoPromRicAbilitato(false);
+        tipoVersamento.setAvvAppIoPromScadAbilitato(false);
+        return tipoVersamento;
     }
 
     /**
@@ -124,6 +191,10 @@ class PosizioneDebitoriaControllerTest {
         posizioneDebitoriaRepository.deleteAll();
         tipoVersamentoDominioRepository.deleteAll();
         tipoVersamentoRepository.deleteAll();
+        tributoRepository.deleteAll();
+        tipoTributoRepository.deleteAll();
+        ibanAccreditoRepository.deleteAll();
+        unitaOperativaRepository.deleteAll();
         dominioRepository.deleteAll();
         applicazioneRepository.deleteAll();
     }
@@ -186,6 +257,296 @@ class PosizioneDebitoriaControllerTest {
     }
 
     @Test
+    @DisplayName("crea con successo una voce ENTRATA, risolvendo ibanAccredito/ibanAppoggio contro "
+            + "l'anagrafica censita (bug del lead, 2026-09-28: prima erano stringhe libere, mai validate)")
+    void creaUnaVoceEntrataRisolveIbanAccreditoEAppoggio() throws Exception {
+        DominioEntity dominio = dominioRepository.findByCodDominio("12345678901").orElseThrow();
+        salvaIban("IT60X0542811101000000123456", dominio);
+        salvaIban("IT60X0542811101000000999999", dominio);
+
+        String body = """
+                {
+                  "idPosizioneDebitoria": "pos-entrata-1",
+                  "idDominio": "12345678901",
+                  "descrizione": "test",
+                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
+                  "opzioniPagamento": [ {
+                    "tipologia": "SOLUZIONE_UNICA",
+                    "pendenze": [ {
+                      "idPendenza": "pendenza-entrata-1",
+                      "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                      "importo": 16.00,
+                      "voci": [ { "tipoRiferimento": "ENTRATA", "idVocePendenza": "voce-entrata-1", "importo": 16.00,
+                                  "descrizione": "test", "ibanAccredito": "IT60X0542811101000000123456",
+                                  "ibanAppoggio": "IT60X0542811101000000999999", "tassonomia": "9/0101002IM/" } ]
+                    } ]
+                  } ]
+                }
+                """;
+
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}", "A2A-TEST")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isCreated());
+    }
+
+    @Test
+    @DisplayName("crea con successo una voce ENTRATA con tassonomia comprensiva del MotivoGiuridico libero "
+            + "che alcuni clienti accodano con un ulteriore '/' (chiarimento del lead, 2026-09-28)")
+    void creaUnaVoceEntrataConTassonomiaEMotivoGiuridicoLibero() throws Exception {
+        DominioEntity dominio = dominioRepository.findByCodDominio("12345678901").orElseThrow();
+        salvaIban("IT60X0542811101000000123456", dominio);
+
+        String body = """
+                {
+                  "idPosizioneDebitoria": "pos-entrata-motivo",
+                  "idDominio": "12345678901",
+                  "descrizione": "test",
+                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
+                  "opzioniPagamento": [ {
+                    "tipologia": "SOLUZIONE_UNICA",
+                    "pendenze": [ {
+                      "idPendenza": "pendenza-entrata-motivo",
+                      "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                      "importo": 16.00,
+                      "voci": [ { "tipoRiferimento": "ENTRATA", "idVocePendenza": "voce-entrata-motivo", "importo": 16.00,
+                                  "descrizione": "test", "ibanAccredito": "IT60X0542811101000000123456",
+                                  "tassonomia": "9/0101002IM//rif.pratica123" } ]
+                    } ]
+                  } ]
+                }
+                """;
+
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}", "A2A-TEST")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isCreated());
+    }
+
+    private void salvaIban(String codIban, DominioEntity dominio) {
+        salvaIban(codIban, dominio, true);
+    }
+
+    private void salvaIban(String codIban, DominioEntity dominio, boolean abilitato) {
+        IbanAccreditoEntity iban = new IbanAccreditoEntity();
+        iban.setCodIban(codIban);
+        iban.setPostale(false);
+        iban.setAbilitato(abilitato);
+        iban.setDominio(dominio);
+        ibanAccreditoRepository.save(iban);
+    }
+
+    private void salvaUnitaOperativa(String codUo, DominioEntity dominio, boolean abilitato) {
+        UnitaOperativaEntity unitaOperativa = new UnitaOperativaEntity();
+        unitaOperativa.setCodUo(codUo);
+        unitaOperativa.setAbilitato(abilitato);
+        unitaOperativa.setDominio(dominio);
+        unitaOperativaRepository.save(unitaOperativa);
+    }
+
+    @Test
+    @DisplayName("rifiuta con 400 (non 201) un tributo disabilitato per il dominio (bug del lead, "
+            + "2026-09-29: il mapper verificava solo che il tributo fosse censito, non abilitato — "
+            + "v2 lo rifiuta, TRB_001)")
+    void rifiutaConBadRequestSeTributoDisabilitato() throws Exception {
+        DominioEntity dominio = dominioRepository.findByCodDominio("12345678901").orElseThrow();
+        configuraTributoPerDominio("TRIBUTO-DISABILITATO", dominio, false);
+
+        String body = """
+                {
+                  "idPosizioneDebitoria": "pos-tributo-disabilitato",
+                  "idDominio": "12345678901",
+                  "descrizione": "test",
+                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
+                  "opzioniPagamento": [ {
+                    "tipologia": "SOLUZIONE_UNICA",
+                    "pendenze": [ {
+                      "idPendenza": "pendenza-1",
+                      "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                      "importo": 16.00,
+                      "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-1", "importo": 16.00,
+                                  "descrizione": "test", "codEntrata": "TRIBUTO-DISABILITATO" } ]
+                    } ]
+                  } ]
+                }
+                """;
+
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}", "A2A-TEST")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    @DisplayName("rifiuta con 400 (non 201) un ibanAccredito disabilitato per il dominio (bug del "
+            + "lead, 2026-09-29 — v2 lo rifiuta, VER_032)")
+    void rifiutaConBadRequestSeIbanAccreditoDisabilitato() throws Exception {
+        DominioEntity dominio = dominioRepository.findByCodDominio("12345678901").orElseThrow();
+        salvaIban("IT60X0542811101000000123456", dominio, false);
+
+        String body = """
+                {
+                  "idPosizioneDebitoria": "pos-iban-accredito-disabilitato",
+                  "idDominio": "12345678901",
+                  "descrizione": "test",
+                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
+                  "opzioniPagamento": [ {
+                    "tipologia": "SOLUZIONE_UNICA",
+                    "pendenze": [ {
+                      "idPendenza": "pendenza-1",
+                      "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                      "importo": 16.00,
+                      "voci": [ { "tipoRiferimento": "ENTRATA", "idVocePendenza": "voce-1", "importo": 16.00,
+                                  "descrizione": "test", "ibanAccredito": "IT60X0542811101000000123456",
+                                  "tassonomia": "9/0101002IM/" } ]
+                    } ]
+                  } ]
+                }
+                """;
+
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}", "A2A-TEST")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    @DisplayName("rifiuta con 400 (non 201) un ibanAppoggio disabilitato per il dominio (bug del "
+            + "lead, 2026-09-29 — v2 lo rifiuta, VER_034)")
+    void rifiutaConBadRequestSeIbanAppoggioDisabilitato() throws Exception {
+        DominioEntity dominio = dominioRepository.findByCodDominio("12345678901").orElseThrow();
+        salvaIban("IT60X0542811101000000123456", dominio, true);
+        salvaIban("IT60X0542811101000000999999", dominio, false);
+
+        String body = """
+                {
+                  "idPosizioneDebitoria": "pos-iban-appoggio-disabilitato",
+                  "idDominio": "12345678901",
+                  "descrizione": "test",
+                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
+                  "opzioniPagamento": [ {
+                    "tipologia": "SOLUZIONE_UNICA",
+                    "pendenze": [ {
+                      "idPendenza": "pendenza-1",
+                      "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                      "importo": 16.00,
+                      "voci": [ { "tipoRiferimento": "ENTRATA", "idVocePendenza": "voce-1", "importo": 16.00,
+                                  "descrizione": "test", "ibanAccredito": "IT60X0542811101000000123456",
+                                  "ibanAppoggio": "IT60X0542811101000000999999",
+                                  "tassonomia": "9/0101002IM/" } ]
+                    } ]
+                  } ]
+                }
+                """;
+
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}", "A2A-TEST")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    @DisplayName("rifiuta con 400 (non 201) un'unita' operativa disabilitata per il dominio (stesso "
+            + "bug di tributo/IBAN, trovato per analogia il 2026-09-29 — v2 lo rifiuta, UOP_001)")
+    void rifiutaConBadRequestSeUnitaOperativaDisabilitata() throws Exception {
+        DominioEntity dominio = dominioRepository.findByCodDominio("12345678901").orElseThrow();
+        salvaUnitaOperativa("UO-DISABILITATA", dominio, false);
+
+        String body = """
+                {
+                  "idPosizioneDebitoria": "pos-uo-disabilitata",
+                  "idDominio": "12345678901",
+                  "idUnitaOperativa": "UO-DISABILITATA",
+                  "descrizione": "test",
+                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
+                  "opzioniPagamento": [ {
+                    "tipologia": "SOLUZIONE_UNICA",
+                    "pendenze": [ {
+                      "idPendenza": "pendenza-1",
+                      "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                      "importo": 16.00,
+                      "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-1", "importo": 16.00,
+                                  "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
+                    } ]
+                  } ]
+                }
+                """;
+
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}", "A2A-TEST")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    @DisplayName("rifiuta con 404 (non 500) una voce RIFERIMENTO_ENTRATA con codEntrata non configurato "
+            + "per il dominio")
+    void rifiutaConNotFoundSeCodEntrataNonConfiguratoPerIlDominio() throws Exception {
+        String body = """
+                {
+                  "idPosizioneDebitoria": "pos-entrata-ignota",
+                  "idDominio": "12345678901",
+                  "descrizione": "test",
+                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
+                  "opzioniPagamento": [ {
+                    "tipologia": "SOLUZIONE_UNICA",
+                    "pendenze": [ {
+                      "idPendenza": "pendenza-1",
+                      "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                      "importo": 16.00,
+                      "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-1", "importo": 16.00,
+                                  "descrizione": "test", "codEntrata": "TRIBUTO-INESISTENTE" } ]
+                    } ]
+                  } ]
+                }
+                """;
+
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}", "A2A-TEST")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value(404));
+    }
+
+    @Test
+    @DisplayName("rifiuta con 404 (non 500) una voce ENTRATA con un IBAN non censito per il dominio")
+    void rifiutaConNotFoundSeIbanAccreditoNonCensito() throws Exception {
+        String body = """
+                {
+                  "idPosizioneDebitoria": "pos-iban-ignoto",
+                  "idDominio": "12345678901",
+                  "descrizione": "test",
+                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
+                  "opzioniPagamento": [ {
+                    "tipologia": "SOLUZIONE_UNICA",
+                    "pendenze": [ {
+                      "idPendenza": "pendenza-1",
+                      "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                      "importo": 16.00,
+                      "voci": [ { "tipoRiferimento": "ENTRATA", "idVocePendenza": "voce-1", "importo": 16.00,
+                                  "descrizione": "test", "ibanAccredito": "IT00Z0000000000000000000000",
+                                  "tassonomia": "9/0101002IM/" } ]
+                    } ]
+                  } ]
+                }
+                """;
+
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}", "A2A-TEST")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value(404));
+    }
+
+    @Test
     @DisplayName("crea con successo (201, non 500) per un dominio il cui prefisso IUV usa %(p): bug del "
             + "lead, 2026-09-27 — il converter non valorizzava codificaIuvTipoPendenza e le entita' "
             + "TipoVersamento/TipoVersamentoDominio non mappavano affatto codifica_iuv")
@@ -201,17 +562,16 @@ class PosizioneDebitoriaControllerTest {
                 .build();
         dominioConPrefisso = dominioRepository.save(dominioConPrefisso);
 
-        TipoVersamento tipoVersamento = new TipoVersamento();
-        tipoVersamento.setCodTipoVersamento("IMU");
-        tipoVersamento.setDescrizione("Imposta Municipale Unica");
-        tipoVersamento.setAbilitato(true);
+        TipoVersamentoEntity tipoVersamento = nuovoTipoVersamento("IMU", "Imposta Municipale Unica");
         tipoVersamento.setCodificaIuv("9902"); // deve risolvere in un prefisso numerico
         tipoVersamentoRepository.save(tipoVersamento);
 
-        TipoVersamentoDominio override = new TipoVersamentoDominio();
+        TipoVersamentoDominioEntity override = new TipoVersamentoDominioEntity();
         override.setTipoVersamento(tipoVersamento);
-        override.setIdDominio(dominioConPrefisso.getId());
+        override.setDominio(dominioConPrefisso);
         tipoVersamentoDominioRepository.save(override);
+
+        configuraTributoPerDominio("IMU", dominioConPrefisso);
 
         String body = """
                 {
@@ -474,28 +834,31 @@ class PosizioneDebitoriaControllerTest {
     }
 
     @Test
-    @DisplayName("GET /posizioni-debitorie/{idA2A} trova le posizioni del debitore indicato, non altre")
+    @DisplayName("GET /posizioni-debitorie/{idA2A} trova le posizioni del debitore indicato, non altre; "
+            + "con total=true riporta anche il conteggio")
     void findPosizioniDebitorieTrovaLePosizioniDelDebitore() throws Exception {
         creaPosizioneMinimaConDebitore("pos-find-1", "FRRPLA90C41H501Y");
         creaPosizioneMinimaConDebitore("pos-find-2", "FRRPLA90C41H501Y");
         creaPosizioneMinimaConDebitore("pos-find-altro-debitore", "VRDGNN80A01H501W");
 
         mockMvc.perform(get("/posizioni-debitorie/{idA2A}", "A2A-TEST")
-                        .param("idDebitore", "FRRPLA90C41H501Y"))
+                        .param("idDebitore", "FRRPLA90C41H501Y")
+                        .param("total", "true"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.numRisultati").value(2))
-                .andExpect(jsonPath("$.offset").value(0))
-                .andExpect(jsonPath("$.limit").value(25))
-                .andExpect(jsonPath("$.prossimiRisultati").doesNotExist())
-                .andExpect(jsonPath("$.risultati.length()").value(2))
-                .andExpect(jsonPath("$.risultati[*].idPosizioneDebitoria",
+                .andExpect(jsonPath("$.pagination.page").value(1))
+                .andExpect(jsonPath("$.pagination.limit").value(25))
+                .andExpect(jsonPath("$.pagination.hasNextPage").value(false))
+                .andExpect(jsonPath("$.pagination.totalResults").value(2))
+                .andExpect(jsonPath("$.pagination.totalPages").value(1))
+                .andExpect(jsonPath("$.results.length()").value(2))
+                .andExpect(jsonPath("$.results[*].idPosizioneDebitoria",
                         org.hamcrest.Matchers.containsInAnyOrder("pos-find-1", "pos-find-2")));
     }
 
     @Test
-    @DisplayName("GET /posizioni-debitorie/{idA2A} popola prossimiRisultati quando ce ne sono altri, "
-            + "con lo stesso idDebitore/limit e l'offset avanzato")
-    void findPosizioniDebitoriePopolaProssimiRisultati() throws Exception {
+    @DisplayName("GET /posizioni-debitorie/{idA2A} pagina a offset (total=false, default): hasNextPage=true "
+            + "quando ce ne sono altri e nessun totale, page=2 restituisce il resto")
+    void findPosizioniDebitoriePaginaAOffsetSegnalaHasNextPage() throws Exception {
         creaPosizioneMinimaConDebitore("pos-pagina-1", "FRRPLA90C41H501Y");
         creaPosizioneMinimaConDebitore("pos-pagina-2", "FRRPLA90C41H501Y");
         creaPosizioneMinimaConDebitore("pos-pagina-3", "FRRPLA90C41H501Y");
@@ -504,10 +867,20 @@ class PosizioneDebitoriaControllerTest {
                         .param("idDebitore", "FRRPLA90C41H501Y")
                         .param("limit", "2"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.numRisultati").value(3))
-                .andExpect(jsonPath("$.risultati.length()").value(2))
-                .andExpect(jsonPath("$.prossimiRisultati")
-                        .value("/posizioni-debitorie/A2A-TEST?idDebitore=FRRPLA90C41H501Y&offset=2&limit=2"));
+                .andExpect(jsonPath("$.pagination.page").value(1))
+                .andExpect(jsonPath("$.pagination.limit").value(2))
+                .andExpect(jsonPath("$.pagination.hasNextPage").value(true))
+                .andExpect(jsonPath("$.pagination.totalResults").doesNotExist())
+                .andExpect(jsonPath("$.results.length()").value(2));
+
+        mockMvc.perform(get("/posizioni-debitorie/{idA2A}", "A2A-TEST")
+                        .param("idDebitore", "FRRPLA90C41H501Y")
+                        .param("limit", "2")
+                        .param("page", "2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.pagination.page").value(2))
+                .andExpect(jsonPath("$.pagination.hasNextPage").value(false))
+                .andExpect(jsonPath("$.results.length()").value(1));
     }
 
     @Test
@@ -520,19 +893,18 @@ class PosizioneDebitoriaControllerTest {
     }
 
     @Test
-    @DisplayName("GET /posizioni-debitorie/{idA2A} restituisce 400 (non 500) se offset non e' un numero")
-    void findPosizioniDebitorieRestituisce400SeOffsetNonENumerico() throws Exception {
+    @DisplayName("GET /posizioni-debitorie/{idA2A} restituisce 400 (non 500) se page non e' un numero")
+    void findPosizioniDebitorieRestituisce400SePageNonENumerico() throws Exception {
         mockMvc.perform(get("/posizioni-debitorie/{idA2A}", "A2A-TEST")
                         .param("idDebitore", "FRRPLA90C41H501Y")
-                        .param("offset", "abc"))
+                        .param("page", "abc"))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
                 .andExpect(jsonPath("$.status").value(400));
     }
 
     @Test
-    @DisplayName("GET /posizioni-debitorie/{idA2A} applica fields: restituisce solo i campi richiesti, "
-            + "e li mantiene in prossimiRisultati")
+    @DisplayName("GET /posizioni-debitorie/{idA2A} applica fields: restituisce solo i campi richiesti")
     void findPosizioniDebitorieApplicaFields() throws Exception {
         creaPosizioneMinimaConDebitore("pos-fields-1", "FRRPLA90C41H501Y");
         creaPosizioneMinimaConDebitore("pos-fields-2", "FRRPLA90C41H501Y");
@@ -542,12 +914,87 @@ class PosizioneDebitoriaControllerTest {
                         .param("limit", "1")
                         .param("fields", "idPosizioneDebitoria"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.risultati[0].idPosizioneDebitoria").exists())
-                .andExpect(jsonPath("$.risultati[0].descrizione").doesNotExist())
-                .andExpect(jsonPath("$.risultati[0].soggettiDebitori").doesNotExist())
-                .andExpect(jsonPath("$.risultati[0].idA2A").doesNotExist())
-                .andExpect(jsonPath("$.prossimiRisultati")
-                        .value("/posizioni-debitorie/A2A-TEST?idDebitore=FRRPLA90C41H501Y&offset=1&limit=1"
-                                + "&fields=idPosizioneDebitoria"));
+                .andExpect(jsonPath("$.results[0].idPosizioneDebitoria").exists())
+                .andExpect(jsonPath("$.results[0].descrizione").doesNotExist())
+                .andExpect(jsonPath("$.results[0].soggettiDebitori").doesNotExist())
+                .andExpect(jsonPath("$.results[0].idA2A").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("GET /posizioni-debitorie/{idA2A} paginazione a cursore: nextCursor porta al resto dei "
+            + "risultati senza sovrapposizioni, ordinamento fisso dataCreazione desc/id desc")
+    void findPosizioniDebitorieCursoreScorreSenzaSovrapposizioni() throws Exception {
+        creaPosizioneMinimaConDebitore("pos-cursore-1", "FRRPLA90C41H501Y");
+        creaPosizioneMinimaConDebitore("pos-cursore-2", "FRRPLA90C41H501Y");
+        creaPosizioneMinimaConDebitore("pos-cursore-3", "FRRPLA90C41H501Y");
+
+        MvcResult primaPagina = mockMvc.perform(get("/posizioni-debitorie/{idA2A}", "A2A-TEST")
+                        .param("idDebitore", "FRRPLA90C41H501Y")
+                        .param("cursor", "")
+                        .param("limit", "2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.pagination").doesNotExist())
+                .andExpect(jsonPath("$.nextCursor").exists())
+                .andExpect(jsonPath("$.results.length()").value(2))
+                .andReturn();
+
+        String nextCursor = com.jayway.jsonpath.JsonPath.read(
+                primaPagina.getResponse().getContentAsString(), "$.nextCursor");
+
+        mockMvc.perform(get("/posizioni-debitorie/{idA2A}", "A2A-TEST")
+                        .param("idDebitore", "FRRPLA90C41H501Y")
+                        .param("cursor", nextCursor)
+                        .param("limit", "2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nextCursor").doesNotExist())
+                .andExpect(jsonPath("$.results.length()").value(1))
+                .andExpect(jsonPath("$.results[0].idPosizioneDebitoria").value("pos-cursore-1"));
+    }
+
+    @Test
+    @DisplayName("GET /posizioni-debitorie/{idA2A} rifiuta con 400 'page' e 'cursor' insieme")
+    void findPosizioniDebitorieRifiutaPageECursoreInsieme() throws Exception {
+        mockMvc.perform(get("/posizioni-debitorie/{idA2A}", "A2A-TEST")
+                        .param("idDebitore", "FRRPLA90C41H501Y")
+                        .param("page", "1")
+                        .param("cursor", ""))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    @DisplayName("GET /posizioni-debitorie/{idA2A} rifiuta con 400 'sort' in modalita' cursore")
+    void findPosizioniDebitorieRifiutaSortInModalitaCursore() throws Exception {
+        mockMvc.perform(get("/posizioni-debitorie/{idA2A}", "A2A-TEST")
+                        .param("idDebitore", "FRRPLA90C41H501Y")
+                        .param("cursor", "")
+                        .param("sort", "dataCreazione:asc"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    @DisplayName("GET /posizioni-debitorie/{idA2A} rifiuta con 400 'total=true' in modalita' cursore")
+    void findPosizioniDebitorieRifiutaTotalInModalitaCursore() throws Exception {
+        mockMvc.perform(get("/posizioni-debitorie/{idA2A}", "A2A-TEST")
+                        .param("idDebitore", "FRRPLA90C41H501Y")
+                        .param("cursor", "")
+                        .param("total", "true"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    @DisplayName("GET /posizioni-debitorie/{idA2A} rifiuta con 400 un cursore malformato")
+    void findPosizioniDebitorieRifiutaCursoreMalformato() throws Exception {
+        mockMvc.perform(get("/posizioni-debitorie/{idA2A}", "A2A-TEST")
+                        .param("idDebitore", "FRRPLA90C41H501Y")
+                        .param("cursor", "non-e-un-cursore-valido"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(400));
     }
 }
