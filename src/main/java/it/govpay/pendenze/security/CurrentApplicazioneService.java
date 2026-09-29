@@ -29,9 +29,17 @@ public class CurrentApplicazioneService {
 
     /**
      * Risolve il principal corrente in {@link ApplicazioneEntity}. Lancia
-     * {@link IllegalStateException} se non c'e' un'utenza autenticata (va invocato da codice
-     * dietro la SecurityFilterChain) o se il principal autenticato non corrisponde a
-     * un'applicazione (utenza operatore/altro tipo, mai atteso su questa API M2M).
+     * {@link IllegalStateException} (500 — vero errore di programmazione: questo metodo va
+     * invocato solo da codice dietro la SecurityFilterChain, che avrebbe gia' rifiutato la
+     * richiesta con 401) se non c'e' affatto un'autenticazione nel {@code SecurityContext}.
+     *
+     * <p>Lancia invece {@link AccessoNegatoException} (403 — bug del lead, 2026-09-29: prima
+     * lanciava anche qui {@code IllegalStateException}/500) se il principal autenticato ha
+     * credenziali VALIDE ma non e' risolvibile a un'{@link ApplicazioneEntity} — condizione di
+     * dato reale (un'utenza abilitata senza applicazione associata, o senza nemmeno una riga
+     * in {@code utenze} nonostante l'autenticazione — mai un errore di programmazione: le
+     * credenziali sono state verificate dal filtro, il problema e' che non risolvono a
+     * un'applicazione usabile da questa API.</p>
      */
     @Transactional(readOnly = true)
     public ApplicazioneEntity get() {
@@ -43,11 +51,11 @@ public class CurrentApplicazioneService {
         }
         String principal = authentication.getName();
         UtenzaEntity utenza = utenzaRepository.findByPrincipal(principal)
-                .orElseThrow(() -> new IllegalStateException(
-                        "Principal autenticato non trovato in utenze: " + principal));
+                .orElseThrow(() -> new AccessoNegatoException(
+                        "principal autenticato non risolvibile a un'utenza: " + principal));
         return applicazioneRepository.findByIdUtenza(utenza.getId())
-                .orElseThrow(() -> new IllegalStateException(
-                        "Utenza autenticata [" + principal + "] non e' associata a nessuna applicazione."));
+                .orElseThrow(() -> new AccessoNegatoException(
+                        "l'utenza autenticata [" + principal + "] non e' associata a nessuna applicazione"));
     }
 
     /**

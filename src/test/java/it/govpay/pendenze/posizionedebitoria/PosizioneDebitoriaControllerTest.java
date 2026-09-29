@@ -46,8 +46,12 @@ import it.govpay.common.repository.TipoVersamentoRepository;
 import it.govpay.common.repository.TributoRepository;
 import it.govpay.common.repository.UnitaOperativaRepository;
 import it.govpay.pendenze.repository.PosizioneDebitoriaRepository;
+import it.govpay.pendenze.security.AclEntity;
+import it.govpay.pendenze.security.AclRepository;
 import it.govpay.pendenze.security.UtenzaEntity;
 import it.govpay.pendenze.security.UtenzaRepository;
+import it.govpay.pendenze.security.UtenzaTipoVersamentoEntity;
+import it.govpay.pendenze.security.UtenzaTipoVersamentoRepository;
 
 /**
  * Verifica {@code POST /posizioni-debitorie/{idA2A}} a livello di integrazione (contesto
@@ -105,6 +109,12 @@ class PosizioneDebitoriaControllerTest {
 
     @Autowired
     private UtenzaRepository utenzaRepository;
+
+    @Autowired
+    private AclRepository aclRepository;
+
+    @Autowired
+    private UtenzaTipoVersamentoRepository utenzaTipoVersamentoRepository;
 
     @Autowired
     private GovpayPasswordEncoder passwordEncoder;
@@ -229,6 +239,7 @@ class PosizioneDebitoriaControllerTest {
     @AfterEach
     void pulisci() {
         posizioneDebitoriaRepository.deleteAll();
+        utenzaTipoVersamentoRepository.deleteAll();
         tipoVersamentoDominioRepository.deleteAll();
         tipoVersamentoRepository.deleteAll();
         tributoRepository.deleteAll();
@@ -237,21 +248,48 @@ class PosizioneDebitoriaControllerTest {
         unitaOperativaRepository.deleteAll();
         dominioRepository.deleteAll();
         applicazioneRepository.deleteAll();
+        aclRepository.deleteAll();
         utenzaRepository.deleteAll();
     }
 
     /**
      * Nuova utenza per l'autenticazione Basic (verificata dal filter di govpay-common-auth
      * tramite {@code PendenzeGovpayPrincipalLoader}) — password codificata con lo stesso
-     * {@link GovpayPasswordEncoder} usato dalla libreria per la verifica.
+     * {@link GovpayPasswordEncoder} usato dalla libreria per la verifica. Diritti pieni
+     * ("RW", lettura+scrittura) sul servizio "API Pendenze": i pochi test che devono
+     * verificare il rifiuto per diritti insufficienti usano
+     * {@link #creaUtenza(String, String, String)} con diritti espliciti.
      */
     private UtenzaEntity creaUtenza(String principal, String password) {
+        return creaUtenza(principal, password, "RW");
+    }
+
+    /**
+     * Vedi Javadoc di {@link #creaUtenza(String, String)}. {@code diritti} e' la stringa
+     * grezza della colonna {@code acl.diritti} ("R"/"W"/"RW"/"" — vuoto o {@code null} per
+     * non creare affatto la riga ACL, come un'applicazione mai abilitata al servizio).
+     */
+    private UtenzaEntity creaUtenza(String principal, String password, String diritti) {
         UtenzaEntity utenza = new UtenzaEntity();
         utenza.setPrincipal(principal);
         utenza.setPrincipalOriginale(principal);
         utenza.setAbilitato(true);
+        // false di default (nessun'utenza di questa classe ha in realta' un'autorizzazione
+        // "star" ai tipi versamento): le applicazioni "trusted" bypassano comunque il
+        // controllo, vedi PosizioneDebitoriaMapper#verificaAutorizzazioneTipoVersamento.
+        utenza.setAutorizzazioneTipiVersStar(false);
         utenza.setPassword(passwordEncoder.encode(password));
-        return utenzaRepository.save(utenza);
+        utenza = utenzaRepository.save(utenza);
+
+        if (diritti != null && !diritti.isBlank()) {
+            AclEntity acl = new AclEntity();
+            acl.setServizio("API Pendenze");
+            acl.setDiritti(diritti);
+            acl.setIdUtenza(utenza.getId());
+            aclRepository.save(acl);
+        }
+
+        return utenza;
     }
 
     /**
@@ -808,6 +846,371 @@ class PosizioneDebitoriaControllerTest {
                 .andExpect(jsonPath("$.status").value(404));
     }
 
+    /**
+     * Bug del lead, 2026-09-29: {@code verificaIdA2A} da solo verifica solo l'identita', non
+     * i diritti ACL sul servizio "API Pendenze" (tabella condivisa {@code acl}) — in v2 questo
+     * controllo era presente su ogni endpoint ({@code AuthorizationManager.isAuthorized(...,
+     * Servizio.API_PENDENZE, Diritti.LETTURA/SCRITTURA)}, verificato PRIMA del controllo
+     * idA2A). Qui l'applicazione autentica correttamente come se stessa ma non ha ALCUNA riga
+     * ACL per "API Pendenze": deve essere rifiutata comunque.
+     */
+    @Test
+    void rifiutaConForbiddenSeApplicazioneNonHaDirittoDiScritturaSuApiPendenze() throws Exception {
+        String principal = "A2A-SENZA-ACL";
+        String password = "senza-acl-password";
+        UtenzaEntity utenzaSenzaAcl = creaUtenza(principal, password, null);
+        applicazioneRepository.save(ApplicazioneEntity.builder()
+                .codApplicazione(principal)
+                .autoIuv(true)
+                .firmaRicevuta("N")
+                .trusted(true)
+                .idUtenza(utenzaSenzaAcl.getId())
+                .build());
+
+        String body = """
+                {
+                  "idPosizioneDebitoria": "pos-1",
+                  "idDominio": "12345678901",
+                  "descrizione": "test",
+                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
+                  "opzioniPagamento": [ {
+                    "tipologia": "SOLUZIONE_UNICA",
+                    "pendenze": [ {
+                      "idPendenza": "pendenza-1",
+                      "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                      "importo": 16.00,
+                      "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-1", "importo": 16.00, "descrizione": "test",
+                                  "codEntrata": "DIRITTI_SEGRETERIA" } ]
+                    } ]
+                  } ]
+                }
+                """;
+
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}", principal)
+                        .with(comeApplicazione(principal, password))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isForbidden())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(403));
+    }
+
+    /**
+     * Come sopra, ma per il diritto di LETTURA: un'applicazione con SOLA scrittura ("W", senza
+     * "R") deve essere rifiutata su un GET. Diverso dal caso precedente: qui l'ACL esiste, ma
+     * non copre il diritto richiesto da questo endpoint.
+     */
+    @Test
+    void rifiutaConForbiddenSeApplicazioneNonHaDirittoDiLetturaSuApiPendenze() throws Exception {
+        String principal = "A2A-SOLA-SCRITTURA";
+        String password = "sola-scrittura-password";
+        UtenzaEntity utenzaSolaScrittura = creaUtenza(principal, password, "W");
+        applicazioneRepository.save(ApplicazioneEntity.builder()
+                .codApplicazione(principal)
+                .autoIuv(true)
+                .firmaRicevuta("N")
+                .trusted(true)
+                .idUtenza(utenzaSolaScrittura.getId())
+                .build());
+
+        mockMvc.perform(get("/posizioni-debitorie/{idA2A}/pos-qualsiasi", principal)
+                        .with(comeApplicazione(principal, password)))
+                .andExpect(status().isForbidden())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(403));
+    }
+
+    /**
+     * Bug del lead, 2026-09-29: la risoluzione del tipo pendenza controllava solo che fosse
+     * censito per il dominio, non che il CHIAMANTE potesse usarlo — in v2 questo controllo era
+     * esplicito per le applicazioni non trusted ({@code VersamentoUtils.setTipoVersamento},
+     * {@code VER_022}: {@code !applicazione.isTrusted() &&
+     * !AuthorizationManager.isTipoVersamentoAuthorized(...)}). Qui l'applicazione e'
+     * esplicitamente {@code trusted(false)}, senza autorizzazione "star" ne' una riga
+     * esplicita in {@code utenze_tipo_vers}: deve essere rifiutata anche se "DIRITTI_SEGRETERIA"
+     * e' censito/abilitato per il dominio (a differenza dell'ACL/idA2A, qui il precedente
+     * legacy e' 422 — non usato da questa API — mappato su 400, stessa scelta gia' fatta per i
+     * controlli "abilitato" di tributo/IBAN/UO).
+     */
+    @Test
+    void rifiutaConBadRequestSeApplicazioneNonTrustedENonAutorizzataAlTipoPendenza() throws Exception {
+        String principal = "A2A-NON-TRUSTED";
+        String password = "non-trusted-password";
+        UtenzaEntity utenzaNonTrusted = creaUtenza(principal, password);
+        applicazioneRepository.save(ApplicazioneEntity.builder()
+                .codApplicazione(principal)
+                .autoIuv(true)
+                .firmaRicevuta("N")
+                .trusted(false)
+                .idUtenza(utenzaNonTrusted.getId())
+                .build());
+
+        String body = """
+                {
+                  "idPosizioneDebitoria": "pos-non-trusted",
+                  "idDominio": "12345678901",
+                  "descrizione": "test",
+                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
+                  "opzioniPagamento": [ {
+                    "tipologia": "SOLUZIONE_UNICA",
+                    "pendenze": [ {
+                      "idPendenza": "pendenza-1",
+                      "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                      "importo": 16.00,
+                      "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-1", "importo": 16.00, "descrizione": "test",
+                                  "codEntrata": "DIRITTI_SEGRETERIA" } ]
+                    } ]
+                  } ]
+                }
+                """;
+
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}", principal)
+                        .with(comeApplicazione(principal, password))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isBadRequest());
+    }
+
+    /**
+     * Come sopra, ma l'utenza ha l'autorizzazione "star" ({@code
+     * utenze.autorizzazione_tipi_vers_star}): nessuna riga esplicita in
+     * {@code utenze_tipo_vers} necessaria, la richiesta va a buon fine.
+     */
+    @Test
+    void accettaSeApplicazioneNonTrustedHaAutorizzazioneStarAiTipiVersamento() throws Exception {
+        String principal = "A2A-NON-TRUSTED-STAR";
+        String password = "non-trusted-star-password";
+        UtenzaEntity utenza = creaUtenza(principal, password);
+        utenza.setAutorizzazioneTipiVersStar(true);
+        utenzaRepository.save(utenza);
+        applicazioneRepository.save(ApplicazioneEntity.builder()
+                .codApplicazione(principal)
+                .autoIuv(true)
+                .firmaRicevuta("N")
+                .trusted(false)
+                .idUtenza(utenza.getId())
+                .build());
+
+        String body = """
+                {
+                  "idPosizioneDebitoria": "pos-non-trusted-star",
+                  "idDominio": "12345678901",
+                  "descrizione": "test",
+                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
+                  "opzioniPagamento": [ {
+                    "tipologia": "SOLUZIONE_UNICA",
+                    "pendenze": [ {
+                      "idPendenza": "pendenza-1",
+                      "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                      "importo": 16.00,
+                      "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-1", "importo": 16.00, "descrizione": "test",
+                                  "codEntrata": "DIRITTI_SEGRETERIA" } ]
+                    } ]
+                  } ]
+                }
+                """;
+
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}", principal)
+                        .with(comeApplicazione(principal, password))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isCreated());
+    }
+
+    /**
+     * Come sopra, ma senza "star": l'autorizzazione arriva da una riga esplicita in
+     * {@code utenze_tipo_vers} per il solo tipo pendenza usato dalla richiesta.
+     */
+    @Test
+    void accettaSeApplicazioneNonTrustedHaAutorizzazioneEsplicitaAlTipoPendenza() throws Exception {
+        String principal = "A2A-NON-TRUSTED-GRANT";
+        String password = "non-trusted-grant-password";
+        UtenzaEntity utenza = creaUtenza(principal, password);
+        applicazioneRepository.save(ApplicazioneEntity.builder()
+                .codApplicazione(principal)
+                .autoIuv(true)
+                .firmaRicevuta("N")
+                .trusted(false)
+                .idUtenza(utenza.getId())
+                .build());
+
+        Long idTipoVersamento = tipoVersamentoRepository.findByCodTipoVersamento("DIRITTI_SEGRETERIA")
+                .orElseThrow().getId();
+        UtenzaTipoVersamentoEntity grant = new UtenzaTipoVersamentoEntity();
+        grant.setIdUtenza(utenza.getId());
+        grant.setIdTipoVersamento(idTipoVersamento);
+        utenzaTipoVersamentoRepository.save(grant);
+
+        String body = """
+                {
+                  "idPosizioneDebitoria": "pos-non-trusted-grant",
+                  "idDominio": "12345678901",
+                  "descrizione": "test",
+                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
+                  "opzioniPagamento": [ {
+                    "tipologia": "SOLUZIONE_UNICA",
+                    "pendenze": [ {
+                      "idPendenza": "pendenza-1",
+                      "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                      "importo": 16.00,
+                      "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-1", "importo": 16.00, "descrizione": "test",
+                                  "codEntrata": "DIRITTI_SEGRETERIA" } ]
+                    } ]
+                  } ]
+                }
+                """;
+
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}", principal)
+                        .with(comeApplicazione(principal, password))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isCreated());
+    }
+
+    /**
+     * Bug del lead, 2026-09-29: la creazione accettava (201) sia un dominio disabilitato sia
+     * un tipo pendenza disabilitato (globale o per il dominio) — {@link #risolviIdDominioAbilitato}/
+     * {@link PosizioneDebitoriaMapper#risolviTipoVersamentoDominio} in
+     * {@code PosizioneDebitoriaMapper} controllavano solo che l'anagrafica fosse CENSITA, mai
+     * che fosse ABILITATA (a differenza dei controlli gia' presenti per UO/tributo/IBAN, che
+     * non coprono questi tre casi). v2 lo fa in {@code VersamentoUtils}: {@code DOM_001}
+     * (dominio), {@code TVR_001} (tipo pendenza globale), {@code TVD_001} (override per
+     * dominio).
+     */
+    @Test
+    void rifiutaConBadRequestSeDominioDisabilitato() throws Exception {
+        dominioRepository.save(DominioEntity.builder()
+                .codDominio("99999999999")
+                .ragioneSociale("Comune disabilitato")
+                .abilitato(false)
+                .intermediato(false)
+                .scaricaFr(false)
+                .auxDigit(1)
+                .build());
+
+        String body = """
+                {
+                  "idPosizioneDebitoria": "pos-dominio-disabilitato",
+                  "idDominio": "99999999999",
+                  "descrizione": "test",
+                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
+                  "opzioniPagamento": [ {
+                    "tipologia": "SOLUZIONE_UNICA",
+                    "pendenze": [ {
+                      "idPendenza": "pendenza-1",
+                      "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                      "importo": 16.00,
+                      "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-1", "importo": 16.00, "descrizione": "test",
+                                  "codEntrata": "DIRITTI_SEGRETERIA" } ]
+                    } ]
+                  } ]
+                }
+                """;
+
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}", "A2A-TEST")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void rifiutaConBadRequestSeTipoPendenzaGlobaleDisabilitato() throws Exception {
+        DominioEntity dominio = dominioRepository.findByCodDominio("12345678901").orElseThrow();
+
+        TipoVersamentoEntity tipoVersamentoDisabilitato = nuovoTipoVersamento("TIPO-DISABILITATO", "Tipo disabilitato a livello globale");
+        tipoVersamentoDisabilitato.setAbilitato(false);
+        tipoVersamentoRepository.save(tipoVersamentoDisabilitato);
+
+        TipoVersamentoDominioEntity override = new TipoVersamentoDominioEntity();
+        override.setTipoVersamento(tipoVersamentoDisabilitato);
+        override.setDominio(dominio);
+        tipoVersamentoDominioRepository.save(override);
+
+        String body = """
+                {
+                  "idPosizioneDebitoria": "pos-tipo-globale-disabilitato",
+                  "idDominio": "12345678901",
+                  "descrizione": "test",
+                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
+                  "opzioniPagamento": [ {
+                    "tipologia": "SOLUZIONE_UNICA",
+                    "pendenze": [ {
+                      "idPendenza": "pendenza-1",
+                      "idTipoPendenza": "TIPO-DISABILITATO",
+                      "importo": 16.00,
+                      "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-1", "importo": 16.00, "descrizione": "test",
+                                  "codEntrata": "DIRITTI_SEGRETERIA" } ]
+                    } ]
+                  } ]
+                }
+                """;
+
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}", "A2A-TEST")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isBadRequest());
+    }
+
+    /**
+     * A differenza del test precedente, qui il tipo pendenza e' abilitato a livello globale:
+     * la disabilitazione e' solo nell'override per QUESTO dominio ({@code tipi_vers_domini.abilitato
+     * = false} esplicito, non {@code null}).
+     */
+    @Test
+    void rifiutaConBadRequestSeTipoPendenzaDisabilitatoPerIlDominio() throws Exception {
+        DominioEntity altroDominio = dominioRepository.save(DominioEntity.builder()
+                .codDominio("88888888888")
+                .ragioneSociale("Comune con tipo pendenza disabilitato")
+                .abilitato(true)
+                .intermediato(false)
+                .scaricaFr(false)
+                .auxDigit(1)
+                .build());
+
+        TipoVersamentoEntity tipoVersamentoGlobale = tipoVersamentoRepository.findByCodTipoVersamento("DIRITTI_SEGRETERIA")
+                .orElseThrow();
+        TipoVersamentoDominioEntity overrideDisabilitato = new TipoVersamentoDominioEntity();
+        overrideDisabilitato.setTipoVersamento(tipoVersamentoGlobale);
+        overrideDisabilitato.setDominio(altroDominio);
+        overrideDisabilitato.setAbilitato(false);
+        tipoVersamentoDominioRepository.save(overrideDisabilitato);
+
+        // "DIRITTI_SEGRETERIA" e' un cod_tributo GLOBALE (unique) gia' censito da
+        // creaAnagrafiche(): qui si aggiunge solo l'override per il NUOVO dominio, non un
+        // secondo TipoTributoEntity (violerebbe unique_tipi_tributo_1).
+        TipoTributoEntity tipoTributoGlobale = tipoTributoRepository.findByCodTributo("DIRITTI_SEGRETERIA")
+                .orElseThrow();
+        TributoEntity tributo = new TributoEntity();
+        tributo.setAbilitato(true);
+        tributo.setDominio(altroDominio);
+        tributo.setTipoTributo(tipoTributoGlobale);
+        tributoRepository.save(tributo);
+
+        String body = """
+                {
+                  "idPosizioneDebitoria": "pos-tipo-dominio-disabilitato",
+                  "idDominio": "88888888888",
+                  "descrizione": "test",
+                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
+                  "opzioniPagamento": [ {
+                    "tipologia": "SOLUZIONE_UNICA",
+                    "pendenze": [ {
+                      "idPendenza": "pendenza-1",
+                      "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                      "importo": 16.00,
+                      "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-1", "importo": 16.00, "descrizione": "test",
+                                  "codEntrata": "DIRITTI_SEGRETERIA" } ]
+                    } ]
+                  } ]
+                }
+                """;
+
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}", "A2A-TEST")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isBadRequest());
+    }
+
     @Test
     void rifiutaConConflictSeIdPosizioneDebitoriaGiaEsistente() throws Exception {
         String body = """
@@ -1356,5 +1759,52 @@ class PosizioneDebitoriaControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
                 .andExpect(jsonPath("$.status").value(400));
+    }
+
+    /**
+     * Bug del lead, 2026-09-29: {@code CurrentApplicazioneService#get} lanciava
+     * {@code IllegalStateException} (500) se il principal autenticato (credenziali VALIDE,
+     * verificate dal filtro — {@code abilitato=true}) non risolveva a nessuna
+     * {@link ApplicazioneEntity}: una condizione di dato reale (utenza censita senza
+     * applicazione associata), non un errore di programmazione — deve essere 403
+     * ({@link it.govpay.pendenze.web.AccessoNegatoException}), non un errore interno. La
+     * stessa correzione si applica a {@code AclAuthorizer#utenzaAutenticata}, ma il diritto
+     * ACL "RW" e' concesso qui apposta perche' il fallimento sotto test sia specificamente
+     * quello di {@code CurrentApplicazioneService}, non quello (precedente, gia' testato) di
+     * {@code AclAuthorizer}.
+     */
+    @Test
+    void rifiutaConForbiddenSeUtenzaAutenticataNonHaApplicazioneAssociata() throws Exception {
+        String principal = "A2A-SENZA-APPLICAZIONE";
+        String password = "senza-applicazione-password";
+        creaUtenza(principal, password, "RW");
+        // Nessuna ApplicazioneEntity con idUtenza = questa utenza: deliberatamente orfana.
+
+        String body = """
+                {
+                  "idPosizioneDebitoria": "pos-1",
+                  "idDominio": "12345678901",
+                  "descrizione": "test",
+                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
+                  "opzioniPagamento": [ {
+                    "tipologia": "SOLUZIONE_UNICA",
+                    "pendenze": [ {
+                      "idPendenza": "pendenza-1",
+                      "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                      "importo": 16.00,
+                      "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-1", "importo": 16.00, "descrizione": "test",
+                                  "codEntrata": "DIRITTI_SEGRETERIA" } ]
+                    } ]
+                  } ]
+                }
+                """;
+
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}", principal)
+                        .with(comeApplicazione(principal, password))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isForbidden())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(403));
     }
 }

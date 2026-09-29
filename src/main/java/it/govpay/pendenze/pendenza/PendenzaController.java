@@ -21,6 +21,7 @@ import it.govpay.pendenze.criteri.PaginaSenzaConteggio;
 import it.govpay.pendenze.entity.Pendenza;
 import it.govpay.pendenze.exception.ValidazioneNonSuperataException;
 import it.govpay.pendenze.posizionedebitoria.PosizioneDebitoriaMapper;
+import it.govpay.pendenze.security.AclAuthorizer;
 import it.govpay.pendenze.security.CurrentApplicazioneService;
 import it.govpay.pendenze.service.PosizioneDebitoriaService;
 import it.govpay.pendenze.web.QueryParamUtils;
@@ -43,15 +44,17 @@ public class PendenzaController implements PendenzeApi {
     private final ObjectMapper objectMapper;
     private final HttpServletRequest currentRequest;
     private final CurrentApplicazioneService currentApplicazioneService;
+    private final AclAuthorizer aclAuthorizer;
 
     public PendenzaController(PosizioneDebitoriaMapper mapper, PosizioneDebitoriaService posizioneDebitoriaService,
             ObjectMapper objectMapper, HttpServletRequest currentRequest,
-            CurrentApplicazioneService currentApplicazioneService) {
+            CurrentApplicazioneService currentApplicazioneService, AclAuthorizer aclAuthorizer) {
         this.mapper = mapper;
         this.posizioneDebitoriaService = posizioneDebitoriaService;
         this.objectMapper = objectMapper;
         this.currentRequest = currentRequest;
         this.currentApplicazioneService = currentApplicazioneService;
+        this.aclAuthorizer = aclAuthorizer;
     }
 
     /**
@@ -85,6 +88,7 @@ public class PendenzaController implements PendenzeApi {
     @Transactional(readOnly = true)
     public ResponseEntity<Pendenze> findPendenze(String idA2A, String numeroAvviso, String idDominio, Integer page,
             String cursor, Integer limit, String sort, String fields, Boolean total) {
+        aclAuthorizer.richiedeLettura();
         currentApplicazioneService.verificaIdA2A(idA2A);
         boolean modalitaCursore = cursor != null;
         if (modalitaCursore) {

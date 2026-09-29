@@ -39,6 +39,8 @@ import it.govpay.common.repository.TipoVersamentoDominioRepository;
 import it.govpay.common.repository.TipoVersamentoRepository;
 import it.govpay.common.repository.TributoRepository;
 import it.govpay.pendenze.repository.PosizioneDebitoriaRepository;
+import it.govpay.pendenze.security.AclEntity;
+import it.govpay.pendenze.security.AclRepository;
 import it.govpay.pendenze.security.UtenzaEntity;
 import it.govpay.pendenze.security.UtenzaRepository;
 
@@ -80,6 +82,9 @@ class PendenzaControllerTest {
 
     @Autowired
     private UtenzaRepository utenzaRepository;
+
+    @Autowired
+    private AclRepository aclRepository;
 
     @Autowired
     private GovpayPasswordEncoder passwordEncoder;
@@ -195,19 +200,31 @@ class PendenzaControllerTest {
         tipoTributoRepository.deleteAll();
         dominioRepository.deleteAll();
         applicazioneRepository.deleteAll();
+        aclRepository.deleteAll();
         utenzaRepository.deleteAll();
     }
 
     /**
-     * Vedi Javadoc dell'omologo in {@code PosizioneDebitoriaControllerTest}.
+     * Vedi Javadoc dell'omologo in {@code PosizioneDebitoriaControllerTest}: diritti pieni
+     * ("RW") sul servizio "API Pendenze" — questa classe usa POST (setup dei dati via l'altro
+     * controller) e GET (l'endpoint sotto test), entrambi richiedono l'ACL.
      */
     private UtenzaEntity creaUtenza(String principal, String password) {
         UtenzaEntity utenza = new UtenzaEntity();
         utenza.setPrincipal(principal);
         utenza.setPrincipalOriginale(principal);
         utenza.setAbilitato(true);
+        utenza.setAutorizzazioneTipiVersStar(false);
         utenza.setPassword(passwordEncoder.encode(password));
-        return utenzaRepository.save(utenza);
+        utenza = utenzaRepository.save(utenza);
+
+        AclEntity acl = new AclEntity();
+        acl.setServizio("API Pendenze");
+        acl.setDiritti("RW");
+        acl.setIdUtenza(utenza.getId());
+        aclRepository.save(acl);
+
+        return utenza;
     }
 
     /**

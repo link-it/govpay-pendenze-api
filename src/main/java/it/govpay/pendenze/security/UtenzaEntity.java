@@ -35,6 +35,9 @@ public class UtenzaEntity {
     @Column(name = "abilitato", nullable = false)
     private Boolean abilitato;
 
+    @Column(name = "autorizzazione_tipi_vers_star", nullable = false)
+    private Boolean autorizzazioneTipiVersStar;
+
     @Column(name = "ruoli", length = 512)
     private String ruoli;
 
@@ -71,6 +74,14 @@ public class UtenzaEntity {
 
     public void setAbilitato(Boolean abilitato) {
         this.abilitato = abilitato;
+    }
+
+    public Boolean getAutorizzazioneTipiVersStar() {
+        return autorizzazioneTipiVersStar;
+    }
+
+    public void setAutorizzazioneTipiVersStar(Boolean autorizzazioneTipiVersStar) {
+        this.autorizzazioneTipiVersStar = autorizzazioneTipiVersStar;
     }
 
     public String getRuoli() {

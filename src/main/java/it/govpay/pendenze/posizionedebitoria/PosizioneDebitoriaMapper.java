@@ -61,6 +61,9 @@ import it.govpay.pendenze.entity.VocePendenza;
 import it.govpay.pendenze.exception.ValidazioneNonSuperataException;
 import it.govpay.pendenze.model.DettaglioContabile;
 import it.govpay.pendenze.model.StatoVocePendenza;
+import it.govpay.pendenze.security.UtenzaEntity;
+import it.govpay.pendenze.security.UtenzaRepository;
+import it.govpay.pendenze.security.UtenzaTipoVersamentoRepository;
 import it.govpay.pendenze.web.AnagraficaNonTrovataException;
 
 /**
@@ -92,6 +95,8 @@ public class PosizioneDebitoriaMapper {
     private final TipoTributoRepository tipoTributoRepository;
     private final TributoRepository tributoRepository;
     private final IbanAccreditoRepository ibanAccreditoRepository;
+    private final UtenzaRepository utenzaRepository;
+    private final UtenzaTipoVersamentoRepository utenzaTipoVersamentoRepository;
     private final Clock clock;
     private final ObjectMapper objectMapper;
     private final jakarta.validation.Validator validator;
@@ -99,8 +104,9 @@ public class PosizioneDebitoriaMapper {
     public PosizioneDebitoriaMapper(ApplicazioneRepository applicazioneRepository,
             DominioRepository dominioRepository, UnitaOperativaRepository unitaOperativaRepository,
             TipoVersamentoDominioRepository tipoVersamentoDominioRepository, TipoTributoRepository tipoTributoRepository,
-            TributoRepository tributoRepository, IbanAccreditoRepository ibanAccreditoRepository, Clock clock,
-            ObjectMapper objectMapper, jakarta.validation.Validator validator) {
+            TributoRepository tributoRepository, IbanAccreditoRepository ibanAccreditoRepository,
+            UtenzaRepository utenzaRepository, UtenzaTipoVersamentoRepository utenzaTipoVersamentoRepository,
+            Clock clock, ObjectMapper objectMapper, jakarta.validation.Validator validator) {
         this.applicazioneRepository = applicazioneRepository;
         this.dominioRepository = dominioRepository;
         this.unitaOperativaRepository = unitaOperativaRepository;
@@ -108,6 +114,8 @@ public class PosizioneDebitoriaMapper {
         this.tipoTributoRepository = tipoTributoRepository;
         this.tributoRepository = tributoRepository;
         this.ibanAccreditoRepository = ibanAccreditoRepository;
+        this.utenzaRepository = utenzaRepository;
+        this.utenzaTipoVersamentoRepository = utenzaTipoVersamentoRepository;
         this.clock = clock;
         this.objectMapper = objectMapper;
         this.validator = validator;
@@ -115,23 +123,19 @@ public class PosizioneDebitoriaMapper {
 
     // ── Risoluzione anagrafiche esterne ─────────────────────────────────────────
 
-    /**
-     * @throws AnagraficaNonTrovataException se {@code idA2A} non corrisponde a nessuna
-     *                                        applicazione
-     */
-    public Long risolviIdApplicazione(String idA2A) {
-        return applicazioneRepository.findByCodApplicazione(idA2A)
-                .map(ApplicazioneEntity::getId)
-                .orElseThrow(() -> new AnagraficaNonTrovataException("nessuna applicazione con idA2A [" + idA2A
-                        + "]"));
-    }
-
     private String risolviCodApplicazione(Long idApplicazione) {
         return applicazioneRepository.findById(idApplicazione).map(ApplicazioneEntity::getCodApplicazione)
                 .orElse(null);
     }
 
     /**
+     * Nessun controllo su {@code abilitato} qui (a differenza di
+     * {@link #risolviIdDominioAbilitato}): usato anche per il filtro {@code idDominio} di
+     * {@code PendenzaController#findPendenze} (lettura), dove v2 valida solo il FORMATO di
+     * idDominio, non lo stato di abilitazione (verificato in
+     * {@code v2/controller/PendenzeController#pendenzeGET}, che chiama solo
+     * {@code validatoreId.validaIdDominio}).
+     *
      * @throws AnagraficaNonTrovataException se {@code idDominio} non corrisponde a nessun
      *                                        dominio
      */
@@ -140,6 +144,25 @@ public class PosizioneDebitoriaMapper {
                 .map(DominioEntity::getId)
                 .orElseThrow(() -> new AnagraficaNonTrovataException("nessun dominio con idDominio [" + idDominio
                         + "]"));
+    }
+
+    /**
+     * Come {@link #risolviIdDominio}, ma rifiuta anche un dominio disabilitato — solo per i
+     * percorsi di SCRITTURA (bug del lead, 2026-09-29: mancava — v2 lo fa in
+     * {@code VersamentoUtils}, {@code DOM_001}).
+     *
+     * @throws AnagraficaNonTrovataException se {@code idDominio} non corrisponde a nessun
+     *                                        dominio
+     * @throws ValidazioneNonSuperataException se il dominio esiste ma e' disabilitato
+     */
+    private Long risolviIdDominioAbilitato(String idDominio) {
+        DominioEntity dominio = dominioRepository.findByCodDominio(idDominio)
+                .orElseThrow(() -> new AnagraficaNonTrovataException("nessun dominio con idDominio [" + idDominio
+                        + "]"));
+        if (Boolean.FALSE.equals(dominio.getAbilitato())) {
+            throw new ValidazioneNonSuperataException("il dominio [" + idDominio + "] non e' abilitato");
+        }
+        return dominio.getId();
     }
 
     private String risolviCodDominio(Long idDominio) {
@@ -241,17 +264,70 @@ public class PosizioneDebitoriaMapper {
     }
 
     /**
+     * Rifiuta un tipo pendenza disabilitato, sia a livello globale sia nell'override per
+     * questo dominio (bug del lead, 2026-09-29: mancavano entrambi — v2 lo fa in
+     * {@code VersamentoUtils}, {@code TVR_001}/{@code TVD_001}). {@code abilitato} e' colonna
+     * condivisa tra {@code TipoVersamentoEntity} (globale, NOT NULL) e
+     * {@code TipoVersamentoDominioEntity} (override per dominio, nullable — {@code null}
+     * significa "nessun override, eredita il globale", gia' verificato sopra; solo un
+     * {@code false} esplicito sull'override disabilita per questo specifico dominio).
+     *
      * @throws AnagraficaNonTrovataException se {@code idTipoPendenza} non e' configurato per
      *                                        il dominio indicato (anche se esiste nel
      *                                        catalogo globale: nessun fallback su un dominio
      *                                        di default, stesso comportamento del legacy —
      *                                        vedi Javadoc di
      *                                        {@link TipoVersamentoDominioRepository#findByCodTipoVersamentoAndDominioId})
+     * @throws ValidazioneNonSuperataException se il tipo pendenza e' disabilitato a livello
+     *                                          globale, o disabilitato esplicitamente per
+     *                                          questo dominio
      */
     private TipoVersamentoDominioEntity risolviTipoVersamentoDominio(String idTipoPendenza, Long idDominio) {
-        return tipoVersamentoDominioRepository.findByCodTipoVersamentoAndDominioId(idTipoPendenza, idDominio)
+        TipoVersamentoDominioEntity tipoVersamentoDominio = tipoVersamentoDominioRepository
+                .findByCodTipoVersamentoAndDominioId(idTipoPendenza, idDominio)
                 .orElseThrow(() -> new AnagraficaNonTrovataException("nessun tipo pendenza [" + idTipoPendenza
                         + "] configurato per il dominio [id:" + idDominio + "]"));
+        if (Boolean.FALSE.equals(tipoVersamentoDominio.getTipoVersamento().getAbilitato())) {
+            throw new ValidazioneNonSuperataException("il tipo pendenza [" + idTipoPendenza
+                    + "] non e' abilitato");
+        }
+        if (Boolean.FALSE.equals(tipoVersamentoDominio.getAbilitato())) {
+            throw new ValidazioneNonSuperataException("il tipo pendenza [" + idTipoPendenza
+                    + "] non e' abilitato per il dominio [id:" + idDominio + "]");
+        }
+        return tipoVersamentoDominio;
+    }
+
+    /**
+     * Rifiuta un tipo pendenza che il CHIAMANTE non e' autorizzato a usare, anche se e'
+     * censito/abilitato per il dominio (bug del lead, 2026-09-29: mancava — v2 lo fa in
+     * {@code VersamentoUtils.setTipoVersamento}, {@code VER_022}: {@code !applicazione.isTrusted()
+     * && !AuthorizationManager.isTipoVersamentoAuthorized(applicazione.getUtenza(),
+     * codTipoVersamento)}). Un'applicazione {@code trusted} e' sempre autorizzata a
+     * qualunque tipo pendenza censito (nessun controllo aggiuntivo); una non-trusted deve
+     * avere {@code utenze.autorizzazione_tipi_vers_star} oppure una riga esplicita in
+     * {@code utenze_tipo_vers} per quel tipo versamento.
+     *
+     * @throws ValidazioneNonSuperataException se l'applicazione non e' trusted e non e'
+     *                                          autorizzata al tipo versamento risolto
+     */
+    private void verificaAutorizzazioneTipoVersamento(ApplicazioneEntity applicazione,
+            TipoVersamentoDominioEntity tipoVersamentoDominio) {
+        if (Boolean.TRUE.equals(applicazione.getTrusted())) {
+            return;
+        }
+        UtenzaEntity utenza = utenzaRepository.findById(applicazione.getIdUtenza())
+                .orElseThrow(() -> new IllegalStateException("applicazione [id:" + applicazione.getId()
+                        + "] non ha un'utenza valida (idUtenza [" + applicazione.getIdUtenza() + "])"));
+        if (Boolean.TRUE.equals(utenza.getAutorizzazioneTipiVersStar())) {
+            return;
+        }
+        Long idTipoVersamento = tipoVersamentoDominio.getTipoVersamento().getId();
+        if (!utenzaTipoVersamentoRepository.existsByIdUtenzaAndIdTipoVersamento(utenza.getId(), idTipoVersamento)) {
+            throw new ValidazioneNonSuperataException("l'applicazione [" + applicazione.getCodApplicazione()
+                    + "] non e' autorizzata alla gestione del tipo pendenza ["
+                    + tipoVersamentoDominio.getTipoVersamento().getCodTipoVersamento() + "]");
+        }
     }
 
     /**
@@ -284,8 +360,11 @@ public class PosizioneDebitoriaMapper {
     // ── Richiesta -> entita' ─────────────────────────────────────────────────
 
     public it.govpay.pendenze.entity.PosizioneDebitoria toEntity(String idA2A, NuovaPosizioneDebitoria dto) {
-        Long idApplicazione = risolviIdApplicazione(idA2A);
-        Long idDominio = risolviIdDominio(dto.getIdDominio());
+        ApplicazioneEntity applicazione = applicazioneRepository.findByCodApplicazione(idA2A)
+                .orElseThrow(() -> new AnagraficaNonTrovataException("nessuna applicazione con idA2A [" + idA2A
+                        + "]"));
+        Long idApplicazione = applicazione.getId();
+        Long idDominio = risolviIdDominioAbilitato(dto.getIdDominio());
         Long idUnitaOperativa = risolviIdUnitaOperativa(idDominio, dto.getIdUnitaOperativa());
 
         it.govpay.pendenze.entity.PosizioneDebitoria posizione = new it.govpay.pendenze.entity.PosizioneDebitoria();
@@ -302,7 +381,7 @@ public class PosizioneDebitoriaMapper {
             posizione.addSoggettoDebitore(toSoggettoDebitore(soggetto));
         }
         for (NuovaOpzionePagamento opzione : dto.getOpzioniPagamento()) {
-            posizione.addOpzionePagamento(toOpzionePagamento(opzione, idDominio, idApplicazione));
+            posizione.addOpzionePagamento(toOpzionePagamento(opzione, idDominio, applicazione));
         }
         return posizione;
     }
@@ -463,7 +542,7 @@ public class PosizioneDebitoriaMapper {
     }
 
     private it.govpay.pendenze.entity.OpzionePagamento toOpzionePagamento(NuovaOpzionePagamento dto,
-            Long idDominioPosizione, Long idApplicazione) {
+            Long idDominioPosizione, ApplicazioneEntity applicazione) {
         it.govpay.pendenze.entity.OpzionePagamento opzione = new it.govpay.pendenze.entity.OpzionePagamento();
         opzione.setTipologia(it.govpay.pendenze.model.TipologiaOpzionePagamento.valueOf(dto.getTipologia().name()));
 
@@ -491,19 +570,20 @@ public class PosizioneDebitoriaMapper {
         }
 
         for (NuovaPendenza pendenza : pendenze) {
-            opzione.addPendenza(toPendenza(pendenza, idDominioPosizione, idApplicazione));
+            opzione.addPendenza(toPendenza(pendenza, idDominioPosizione, applicazione));
         }
         return opzione;
     }
 
     private it.govpay.pendenze.entity.Pendenza toPendenza(NuovaPendenza dto, Long idDominioPosizione,
-            Long idApplicazione) {
+            ApplicazioneEntity applicazione) {
         it.govpay.pendenze.entity.Pendenza pendenza = new it.govpay.pendenze.entity.Pendenza();
-        pendenza.setIdApplicazione(idApplicazione);
+        pendenza.setIdApplicazione(applicazione.getId());
         pendenza.setIdPendenza(dto.getIdPendenza());
 
         TipoVersamentoDominioEntity tipoVersamentoDominio = risolviTipoVersamentoDominio(dto.getIdTipoPendenza(),
                 idDominioPosizione);
+        verificaAutorizzazioneTipoVersamento(applicazione, tipoVersamentoDominio);
         pendenza.setIdTipoPendenza(tipoVersamentoDominio.getId());
         pendenza.setIdTipoVersamento(tipoVersamentoDominio.getTipoVersamento().getId());
         // Necessaria a GeneratoreIuvStandard per risolvere %(p)/%(t) nel prefisso IUV di
@@ -591,7 +671,7 @@ public class PosizioneDebitoriaMapper {
         if (idDominioVoce == null) {
             return idDominioPosizione;
         }
-        Long idDominioRisolto = risolviIdDominio(idDominioVoce);
+        Long idDominioRisolto = risolviIdDominioAbilitato(idDominioVoce);
         voce.setIdDominio(idDominioRisolto);
         return idDominioRisolto;
     }
