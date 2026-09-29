@@ -2040,4 +2040,139 @@ class PosizioneDebitoriaControllerTest {
                 .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
                 .andExpect(jsonPath("$.status").value(409));
     }
+
+    private String idOpzioneDi(String idPosizioneDebitoria) throws Exception {
+        String risposta = mockMvc
+                .perform(get("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", idPosizioneDebitoria))
+                .andReturn().getResponse().getContentAsString();
+        return JsonPath.read(risposta, "$.opzioniPagamento[0].idOpzionePagamento");
+    }
+
+    @Test
+    @DisplayName("PATCH .../opzioni-pagamento/{id} annulla l'opzione, leggibile dalla GET successiva")
+    void updateOpzionePagamentoAnnullaConSuccesso() throws Exception {
+        creaPosizioneMinimaConDebitore("pos-annulla-opz", "FRRPLA90C41H501Y");
+        String idOpzione = idOpzioneDi("pos-annulla-opz");
+
+        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}",
+                        "A2A-TEST", "pos-annulla-opz", idOpzione)
+                        .contentType(PATCH_MEDIA_TYPE)
+                        .content("""
+                                [ { "op": "replace", "path": "/stato", "value": "ANNULLATA" } ]
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", "pos-annulla-opz"))
+                .andExpect(jsonPath("$.opzioniPagamento[0].stato").value("ANNULLATA"));
+    }
+
+    @Test
+    @DisplayName("PATCH .../opzioni-pagamento/{id} rifiuta con 400 un path diverso da /stato")
+    void updateOpzionePagamentoRifiutaConBadRequestSePathNonSupportato() throws Exception {
+        creaPosizioneMinimaConDebitore("pos-opz-path-ignoto", "FRRPLA90C41H501Y");
+        String idOpzione = idOpzioneDi("pos-opz-path-ignoto");
+
+        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}",
+                        "A2A-TEST", "pos-opz-path-ignoto", idOpzione)
+                        .contentType(PATCH_MEDIA_TYPE)
+                        .content("""
+                                [ { "op": "replace", "path": "/tipologia", "value": "PIANO_RATEALE" } ]
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    /**
+     * L'attivazione e' innescata da un pagamento reale, mai da un PATCH del chiamante (vedi
+     * Javadoc di {@code PosizioneDebitoriaMapper#validaPatchAnnullamento}): rifiutata con lo
+     * stesso 400 di qualunque altro valore non supportato.
+     */
+    @Test
+    @DisplayName("PATCH .../opzioni-pagamento/{id} rifiuta con 400 value=ATTIVATA: non raggiungibile da questo endpoint")
+    void updateOpzionePagamentoRifiutaConBadRequestSeValoreAttivata() throws Exception {
+        creaPosizioneMinimaConDebitore("pos-opz-value-attivata", "FRRPLA90C41H501Y");
+        String idOpzione = idOpzioneDi("pos-opz-value-attivata");
+
+        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}",
+                        "A2A-TEST", "pos-opz-value-attivata", idOpzione)
+                        .contentType(PATCH_MEDIA_TYPE)
+                        .content("""
+                                [ { "op": "replace", "path": "/stato", "value": "ATTIVATA" } ]
+                                """))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("PATCH .../opzioni-pagamento/{id} rifiuta con 400 un body assente")
+    void updateOpzionePagamentoRifiutaConBadRequestSeBodyAssente() throws Exception {
+        creaPosizioneMinimaConDebitore("pos-opz-body-assente-2", "FRRPLA90C41H501Y");
+        String idOpzione = idOpzioneDi("pos-opz-body-assente-2");
+
+        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}",
+                        "A2A-TEST", "pos-opz-body-assente-2", idOpzione)
+                        .contentType(PATCH_MEDIA_TYPE)
+                        .content("null"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("PATCH .../opzioni-pagamento/{id} restituisce 404 se l'opzione non esiste")
+    void updateOpzionePagamentoRestituisce404SeOpzioneNonEsiste() throws Exception {
+        creaPosizioneMinimaConDebitore("pos-opz-inesistente", "FRRPLA90C41H501Y");
+
+        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}",
+                        "A2A-TEST", "pos-opz-inesistente", java.util.UUID.randomUUID().toString())
+                        .contentType(PATCH_MEDIA_TYPE)
+                        .content("""
+                                [ { "op": "replace", "path": "/stato", "value": "ANNULLATA" } ]
+                                """))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(404));
+    }
+
+    /**
+     * Bug potenziale verificato esplicitamente: {@code idOpzionePagamento} da solo non e'
+     * legato a nessun controllo di appartenenza — deve essere il servizio a verificare che
+     * appartenga davvero alla posizione indicata nel path, non solo che esista da qualche
+     * parte (vedi Javadoc di {@code PosizioneDebitoriaService#annulla(String, String, UUID)}).
+     */
+    @Test
+    @DisplayName("PATCH .../opzioni-pagamento/{id} restituisce 404 se l'opzione esiste ma appartiene a un'altra posizione")
+    void updateOpzionePagamentoRestituisce404SeOpzioneAppartieneAdAltraPosizione() throws Exception {
+        creaPosizioneMinimaConDebitore("pos-opz-altra-1", "FRRPLA90C41H501Y");
+        creaPosizioneMinimaConDebitore("pos-opz-altra-2", "FRRPLA90C41H501Y");
+        String idOpzioneDellAltra = idOpzioneDi("pos-opz-altra-2");
+
+        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}",
+                        "A2A-TEST", "pos-opz-altra-1", idOpzioneDellAltra)
+                        .contentType(PATCH_MEDIA_TYPE)
+                        .content("""
+                                [ { "op": "replace", "path": "/stato", "value": "ANNULLATA" } ]
+                                """))
+                .andExpect(status().isNotFound());
+
+        // L'opzione dell'ALTRA posizione non deve essere stata toccata dal tentativo rifiutato.
+        mockMvc.perform(get("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", "pos-opz-altra-2"))
+                .andExpect(jsonPath("$.opzioniPagamento[0].stato").value("DISPONIBILE"));
+    }
+
+    @Test
+    @DisplayName("PATCH .../opzioni-pagamento/{id} restituisce 409 se l'opzione e' gia' ATTIVATA")
+    void updateOpzionePagamentoRestituisceConflictSeGiaAttivata() throws Exception {
+        creaPosizioneMinimaConDebitore("pos-opz-gia-attivata", "FRRPLA90C41H501Y");
+        String idOpzione = idOpzioneDi("pos-opz-gia-attivata");
+        posizioneDebitoriaService.attiva(java.util.UUID.fromString(idOpzione));
+
+        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}",
+                        "A2A-TEST", "pos-opz-gia-attivata", idOpzione)
+                        .contentType(PATCH_MEDIA_TYPE)
+                        .content("""
+                                [ { "op": "replace", "path": "/stato", "value": "ANNULLATA" } ]
+                                """))
+                .andExpect(status().isConflict())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(409));
+    }
 }

@@ -585,6 +585,49 @@ public class PosizioneDebitoriaMapper {
         return operazione.getValue().get();
     }
 
+    /**
+     * Valida il body di {@code PATCH .../opzioni-pagamento/{idOpzionePagamento}}: l'unica
+     * operazione supportata e' l'annullamento manuale
+     * ({@code [{"op": "replace"|"add", "path": "/stato", "value": "ANNULLATA"}]}) — a
+     * differenza di {@link #applicaPatch} (posizione), qui non c'e' alcuna entita' da mutare
+     * direttamente: la transizione vera e propria e' interamente a carico di
+     * {@code PosizioneDebitoriaService#annulla}, chiamato dal controller solo se questa
+     * validazione passa. {@code /stato: "ATTIVATA"} non e' raggiungibile da qui (semantica
+     * dello YAML v3: l'attivazione e' innescata da un pagamento reale, mai da un PATCH del
+     * chiamante) — rifiutato con lo stesso 400 di qualunque altro valore non supportato.
+     *
+     * @throws ValidazioneNonSuperataException se il body non e' esattamente quella singola
+     *                                          operazione (body nullo/vuoto, piu' di
+     *                                          un'operazione, path/op/value diversi)
+     */
+    public void validaPatchAnnullamento(List<PatchOp> operazioni) {
+        if (operazioni == null) {
+            throw new ValidazioneNonSuperataException("body della richiesta mancante");
+        }
+        if (operazioni.size() != 1) {
+            throw new ValidazioneNonSuperataException("questo endpoint supporta esattamente un'operazione di "
+                    + "patch, l'annullamento (op \"replace\", path \"/stato\", value \"ANNULLATA\")");
+        }
+        PatchOp operazione = operazioni.get(0);
+        if (operazione == null) {
+            throw new ValidazioneNonSuperataException(
+                    "operazione di patch nulla non ammessa: deve essere un oggetto {op, path, value}");
+        }
+        if (!"/stato".equals(operazione.getPath())) {
+            throw new ValidazioneNonSuperataException(
+                    "path [" + operazione.getPath() + "] non supportato per questa risorsa: solo /stato");
+        }
+        if (operazione.getOp() == PatchOp.OpEnum.REMOVE) {
+            throw new ValidazioneNonSuperataException("'stato' e' obbligatorio: non puo' essere rimosso con 'remove'");
+        }
+        String valore = valoreStringa(operazione, "stato");
+        if (!"ANNULLATA".equals(valore)) {
+            throw new ValidazioneNonSuperataException("'stato' puo' essere impostato solo a 'ANNULLATA' tramite "
+                    + "questo endpoint: l'attivazione avviene a seguito di un pagamento, non di un PATCH del "
+                    + "chiamante");
+        }
+    }
+
     private it.govpay.pendenze.entity.OpzionePagamento toOpzionePagamento(NuovaOpzionePagamento dto,
             Long idDominioPosizione, ApplicazioneEntity applicazione) {
         it.govpay.pendenze.entity.OpzionePagamento opzione = new it.govpay.pendenze.entity.OpzionePagamento();

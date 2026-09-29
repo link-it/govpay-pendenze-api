@@ -38,8 +38,9 @@ import tools.jackson.databind.ObjectMapper;
 /**
  * Implementa {@link PosizioniDebitorieApi}: per ora {@link #addPosizioneDebitoria},
  * {@link #getPosizioneDebitoria}, {@link #updatePosizioneDebitoria},
- * {@link #findPosizioniDebitorie} e {@link #addOpzionePagamento}, le altre operazioni
- * restano sul default generato (501, vedi Javadoc dell'interfaccia) fino al loro sviluppo.
+ * {@link #findPosizioniDebitorie}, {@link #addOpzionePagamento} e
+ * {@link #updateOpzionePagamento}, le altre operazioni restano sul default generato (501,
+ * vedi Javadoc dell'interfaccia) fino al loro sviluppo.
  */
 @RestController
 public class PosizioneDebitoriaController implements PosizioniDebitorieApi {
@@ -162,6 +163,26 @@ public class PosizioneDebitoriaController implements PosizioniDebitorieApi {
                 posizione -> mapper.toOpzionePagamento(idA2A, posizione.getIdDominio(), nuovaOpzionePagamento));
         return ResponseEntity.status(org.springframework.http.HttpStatus.CREATED)
                 .body(mapper.toOpzionePagamentoDto(creata));
+    }
+
+    /**
+     * Annulla un'opzione di pagamento — l'unica transizione raggiungibile da questo endpoint
+     * (vedi Javadoc di {@link PosizioneDebitoriaMapper#validaPatchAnnullamento}: l'attivazione
+     * e' innescata da un pagamento reale, mai da un PATCH del chiamante). L'appartenenza di
+     * {@code idOpzionePagamento} a QUESTA posizione/applicazione e' verificata dal servizio
+     * (vedi Javadoc di {@code PosizioneDebitoriaService#annulla(String, String, UUID)}), non
+     * qui: {@code idOpzionePagamento} da solo non e' altrimenti legato a nessun controllo di
+     * appartenenza.
+     */
+    @Override
+    @Transactional
+    public ResponseEntity<Void> updateOpzionePagamento(String idA2A, String idPosizioneDebitoria,
+            java.util.UUID idOpzionePagamento, List<PatchOp> patchOp) {
+        aclAuthorizer.richiedeScrittura();
+        currentApplicazioneService.verificaIdA2A(idA2A);
+        mapper.validaPatchAnnullamento(patchOp);
+        posizioneDebitoriaService.annulla(idA2A, idPosizioneDebitoria, idOpzionePagamento);
+        return ResponseEntity.ok().build();
     }
 
     /**
