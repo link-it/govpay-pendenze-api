@@ -11,6 +11,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.jayway.jsonpath.JsonPath;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -52,6 +54,7 @@ import it.govpay.pendenze.security.UtenzaEntity;
 import it.govpay.pendenze.security.UtenzaRepository;
 import it.govpay.pendenze.security.UtenzaTipoVersamentoEntity;
 import it.govpay.pendenze.security.UtenzaTipoVersamentoRepository;
+import it.govpay.pendenze.service.PosizioneDebitoriaService;
 
 /**
  * Verifica {@code POST /posizioni-debitorie/{idA2A}} a livello di integrazione (contesto
@@ -142,6 +145,9 @@ class PosizioneDebitoriaControllerTest {
 
     @Autowired
     private PosizioneDebitoriaRepository posizioneDebitoriaRepository;
+
+    @Autowired
+    private PosizioneDebitoriaService posizioneDebitoriaService;
 
     private Long idDominio;
 
@@ -1806,5 +1812,232 @@ class PosizioneDebitoriaControllerTest {
                 .andExpect(status().isForbidden())
                 .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
                 .andExpect(jsonPath("$.status").value(403));
+    }
+
+    @Test
+    @DisplayName("POST .../opzioni-pagamento aggiunge una nuova opzione a una posizione esistente, "
+            + "generando numeroAvviso/iuv per la nuova pendenza")
+    void addOpzionePagamentoCreaConSuccesso() throws Exception {
+        creaPosizioneMinimaConDebitore("pos-add-opzione", "FRRPLA90C41H501Y");
+
+        String body = """
+                {
+                  "tipologia": "SOLUZIONE_UNICA",
+                  "pendenze": [ {
+                    "idPendenza": "pos-add-opzione-seconda",
+                    "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                    "importo": 16.00,
+                    "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-seconda", "importo": 16.00,
+                                "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
+                  } ]
+                }
+                """;
+
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento",
+                        "A2A-TEST", "pos-add-opzione")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isCreated())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.idOpzionePagamento").value(notNullValue()))
+                .andExpect(jsonPath("$.tipologia").value("SOLUZIONE_UNICA"))
+                .andExpect(jsonPath("$.stato").value("DISPONIBILE"))
+                .andExpect(jsonPath("$.pendenze.length()").value(1))
+                .andExpect(jsonPath("$.pendenze[0].idPendenza").value("pos-add-opzione-seconda"))
+                .andExpect(jsonPath("$.pendenze[0].numeroAvviso").value(notNullValue()))
+                .andExpect(jsonPath("$.pendenze[0].iuv").value(notNullValue()));
+
+        mockMvc.perform(get("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", "pos-add-opzione"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.opzioniPagamento.length()").value(2));
+    }
+
+    @Test
+    @DisplayName("POST .../opzioni-pagamento restituisce 404 se la posizione non esiste")
+    void addOpzionePagamentoRestituisce404SeLaPosizioneNonEsiste() throws Exception {
+        String body = """
+                {
+                  "tipologia": "SOLUZIONE_UNICA",
+                  "pendenze": [ {
+                    "idPendenza": "pendenza-1",
+                    "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                    "importo": 16.00,
+                    "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-1", "importo": 16.00,
+                                "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
+                  } ]
+                }
+                """;
+
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento",
+                        "A2A-TEST", "pos-inesistente")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(404));
+    }
+
+    @Test
+    @DisplayName("POST .../opzioni-pagamento rifiuta con 400 un body assente")
+    void addOpzionePagamentoRifiutaConBadRequestSeBodyAssente() throws Exception {
+        creaPosizioneMinimaConDebitore("pos-opz-body-assente", "FRRPLA90C41H501Y");
+
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento",
+                        "A2A-TEST", "pos-opz-body-assente")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("null"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    /**
+     * Conferma che il controllo "tipo pendenza disabilitato per il dominio" (gap del lead,
+     * 2026-09-29, {@link PosizioneDebitoriaMapper#risolviTipoVersamentoDominio}) si applica
+     * anche a questo endpoint: e' riusato dallo stesso {@code toOpzionePagamento}, non
+     * duplicato.
+     */
+    @Test
+    @DisplayName("POST .../opzioni-pagamento rifiuta con 400 un tipo pendenza disabilitato per il dominio")
+    void addOpzionePagamentoRifiutaConBadRequestSeTipoPendenzaDisabilitatoPerIlDominio() throws Exception {
+        creaPosizioneMinimaConDebitore("pos-opz-tipo-disab", "FRRPLA90C41H501Y");
+
+        DominioEntity dominio = dominioRepository.findByCodDominio("12345678901").orElseThrow();
+        TipoVersamentoEntity tipoVersamentoDisabilitato = nuovoTipoVersamento("TIPO-DISABILITATO-OPZIONE",
+                "Tipo disabilitato a livello globale, per questo test");
+        tipoVersamentoDisabilitato.setAbilitato(false);
+        tipoVersamentoRepository.save(tipoVersamentoDisabilitato);
+        TipoVersamentoDominioEntity override = new TipoVersamentoDominioEntity();
+        override.setTipoVersamento(tipoVersamentoDisabilitato);
+        override.setDominio(dominio);
+        tipoVersamentoDominioRepository.save(override);
+
+        String body = """
+                {
+                  "tipologia": "SOLUZIONE_UNICA",
+                  "pendenze": [ {
+                    "idPendenza": "pendenza-tipo-disabilitato",
+                    "idTipoPendenza": "TIPO-DISABILITATO-OPZIONE",
+                    "importo": 16.00,
+                    "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-1", "importo": 16.00,
+                                "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
+                  } ]
+                }
+                """;
+
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento",
+                        "A2A-TEST", "pos-opz-tipo-disab")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isBadRequest());
+    }
+
+    /**
+     * Bug del lead, 2026-09-29: la POST restituiva 201 (opzione DISPONIBILE creata) anche
+     * quando la posizione aveva gia' un'opzione ATTIVATA — contraddice la regola dello YAML
+     * secondo cui, dopo un pagamento, le alternative non sono piu' applicabili. Nessun
+     * endpoint REST attiva ancora un'opzione ({@code PATCH .../opzioni-pagamento/{id}} resta
+     * 501): l'attivazione e' simulata qui chiamando direttamente
+     * {@code PosizioneDebitoriaService#attiva}, come farebbe quell'endpoint una volta
+     * implementato.
+     */
+    @Test
+    @DisplayName("POST .../opzioni-pagamento rifiuta con 409 se la posizione ha gia' un'opzione ATTIVATA")
+    void addOpzionePagamentoRifiutaConConflictSeEsisteGiaUnaOpzioneAttivata() throws Exception {
+        creaPosizioneMinimaConDebitore("pos-opz-attivata", "FRRPLA90C41H501Y");
+
+        String risposta = mockMvc
+                .perform(get("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", "pos-opz-attivata"))
+                .andReturn().getResponse().getContentAsString();
+        String idOpzione = JsonPath.read(risposta, "$.opzioniPagamento[0].idOpzionePagamento");
+        posizioneDebitoriaService.attiva(java.util.UUID.fromString(idOpzione));
+
+        String body = """
+                {
+                  "tipologia": "SOLUZIONE_UNICA",
+                  "pendenze": [ {
+                    "idPendenza": "pos-opz-attivata-seconda",
+                    "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                    "importo": 16.00,
+                    "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-seconda", "importo": 16.00,
+                                "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
+                  } ]
+                }
+                """;
+
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento",
+                        "A2A-TEST", "pos-opz-attivata")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isConflict())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(409));
+    }
+
+    /**
+     * Bug del lead, 2026-09-29: il dominio disabilitato DOPO la creazione della posizione non
+     * impediva di aggiungerle una nuova opzione di pagamento — il nuovo mapper riusa i
+     * controlli sui tipi pendenza ma non ricontrollava l'abilitazione del dominio (a
+     * differenza della creazione).
+     */
+    @Test
+    @DisplayName("POST .../opzioni-pagamento rifiuta con 400 se il dominio e' stato disabilitato dopo la creazione")
+    void addOpzionePagamentoRifiutaConBadRequestSeDominioDisabilitatoDopoLaCreazione() throws Exception {
+        creaPosizioneMinimaConDebitore("pos-opz-dominio-disab", "FRRPLA90C41H501Y");
+
+        DominioEntity dominio = dominioRepository.findByCodDominio("12345678901").orElseThrow();
+        dominio.setAbilitato(false);
+        dominioRepository.save(dominio);
+
+        String body = """
+                {
+                  "tipologia": "SOLUZIONE_UNICA",
+                  "pendenze": [ {
+                    "idPendenza": "pos-opz-dominio-disab-2",
+                    "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                    "importo": 16.00,
+                    "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-seconda", "importo": 16.00,
+                                "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
+                  } ]
+                }
+                """;
+
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento",
+                        "A2A-TEST", "pos-opz-dominio-disab")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isBadRequest());
+    }
+
+    /**
+     * Bug del lead, 2026-09-29: riusare l'idPendenza di una pendenza gia' esistente della
+     * stessa applicazione falliva con 500 (vincolo UNIQUE {@code unique_versamenti_1} mai
+     * tradotto), non con una risposta applicativa 4xx.
+     */
+    @Test
+    @DisplayName("POST .../opzioni-pagamento rifiuta con 409 (non 500) un idPendenza gia' usato dalla stessa applicazione")
+    void addOpzionePagamentoRifiutaConConflictSeIdPendenzaGiaUsato() throws Exception {
+        creaPosizioneMinimaConDebitore("pos-opz-id-dup", "FRRPLA90C41H501Y");
+
+        String body = """
+                {
+                  "tipologia": "SOLUZIONE_UNICA",
+                  "pendenze": [ {
+                    "idPendenza": "pendenza-pos-opz-id-dup",
+                    "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                    "importo": 16.00,
+                    "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-x", "importo": 16.00,
+                                "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
+                  } ]
+                }
+                """;
+
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento",
+                        "A2A-TEST", "pos-opz-id-dup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isConflict())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(409));
     }
 }

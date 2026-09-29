@@ -406,6 +406,32 @@ paths:
           $ref: '#/components/responses/403NotAuthorized'
         '404':
           $ref: '#/components/responses/404NotFound'
+        '409':
+          description: >-
+            La posizione debitoria ha già un'opzione di pagamento ATTIVATA
+            (pagamento già eseguito): non è più possibile aggiungere
+            alternative. Oppure una pendenza della nuova opzione ha un
+            idPendenza già usato da un'altra pendenza della stessa
+            applicazione.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                giaAttivata:
+                  summary: La posizione ha già un'opzione ATTIVATA
+                  value:
+                    status: 409
+                    title: >-
+                      La posizione debitoria ha già un'opzione di pagamento
+                      ATTIVATA: non è più possibile aggiungere alternative
+                idPendenzaDuplicato:
+                  summary: idPendenza già usato da questa applicazione
+                  value:
+                    status: 409
+                    title: >-
+                      Una pendenza della nuova opzione ha un idPendenza già
+                      usato da un'altra pendenza della stessa applicazione
         '500':
           $ref: '#/components/responses/500ServiceUnavailable'
 

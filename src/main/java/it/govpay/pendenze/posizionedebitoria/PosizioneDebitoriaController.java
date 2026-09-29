@@ -11,7 +11,9 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
+import it.govpay.pendenze.api.model.NuovaOpzionePagamento;
 import it.govpay.pendenze.api.model.NuovaPosizioneDebitoria;
+import it.govpay.pendenze.api.model.OpzionePagamento;
 import it.govpay.pendenze.api.model.PatchOp;
 import it.govpay.pendenze.api.model.Pagination;
 import it.govpay.pendenze.api.model.PosizioneDebitoriaIndex;
@@ -35,7 +37,8 @@ import tools.jackson.databind.ObjectMapper;
 
 /**
  * Implementa {@link PosizioniDebitorieApi}: per ora {@link #addPosizioneDebitoria},
- * {@link #getPosizioneDebitoria} e {@link #findPosizioniDebitorie}, le altre operazioni
+ * {@link #getPosizioneDebitoria}, {@link #updatePosizioneDebitoria},
+ * {@link #findPosizioniDebitorie} e {@link #addOpzionePagamento}, le altre operazioni
  * restano sul default generato (501, vedi Javadoc dell'interfaccia) fino al loro sviluppo.
  */
 @RestController
@@ -130,6 +133,35 @@ public class PosizioneDebitoriaController implements PosizioniDebitorieApi {
         posizioneDebitoriaService.aggiorna(idA2A, idPosizioneDebitoria,
                 posizione -> mapper.applicaPatch(posizione, patchOp));
         return ResponseEntity.ok().build();
+    }
+
+    /**
+     * Aggiunge una nuova opzione di pagamento a una posizione debitoria esistente — vedi
+     * Javadoc di {@link PosizioneDebitoriaService#aggiungiOpzionePagamento} per l'ordine non
+     * banale con cui l'opzione viene costruita/validata prima di essere collegata
+     * all'aggregato gestito. {@code @Transactional} per lo stesso motivo di
+     * {@link #getPosizioneDebitoria}: {@link PosizioneDebitoriaMapper#toOpzionePagamentoDto}
+     * legge {@code entity.getPendenze()} sull'opzione appena creata — non un problema di per
+     * se' (e' un oggetto costruito in memoria da questo stesso mapper, non un proxy LAZY
+     * caricato dal DB), ma l'aggiunta e' avvenuta dentro la transazione del servizio: estendere
+     * il confine qui evita comunque ogni rischio se la forma dell'aggregato cambiasse in
+     * futuro. Nessun header {@code Location}: lo YAML non espone un GET per la singola
+     * opzione di pagamento.
+     */
+    @Override
+    @Transactional
+    public ResponseEntity<OpzionePagamento> addOpzionePagamento(String idA2A, String idPosizioneDebitoria,
+            NuovaOpzionePagamento nuovaOpzionePagamento) {
+        aclAuthorizer.richiedeScrittura();
+        currentApplicazioneService.verificaIdA2A(idA2A);
+        if (nuovaOpzionePagamento == null) {
+            throw new ValidazioneNonSuperataException("body della richiesta mancante");
+        }
+        it.govpay.pendenze.entity.OpzionePagamento creata = posizioneDebitoriaService.aggiungiOpzionePagamento(
+                idA2A, idPosizioneDebitoria,
+                posizione -> mapper.toOpzionePagamento(idA2A, posizione.getIdDominio(), nuovaOpzionePagamento));
+        return ResponseEntity.status(org.springframework.http.HttpStatus.CREATED)
+                .body(mapper.toOpzionePagamentoDto(creata));
     }
 
     /**

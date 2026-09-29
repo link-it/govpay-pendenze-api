@@ -5,6 +5,7 @@ import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -16,8 +17,10 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import it.govpay.pendenze.api.model.Problem;
+import it.govpay.pendenze.exception.ModificaConcorrenteException;
 import it.govpay.pendenze.exception.RisorsaGiaEsistenteException;
 import it.govpay.pendenze.exception.RisorsaNonTrovataException;
+import it.govpay.pendenze.exception.TransizioneStatoNonAmmessaException;
 import it.govpay.pendenze.exception.ValidazioneNonSuperataException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
@@ -27,8 +30,7 @@ import jakarta.validation.ConstraintViolationException;
  * 7807) richiesto dallo YAML v3 — stesso pattern gia' consolidato in
  * {@code govpay-console-api} ({@code it.govpay.console.web.ProblemExceptionHandler}), qui
  * ridotto alle sole eccezioni che gli endpoint finora implementati possono sollevare: va
- * ampliato mano a mano che nuovi endpoint vengono aggiunti (es. {@code TransizioneStatoNonAmmessaException}
- * quando arrivera' l'annullamento di un'opzione di pagamento).
+ * ampliato mano a mano che nuovi endpoint vengono aggiunti.
  */
 @RestControllerAdvice
 public class ProblemExceptionHandler {
@@ -100,6 +102,57 @@ public class ProblemExceptionHandler {
     @ExceptionHandler(RisorsaGiaEsistenteException.class)
     public ResponseEntity<Problem> handleGiaEsistente(RisorsaGiaEsistenteException ex, HttpServletRequest request) {
         return build(HttpStatus.CONFLICT, ex.getMessage(), request, ex);
+    }
+
+    /**
+     * Bug del lead, 2026-09-29: raggiungibile per la prima volta da
+     * {@code PosizioneDebitoriaController#addOpzionePagamento} (rifiuta l'aggiunta di
+     * un'alternativa quando la posizione ha gia' un'opzione ATTIVATA) — mai gestita finora
+     * perche' nessun endpoint la sollevava ancora.
+     */
+    @ExceptionHandler(TransizioneStatoNonAmmessaException.class)
+    public ResponseEntity<Problem> handleTransizioneStatoNonAmmessa(TransizioneStatoNonAmmessaException ex,
+            HttpServletRequest request) {
+        return build(HttpStatus.CONFLICT, ex.getMessage(), request, ex);
+    }
+
+    /**
+     * Conflitto di lock ottimistico su {@code PosizioneDebitoria} (bug del lead, 2026-09-29:
+     * vedi Javadoc di {@code PosizioneDebitoriaService#aggiungiOpzionePagamento}) — 409 con
+     * invito a riprovare, non un errore interno: la richiesta stessa era corretta, solo in
+     * corsa con un'altra sulla stessa posizione.
+     */
+    @ExceptionHandler(ModificaConcorrenteException.class)
+    public ResponseEntity<Problem> handleModificaConcorrente(ModificaConcorrenteException ex,
+            HttpServletRequest request) {
+        return build(HttpStatus.CONFLICT, ex.getMessage(), request, ex);
+    }
+
+    /**
+     * Rete di sicurezza al confine REST (bug del lead, 2026-09-29, dopo una prova reale con
+     * due transazioni sovrapposte su {@code attiva}/{@code annulla}: il conflitto veniva
+     * rilevato correttamente — l'attivazione perdente veniva annullata — ma usciva
+     * {@code ObjectOptimisticLockingFailureException} grezza, non tradotta, perche' quei due
+     * metodi (govpay-common-pendenze) non passano da {@code saveAndFlush} con un
+     * {@code catch} dedicato come {@code aggiungiOpzionePagamento}/{@code aggiorna} —
+     * lanciano l'eccezione cosi' come arriva dal commit implicito di fine transazione.
+     * Nessun endpoint REST li richiama ancora (restano da wire-are), ma quando succedera'
+     * questo handler li protegge comunque, senza dover ricordarsi di aggiungere una
+     * traduzione esplicita in ogni nuovo punto di chiamata — stesso status (409) di
+     * {@link ModificaConcorrenteException}, il percorso esplicito resta preferibile dove
+     * gia' presente (messaggio piu' specifico).
+     *
+     * <p><b>Non riguarda</b> il futuro processo che registrera' i pagamenti reali (es. da
+     * notifica pagoPA) chiamando {@code attiva()}: quel chiamante non e' una richiesta REST
+     * sincrona con un client che puo' "riprovare" — deve invece rileggere l'aggregato e
+     * rieseguire l'intera transazione applicativa, con un numero limitato di tentativi
+     * (retry-and-reread), non limitarsi a propagare un 409 a chi non può interpretarlo.</p>
+     */
+    @ExceptionHandler(OptimisticLockingFailureException.class)
+    public ResponseEntity<Problem> handleOptimisticLockingFailure(OptimisticLockingFailureException ex,
+            HttpServletRequest request) {
+        return build(HttpStatus.CONFLICT, "La risorsa e' stata modificata concorrentemente: riprovare.", request,
+                ex);
     }
 
     @ExceptionHandler(Exception.class)

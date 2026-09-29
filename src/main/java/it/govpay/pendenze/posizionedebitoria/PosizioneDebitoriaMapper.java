@@ -159,10 +159,33 @@ public class PosizioneDebitoriaMapper {
         DominioEntity dominio = dominioRepository.findByCodDominio(idDominio)
                 .orElseThrow(() -> new AnagraficaNonTrovataException("nessun dominio con idDominio [" + idDominio
                         + "]"));
-        if (Boolean.FALSE.equals(dominio.getAbilitato())) {
-            throw new ValidazioneNonSuperataException("il dominio [" + idDominio + "] non e' abilitato");
-        }
+        verificaDominioAbilitato(dominio);
         return dominio.getId();
+    }
+
+    /**
+     * Come {@link #risolviIdDominioAbilitato}, ma per un dominio gia' risolto per id — usato
+     * da {@link #toOpzionePagamento(String, Long, NuovaOpzionePagamento)}, dove il dominio
+     * arriva gia' come {@code Long} dalla posizione esistente (bug del lead, 2026-09-29:
+     * quell'entry point riusava {@code idDominioPosizione} senza mai controllare se il
+     * dominio fosse ancora abilitato — a differenza di {@link #toEntity}, un dominio
+     * disabilitato DOPO la creazione della posizione non impediva di aggiungergli una nuova
+     * opzione di pagamento).
+     *
+     * @throws ValidazioneNonSuperataException se il dominio e' disabilitato
+     */
+    private void verificaDominioAbilitato(Long idDominio) {
+        // idDominio arriva da PosizioneDebitoria.getIdDominio(), gia' risolto: se non
+        // esistesse piu' sarebbe un'incoerenza referenziale del DB, non un caso applicativo
+        // da gestire qui (nessuna FK reale per M4, ma nessun codice la rimuove mai).
+        dominioRepository.findById(idDominio).ifPresent(this::verificaDominioAbilitato);
+    }
+
+    private void verificaDominioAbilitato(DominioEntity dominio) {
+        if (Boolean.FALSE.equals(dominio.getAbilitato())) {
+            throw new ValidazioneNonSuperataException("il dominio [" + dominio.getCodDominio()
+                    + "] non e' abilitato");
+        }
     }
 
     private String risolviCodDominio(Long idDominio) {
@@ -384,6 +407,27 @@ public class PosizioneDebitoriaMapper {
             posizione.addOpzionePagamento(toOpzionePagamento(opzione, idDominio, applicazione));
         }
         return posizione;
+    }
+
+    /**
+     * Converte {@code NuovaOpzionePagamento} in entita' per
+     * {@code POST .../posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento}
+     * (aggiunta a una posizione GIA' esistente — a differenza di {@link #toEntity}, qui
+     * {@code idDominioPosizione} viene dal chiamante, che ha gia' risolto la posizione presso
+     * {@code PosizioneDebitoriaService#aggiungiOpzionePagamento} prima di costruire l'opzione).
+     * Stessi controlli di risoluzione/abilitazione/autorizzazione di {@link #toEntity} (tipo
+     * pendenza, tributo, IBAN): nessuna duplicazione, delega al convertitore privato condiviso.
+     *
+     * @throws AnagraficaNonTrovataException se {@code idA2A} non corrisponde a nessuna
+     *                                        applicazione
+     */
+    public it.govpay.pendenze.entity.OpzionePagamento toOpzionePagamento(String idA2A, Long idDominioPosizione,
+            NuovaOpzionePagamento dto) {
+        ApplicazioneEntity applicazione = applicazioneRepository.findByCodApplicazione(idA2A)
+                .orElseThrow(() -> new AnagraficaNonTrovataException("nessuna applicazione con idA2A [" + idA2A
+                        + "]"));
+        verificaDominioAbilitato(idDominioPosizione);
+        return toOpzionePagamento(dto, idDominioPosizione, applicazione);
     }
 
     private SoggettoDebitore toSoggettoDebitore(Soggetto dto) {
@@ -773,7 +817,7 @@ public class PosizioneDebitoriaMapper {
         return dto;
     }
 
-    private it.govpay.pendenze.api.model.OpzionePagamento toOpzionePagamentoDto(
+    public it.govpay.pendenze.api.model.OpzionePagamento toOpzionePagamentoDto(
             it.govpay.pendenze.entity.OpzionePagamento entity) {
         java.util.List<PendenzaOpzionePagamento> pendenze = entity.getPendenze().stream()
                 .map(this::toPendenzaOpzionePagamentoDto)
