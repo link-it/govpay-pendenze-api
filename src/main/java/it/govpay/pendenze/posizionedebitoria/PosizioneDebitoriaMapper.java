@@ -345,6 +345,11 @@ public class PosizioneDebitoriaMapper {
      */
     public void applicaPatch(it.govpay.pendenze.entity.PosizioneDebitoria posizione, List<PatchOp> operazioni) {
         for (PatchOp operazione : operazioni) {
+            if (operazione == null) {
+                throw new ValidazioneNonSuperataException(
+                        "operazione di patch nulla non ammessa: ogni elemento dell'array deve essere un "
+                                + "oggetto {op, path, value}");
+            }
             switch (operazione.getPath()) {
                 case "/descrizione" -> applicaDescrizione(posizione, operazione);
                 case "/dataPubblicazione" -> applicaDataPubblicazione(posizione, operazione);
@@ -357,12 +362,21 @@ public class PosizioneDebitoriaMapper {
         }
     }
 
+    /** Stesso vincolo di {@code NuovaPosizioneDebitoria.descrizione} nello YAML (bug del lead, 2026-09-29: la PATCH non lo verificava — una descrizione di 141 caratteri passava con 200, mentre in creazione lo YAML impone 140). */
+    private static final int DESCRIZIONE_MAX_LENGTH = 140;
+
     private void applicaDescrizione(it.govpay.pendenze.entity.PosizioneDebitoria posizione, PatchOp operazione) {
         if (operazione.getOp() == PatchOp.OpEnum.REMOVE) {
             throw new ValidazioneNonSuperataException(
                     "'descrizione' e' obbligatoria: non puo' essere rimossa con 'remove'");
         }
-        posizione.setDescrizione(valoreStringa(operazione, "descrizione"));
+        String descrizione = valoreStringa(operazione, "descrizione");
+        if (descrizione.length() > DESCRIZIONE_MAX_LENGTH) {
+            throw new ValidazioneNonSuperataException(
+                    "'descrizione' non puo' superare " + DESCRIZIONE_MAX_LENGTH + " caratteri (" + descrizione.length()
+                            + " forniti)");
+        }
+        posizione.setDescrizione(descrizione);
     }
 
     private void applicaDataPubblicazione(it.govpay.pendenze.entity.PosizioneDebitoria posizione,
@@ -407,6 +421,10 @@ public class PosizioneDebitoriaMapper {
                             + "deve avere almeno un soggetto debitore");
         }
         Object valore = valorePresente(operazione, "soggettiDebitori");
+        if (valore == null) {
+            throw new ValidazioneNonSuperataException(
+                    "'soggettiDebitori' non puo' essere impostato a null: fornire un array di soggetti");
+        }
         List<Soggetto> dto;
         try {
             dto = objectMapper.convertValue(valore, new TypeReference<List<Soggetto>>() {
@@ -416,6 +434,9 @@ public class PosizioneDebitoriaMapper {
                     "'soggettiDebitori' non e' una lista valida di soggetti (tipo/identificativo, ecc.)");
         }
         for (Soggetto soggetto : dto) {
+            if (soggetto == null) {
+                throw new ValidazioneNonSuperataException("'soggettiDebitori' non puo' contenere elementi null");
+            }
             var violazioni = validator.validate(soggetto);
             if (!violazioni.isEmpty()) {
                 throw new ValidazioneNonSuperataException(

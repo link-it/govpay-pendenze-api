@@ -1213,4 +1213,66 @@ class PosizioneDebitoriaControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400));
     }
+
+    @Test
+    @DisplayName("PATCH rifiuta con 400 (non 500) un body il cui array contiene un elemento null: [null]")
+    void patchRifiutaElementoNulloNellArrayDiOperazioni() throws Exception {
+        creaPosizioneMinimaConDebitore("pos-patch-op-null", "FRRPLA90C41H501Y");
+
+        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", "pos-patch-op-null")
+                        .contentType(PATCH_MEDIA_TYPE)
+                        .content("[ null ]"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    @DisplayName("PATCH rifiuta con 400 (non 500) 'soggettiDebitori' impostato esplicitamente a null")
+    void patchRifiutaSoggettiDebitoriValueNull() throws Exception {
+        creaPosizioneMinimaConDebitore("pos-patch-soggetti-null", "FRRPLA90C41H501Y");
+
+        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST",
+                        "pos-patch-soggetti-null")
+                        .contentType(PATCH_MEDIA_TYPE)
+                        .content("""
+                                [ { "op": "replace", "path": "/soggettiDebitori", "value": null } ]
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    @DisplayName("PATCH rifiuta con 400 (non 500) 'soggettiDebitori' con un elemento null: [null]")
+    void patchRifiutaSoggettiDebitoriConElementoNullo() throws Exception {
+        creaPosizioneMinimaConDebitore("pos-patch-sogg-elem-null", "FRRPLA90C41H501Y");
+
+        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST",
+                        "pos-patch-sogg-elem-null")
+                        .contentType(PATCH_MEDIA_TYPE)
+                        .content("""
+                                [ { "op": "replace", "path": "/soggettiDebitori", "value": [ null ] } ]
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    @DisplayName("PATCH rifiuta con 400 (non 200) una descrizione di 141 caratteri, come in creazione (maxLength 140)")
+    void patchRifiutaDescrizioneTroppoLunga() throws Exception {
+        creaPosizioneMinimaConDebitore("pos-patch-descr-lunga", "FRRPLA90C41H501Y");
+        String descrizione141 = "x".repeat(141);
+
+        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST",
+                        "pos-patch-descr-lunga")
+                        .contentType(PATCH_MEDIA_TYPE)
+                        .content("""
+                                [ { "op": "replace", "path": "/descrizione", "value": "%s" } ]
+                                """.formatted(descrizione141)))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(400));
+    }
 }
