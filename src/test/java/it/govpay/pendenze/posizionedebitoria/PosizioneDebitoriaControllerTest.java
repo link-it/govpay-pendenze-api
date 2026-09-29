@@ -3,6 +3,7 @@ package it.govpay.pendenze.posizionedebitoria;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -995,6 +996,221 @@ class PosizioneDebitoriaControllerTest {
                         .param("cursor", "non-e-un-cursore-valido"))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    // ── PATCH /posizioni-debitorie/{idA2A}/{idPosizioneDebitoria} ──────────────────────────
+
+    private static final String PATCH_MEDIA_TYPE = "application/json-patch+json";
+
+    @Test
+    @DisplayName("PATCH replace /descrizione aggiorna il campo, leggibile dalla GET successiva")
+    void patchReplaceDescrizione() throws Exception {
+        creaPosizioneMinimaConDebitore("pos-patch-descrizione", "FRRPLA90C41H501Y");
+
+        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST",
+                        "pos-patch-descrizione")
+                        .contentType(PATCH_MEDIA_TYPE)
+                        .content("""
+                                [ { "op": "replace", "path": "/descrizione", "value": "nuova descrizione" } ]
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST",
+                        "pos-patch-descrizione"))
+                .andExpect(jsonPath("$.descrizione").value("nuova descrizione"));
+    }
+
+    @Test
+    @DisplayName("PATCH replace /dataPubblicazione, poi remove: rispettivamente valorizza e azzera il campo")
+    void patchReplaceERemoveDataPubblicazione() throws Exception {
+        creaPosizioneMinimaConDebitore("pos-patch-datapub", "FRRPLA90C41H501Y");
+
+        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", "pos-patch-datapub")
+                        .contentType(PATCH_MEDIA_TYPE)
+                        .content("""
+                                [ { "op": "replace", "path": "/dataPubblicazione", "value": "2026-06-15" } ]
+                                """))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", "pos-patch-datapub"))
+                .andExpect(jsonPath("$.dataPubblicazione").value("2026-06-15"));
+
+        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", "pos-patch-datapub")
+                        .contentType(PATCH_MEDIA_TYPE)
+                        .content("""
+                                [ { "op": "remove", "path": "/dataPubblicazione" } ]
+                                """))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", "pos-patch-datapub"))
+                .andExpect(jsonPath("$.dataPubblicazione").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("PATCH replace /notificaSend=true senza navNotifica lo assegna automaticamente "
+            + "(stessa regola di POST, riusata da PosizioneDebitoriaService#aggiorna)")
+    void patchNotificaSendAssegnaNavNotificaAutomaticamente() throws Exception {
+        creaPosizioneMinimaConDebitore("pos-patch-notifica-send", "FRRPLA90C41H501Y");
+        String numeroAvviso = com.jayway.jsonpath.JsonPath.read(
+                mockMvc.perform(get("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST",
+                                "pos-patch-notifica-send"))
+                        .andReturn().getResponse().getContentAsString(),
+                "$.opzioniPagamento[0].pendenze[0].numeroAvviso");
+
+        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST",
+                        "pos-patch-notifica-send")
+                        .contentType(PATCH_MEDIA_TYPE)
+                        .content("""
+                                [ { "op": "replace", "path": "/notificaSend", "value": true } ]
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST",
+                        "pos-patch-notifica-send"))
+                .andExpect(jsonPath("$.notificaSend").value(true))
+                .andExpect(jsonPath("$.navNotifica").value(numeroAvviso));
+    }
+
+    @Test
+    @DisplayName("PATCH rifiuta con 400 un navNotifica che non corrisponde al numeroAvviso di alcuna pendenza")
+    void patchRifiutaNavNotificaNonCorrispondente() throws Exception {
+        creaPosizioneMinimaConDebitore("pos-patch-nav-non-corrisp", "FRRPLA90C41H501Y");
+
+        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST",
+                        "pos-patch-nav-non-corrisp")
+                        .contentType(PATCH_MEDIA_TYPE)
+                        .content("""
+                                [ { "op": "replace", "path": "/navNotifica", "value": "999999999999999999" } ]
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    @DisplayName("PATCH rifiuta con 400 'remove' su /descrizione (obbligatoria) e su /notificaSend (booleano)")
+    void patchRifiutaRemoveSuCampiObbligatoriONonRimuovibili() throws Exception {
+        creaPosizioneMinimaConDebitore("pos-patch-remove-vietato", "FRRPLA90C41H501Y");
+
+        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST",
+                        "pos-patch-remove-vietato")
+                        .contentType(PATCH_MEDIA_TYPE)
+                        .content("""
+                                [ { "op": "remove", "path": "/descrizione" } ]
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400));
+
+        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST",
+                        "pos-patch-remove-vietato")
+                        .contentType(PATCH_MEDIA_TYPE)
+                        .content("""
+                                [ { "op": "remove", "path": "/notificaSend" } ]
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    @DisplayName("PATCH rifiuta con 400 un path non supportato (es. opzioniPagamento non si aggiorna da qui)")
+    void patchRifiutaPathNonSupportato() throws Exception {
+        creaPosizioneMinimaConDebitore("pos-patch-path-ignoto", "FRRPLA90C41H501Y");
+
+        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST",
+                        "pos-patch-path-ignoto")
+                        .contentType(PATCH_MEDIA_TYPE)
+                        .content("""
+                                [ { "op": "replace", "path": "/opzioniPagamento", "value": [] } ]
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    @DisplayName("PATCH rifiuta con 400 un value di tipo sbagliato (notificaSend non booleano)")
+    void patchRifiutaValueDiTipoSbagliato() throws Exception {
+        creaPosizioneMinimaConDebitore("pos-patch-tipo-sbagliato", "FRRPLA90C41H501Y");
+
+        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST",
+                        "pos-patch-tipo-sbagliato")
+                        .contentType(PATCH_MEDIA_TYPE)
+                        .content("""
+                                [ { "op": "replace", "path": "/notificaSend", "value": "non-un-booleano" } ]
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    @DisplayName("PATCH rifiuta con 400 un'operazione 'replace' senza 'value'")
+    void patchRifiutaValueAssente() throws Exception {
+        creaPosizioneMinimaConDebitore("pos-patch-value-assente", "FRRPLA90C41H501Y");
+
+        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST",
+                        "pos-patch-value-assente")
+                        .contentType(PATCH_MEDIA_TYPE)
+                        .content("""
+                                [ { "op": "replace", "path": "/descrizione" } ]
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    @DisplayName("PATCH rifiuta con 404 una posizione inesistente")
+    void patchRifiutaPosizioneInesistente() throws Exception {
+        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", "pos-inesistente")
+                        .contentType(PATCH_MEDIA_TYPE)
+                        .content("""
+                                [ { "op": "replace", "path": "/descrizione", "value": "x" } ]
+                                """))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value(404));
+    }
+
+    @Test
+    @DisplayName("PATCH sostituisce interamente soggettiDebitori, leggibile dalla GET successiva")
+    void patchSostituisceSoggettiDebitori() throws Exception {
+        creaPosizioneMinimaConDebitore("pos-patch-soggetti", "FRRPLA90C41H501Y");
+
+        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", "pos-patch-soggetti")
+                        .contentType(PATCH_MEDIA_TYPE)
+                        .content("""
+                                [ { "op": "replace", "path": "/soggettiDebitori", "value": [
+                                    { "tipo": "F", "identificativo": "VRDGNN80A01H501W", "anagrafica": "Giovanna Verdi" }
+                                ] } ]
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", "pos-patch-soggetti"))
+                .andExpect(jsonPath("$.soggettiDebitori.length()").value(1))
+                .andExpect(jsonPath("$.soggettiDebitori[0].identificativo").value("VRDGNN80A01H501W"));
+    }
+
+    @Test
+    @DisplayName("PATCH rifiuta con 400 uno svuotamento di soggettiDebitori (almeno un soggetto richiesto)")
+    void patchRifiutaSoggettiDebitoriVuoti() throws Exception {
+        creaPosizioneMinimaConDebitore("pos-patch-soggetti-vuoti", "FRRPLA90C41H501Y");
+
+        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST",
+                        "pos-patch-soggetti-vuoti")
+                        .contentType(PATCH_MEDIA_TYPE)
+                        .content("""
+                                [ { "op": "replace", "path": "/soggettiDebitori", "value": [] } ]
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    @DisplayName("PATCH rifiuta con 400 un body assente")
+    void patchRifiutaBodyAssente() throws Exception {
+        creaPosizioneMinimaConDebitore("pos-patch-body-assente", "FRRPLA90C41H501Y");
+
+        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST",
+                        "pos-patch-body-assente")
+                        .contentType(PATCH_MEDIA_TYPE))
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400));
     }
 }

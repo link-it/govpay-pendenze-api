@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import it.govpay.pendenze.api.model.NuovaPosizioneDebitoria;
+import it.govpay.pendenze.api.model.PatchOp;
 import it.govpay.pendenze.api.model.Pagination;
 import it.govpay.pendenze.api.model.PosizioneDebitoriaIndex;
 import it.govpay.pendenze.api.model.PosizioniDebitorie;
@@ -97,6 +98,25 @@ public class PosizioneDebitoriaController implements PosizioniDebitorieApi {
                         + "idPosizioneDebitoria [" + idPosizioneDebitoria + "] per idA2A [" + idA2A + "]"));
 
         return ResponseEntity.ok(mapper.toDto(posizione));
+    }
+
+    /**
+     * Applica un JSON Patch (RFC 6902, sottoinsieme add/remove/replace) alla posizione
+     * debitoria — vedi Javadoc di {@link PosizioneDebitoriaMapper#applicaPatch} per i path
+     * supportati e di {@link PosizioneDebitoriaService#aggiorna} per la rivalidazione e la
+     * marcatura ACA applicate dopo il patch. Le opzioni di pagamento non si toccano qui
+     * (vedi descrizione dell'operazione nello YAML).
+     */
+    @Override
+    @Transactional
+    public ResponseEntity<Void> updatePosizioneDebitoria(String idA2A, String idPosizioneDebitoria,
+            List<PatchOp> patchOp) {
+        if (patchOp == null) {
+            throw new ValidazioneNonSuperataException("body della richiesta mancante");
+        }
+        posizioneDebitoriaService.aggiorna(idA2A, idPosizioneDebitoria,
+                posizione -> mapper.applicaPatch(posizione, patchOp));
+        return ResponseEntity.ok().build();
     }
 
     /**

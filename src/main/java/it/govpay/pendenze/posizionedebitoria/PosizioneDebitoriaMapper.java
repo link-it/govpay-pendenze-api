@@ -3,8 +3,12 @@ package it.govpay.pendenze.posizionedebitoria;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.LocalDate;
+import java.util.List;
 
 import org.springframework.stereotype.Component;
+
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 
 import it.govpay.common.entity.ApplicazioneEntity;
 import it.govpay.common.entity.DominioEntity;
@@ -45,6 +49,7 @@ import it.govpay.pendenze.api.model.OpzionePagamentoPianoRateale;
 import it.govpay.pendenze.api.model.OpzionePagamentoSoluzioneUnica;
 import it.govpay.pendenze.api.model.OpzionePagamentoSoluzioneUnicaEntro;
 import it.govpay.pendenze.api.model.OpzionePagamentoSoluzioneUnicaOltre;
+import it.govpay.pendenze.api.model.PatchOp;
 import it.govpay.pendenze.api.model.PendenzaOpzionePagamento;
 import it.govpay.pendenze.api.model.Soggetto;
 import it.govpay.pendenze.api.model.StatoOpzionePagamento;
@@ -88,11 +93,14 @@ public class PosizioneDebitoriaMapper {
     private final TributoRepository tributoRepository;
     private final IbanAccreditoRepository ibanAccreditoRepository;
     private final Clock clock;
+    private final ObjectMapper objectMapper;
+    private final jakarta.validation.Validator validator;
 
     public PosizioneDebitoriaMapper(ApplicazioneRepository applicazioneRepository,
             DominioRepository dominioRepository, UnitaOperativaRepository unitaOperativaRepository,
             TipoVersamentoDominioRepository tipoVersamentoDominioRepository, TipoTributoRepository tipoTributoRepository,
-            TributoRepository tributoRepository, IbanAccreditoRepository ibanAccreditoRepository, Clock clock) {
+            TributoRepository tributoRepository, IbanAccreditoRepository ibanAccreditoRepository, Clock clock,
+            ObjectMapper objectMapper, jakarta.validation.Validator validator) {
         this.applicazioneRepository = applicazioneRepository;
         this.dominioRepository = dominioRepository;
         this.unitaOperativaRepository = unitaOperativaRepository;
@@ -101,6 +109,8 @@ public class PosizioneDebitoriaMapper {
         this.tributoRepository = tributoRepository;
         this.ibanAccreditoRepository = ibanAccreditoRepository;
         this.clock = clock;
+        this.objectMapper = objectMapper;
+        this.validator = validator;
     }
 
     // ── Risoluzione anagrafiche esterne ─────────────────────────────────────────
@@ -310,6 +320,125 @@ public class PosizioneDebitoriaMapper {
         soggetto.setNazione(dto.getNazione());
         soggetto.setEmail(dto.getEmail());
         return soggetto;
+    }
+
+    // ── PATCH (RFC 6902) ────────────────────────────────────────────────────────
+
+    /**
+     * Applica un sottoinsieme di operazioni JSON Patch (RFC 6902, add/remove/replace) a una
+     * posizione debitoria ({@code PATCH .../posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}}).
+     * Path supportati: {@code /descrizione}, {@code /dataPubblicazione},
+     * {@code /notificaSend}, {@code /navNotifica}, {@code /soggettiDebitori} (solo
+     * sostituzione dell'intero array: {@code /soggettiDebitori/{indice}} e
+     * {@code /soggettiDebitori/-} non sono supportati in questa prima versione). Qualunque
+     * altro path (incluso {@code /opzioniPagamento}: si aggiornano con
+     * {@code POST}/{@code PATCH .../opzioni-pagamento} dedicati) e' rifiutato con 400.
+     *
+     * <p>Le mutazioni sono applicate direttamente su {@code posizione}, un aggregato gestito
+     * da JPA passato dal chiamante ({@link it.govpay.pendenze.service.PosizioneDebitoriaService#aggiorna}):
+     * questo metodo non lo salva ne' lo rivalida.</p>
+     *
+     * @throws ValidazioneNonSuperataException se un'operazione ha un path non supportato,
+     *                                          un {@code op} non ammesso per quel path, un
+     *                                          {@code value} assente dove richiesto, o di
+     *                                          tipo/forma sbagliata
+     */
+    public void applicaPatch(it.govpay.pendenze.entity.PosizioneDebitoria posizione, List<PatchOp> operazioni) {
+        for (PatchOp operazione : operazioni) {
+            switch (operazione.getPath()) {
+                case "/descrizione" -> applicaDescrizione(posizione, operazione);
+                case "/dataPubblicazione" -> applicaDataPubblicazione(posizione, operazione);
+                case "/notificaSend" -> applicaNotificaSend(posizione, operazione);
+                case "/navNotifica" -> applicaNavNotifica(posizione, operazione);
+                case "/soggettiDebitori" -> applicaSoggettiDebitori(posizione, operazione);
+                default -> throw new ValidazioneNonSuperataException(
+                        "path [" + operazione.getPath() + "] non supportato per questa risorsa");
+            }
+        }
+    }
+
+    private void applicaDescrizione(it.govpay.pendenze.entity.PosizioneDebitoria posizione, PatchOp operazione) {
+        if (operazione.getOp() == PatchOp.OpEnum.REMOVE) {
+            throw new ValidazioneNonSuperataException(
+                    "'descrizione' e' obbligatoria: non puo' essere rimossa con 'remove'");
+        }
+        posizione.setDescrizione(valoreStringa(operazione, "descrizione"));
+    }
+
+    private void applicaDataPubblicazione(it.govpay.pendenze.entity.PosizioneDebitoria posizione,
+            PatchOp operazione) {
+        if (operazione.getOp() == PatchOp.OpEnum.REMOVE) {
+            posizione.setDataPubblicazione(null);
+            return;
+        }
+        Object valore = valorePresente(operazione, "dataPubblicazione");
+        try {
+            posizione.setDataPubblicazione(objectMapper.convertValue(valore, LocalDate.class));
+        } catch (RuntimeException e) {
+            throw new ValidazioneNonSuperataException(
+                    "'dataPubblicazione' non e' una data valida (formato atteso: AAAA-MM-GG)");
+        }
+    }
+
+    private void applicaNotificaSend(it.govpay.pendenze.entity.PosizioneDebitoria posizione, PatchOp operazione) {
+        if (operazione.getOp() == PatchOp.OpEnum.REMOVE) {
+            throw new ValidazioneNonSuperataException(
+                    "'notificaSend' e' un booleano: non puo' essere rimosso con 'remove', usare 'replace' con false");
+        }
+        Object valore = valorePresente(operazione, "notificaSend");
+        if (!(valore instanceof Boolean booleano)) {
+            throw new ValidazioneNonSuperataException("'notificaSend' richiede un valore booleano");
+        }
+        posizione.setNotificaSend(booleano);
+    }
+
+    private void applicaNavNotifica(it.govpay.pendenze.entity.PosizioneDebitoria posizione, PatchOp operazione) {
+        if (operazione.getOp() == PatchOp.OpEnum.REMOVE) {
+            posizione.setNavNotifica(null);
+            return;
+        }
+        posizione.setNavNotifica(valoreStringa(operazione, "navNotifica"));
+    }
+
+    private void applicaSoggettiDebitori(it.govpay.pendenze.entity.PosizioneDebitoria posizione, PatchOp operazione) {
+        if (operazione.getOp() == PatchOp.OpEnum.REMOVE) {
+            throw new ValidazioneNonSuperataException(
+                    "'soggettiDebitori' non puo' essere rimosso interamente: la posizione debitoria "
+                            + "deve avere almeno un soggetto debitore");
+        }
+        Object valore = valorePresente(operazione, "soggettiDebitori");
+        List<Soggetto> dto;
+        try {
+            dto = objectMapper.convertValue(valore, new TypeReference<List<Soggetto>>() {
+            });
+        } catch (RuntimeException e) {
+            throw new ValidazioneNonSuperataException(
+                    "'soggettiDebitori' non e' una lista valida di soggetti (tipo/identificativo, ecc.)");
+        }
+        for (Soggetto soggetto : dto) {
+            var violazioni = validator.validate(soggetto);
+            if (!violazioni.isEmpty()) {
+                throw new ValidazioneNonSuperataException(
+                        "soggetto debitore non valido: " + violazioni.iterator().next().getMessage());
+            }
+        }
+        posizione.sostituisciSoggettiDebitori(dto.stream().map(this::toSoggettoDebitore).toList());
+    }
+
+    private String valoreStringa(PatchOp operazione, String nomeCampo) {
+        Object valore = valorePresente(operazione, nomeCampo);
+        if (!(valore instanceof String stringa) || stringa.isBlank()) {
+            throw new ValidazioneNonSuperataException("'" + nomeCampo + "' richiede un valore testuale non vuoto");
+        }
+        return stringa;
+    }
+
+    private Object valorePresente(PatchOp operazione, String nomeCampo) {
+        if (!operazione.getValue().isPresent()) {
+            throw new ValidazioneNonSuperataException(
+                    "operazione '" + operazione.getOp().getValue() + "' su '" + nomeCampo + "' richiede 'value'");
+        }
+        return operazione.getValue().get();
     }
 
     private it.govpay.pendenze.entity.OpzionePagamento toOpzionePagamento(NuovaOpzionePagamento dto,
