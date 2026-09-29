@@ -92,6 +92,11 @@ public class ProblemExceptionHandler {
         return build(HttpStatus.NOT_FOUND, ex.getMessage(), request, ex);
     }
 
+    @ExceptionHandler(AccessoNegatoException.class)
+    public ResponseEntity<Problem> handleAccessoNegato(AccessoNegatoException ex, HttpServletRequest request) {
+        return build(HttpStatus.FORBIDDEN, ex.getMessage(), request, ex);
+    }
+
     @ExceptionHandler(RisorsaGiaEsistenteException.class)
     public ResponseEntity<Problem> handleGiaEsistente(RisorsaGiaEsistenteException ex, HttpServletRequest request) {
         return build(HttpStatus.CONFLICT, ex.getMessage(), request, ex);

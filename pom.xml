@@ -23,6 +23,9 @@
         <!-- govpay-common-pendenze (not in BOM) -->
         <govpay-common-pendenze.version>1.0.0-SNAPSHOT</govpay-common-pendenze.version>
 
+        <!-- govpay-common-auth (not in BOM) -->
+        <govpay-common-auth.version>1.0.1</govpay-common-auth.version>
+
         <!-- OWASP config -->
         <owasp.falsePositives.dir>src/main/resources/owasp/falsePositives</owasp.falsePositives.dir>
         <owasp>verify</owasp>
@@ -176,6 +179,20 @@
             <version>${govpay-common-pendenze.version}</version>
         </dependency>
 
+        <!-- Spring Security: autenticazione HTTP Basic via govpay-common-auth -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
+
+        <!-- GovPay Common Auth: security filter chain condivisa (BASIC/LDAP/SSL/...),
+             stesso pattern di govpay-console-api -->
+        <dependency>
+            <groupId>org.gov4j.govpay</groupId>
+            <artifactId>govpay-common-auth</artifactId>
+            <version>${govpay-common-auth.version}</version>
+        </dependency>
+
         <!-- SpringDoc OpenAPI UI -->
         <dependency>
             <groupId>org.springdoc</groupId>
@@ -235,6 +252,13 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-webmvc-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- Spring Security Test: httpBasic() nei MockMvc -->
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-test</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>

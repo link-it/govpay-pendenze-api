@@ -25,6 +25,7 @@ import it.govpay.pendenze.criteri.PaginaSenzaConteggio;
 import it.govpay.pendenze.entity.PosizioneDebitoria;
 import it.govpay.pendenze.exception.RisorsaNonTrovataException;
 import it.govpay.pendenze.exception.ValidazioneNonSuperataException;
+import it.govpay.pendenze.security.CurrentApplicazioneService;
 import it.govpay.pendenze.service.PosizioneDebitoriaService;
 import it.govpay.pendenze.web.QueryParamUtils;
 import it.govpay.pendenze.web.SelezioneCampi;
@@ -46,19 +47,22 @@ public class PosizioneDebitoriaController implements PosizioniDebitorieApi {
     private final PosizioneDebitoriaService posizioneDebitoriaService;
     private final ObjectMapper objectMapper;
     private final HttpServletRequest currentRequest;
+    private final CurrentApplicazioneService currentApplicazioneService;
 
     public PosizioneDebitoriaController(PosizioneDebitoriaMapper mapper,
             PosizioneDebitoriaService posizioneDebitoriaService, ObjectMapper objectMapper,
-            HttpServletRequest currentRequest) {
+            HttpServletRequest currentRequest, CurrentApplicazioneService currentApplicazioneService) {
         this.mapper = mapper;
         this.posizioneDebitoriaService = posizioneDebitoriaService;
         this.objectMapper = objectMapper;
         this.currentRequest = currentRequest;
+        this.currentApplicazioneService = currentApplicazioneService;
     }
 
     @Override
     public ResponseEntity<it.govpay.pendenze.api.model.PosizioneDebitoria> addPosizioneDebitoria(String idA2A,
             NuovaPosizioneDebitoria nuovaPosizioneDebitoria) {
+        currentApplicazioneService.verificaIdA2A(idA2A);
         if (nuovaPosizioneDebitoria == null) {
             throw new ValidazioneNonSuperataException("body della richiesta mancante");
         }
@@ -92,6 +96,7 @@ public class PosizioneDebitoriaController implements PosizioniDebitorieApi {
     @Transactional(readOnly = true)
     public ResponseEntity<it.govpay.pendenze.api.model.PosizioneDebitoria> getPosizioneDebitoria(String idA2A,
             String idPosizioneDebitoria) {
+        currentApplicazioneService.verificaIdA2A(idA2A);
         it.govpay.pendenze.entity.PosizioneDebitoria posizione = posizioneDebitoriaService
                 .trovaPerIdentificativo(idA2A, idPosizioneDebitoria)
                 .orElseThrow(() -> new RisorsaNonTrovataException("nessuna posizione debitoria con "
@@ -111,6 +116,7 @@ public class PosizioneDebitoriaController implements PosizioniDebitorieApi {
     @Transactional
     public ResponseEntity<Void> updatePosizioneDebitoria(String idA2A, String idPosizioneDebitoria,
             List<PatchOp> patchOp) {
+        currentApplicazioneService.verificaIdA2A(idA2A);
         if (patchOp == null) {
             throw new ValidazioneNonSuperataException("body della richiesta mancante");
         }
@@ -147,6 +153,7 @@ public class PosizioneDebitoriaController implements PosizioniDebitorieApi {
     @Transactional(readOnly = true)
     public ResponseEntity<PosizioniDebitorie> findPosizioniDebitorie(String idA2A, String idDebitore, Integer page,
             String cursor, Integer limit, String sort, String fields, Boolean total) {
+        currentApplicazioneService.verificaIdA2A(idA2A);
         boolean modalitaCursore = cursor != null;
         if (modalitaCursore) {
             rifiutaSeIncompatibiliConCursore(sort, total);

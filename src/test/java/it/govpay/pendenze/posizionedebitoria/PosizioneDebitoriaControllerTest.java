@@ -2,6 +2,7 @@ package it.govpay.pendenze.posizionedebitoria;
 
 import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.startsWith;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -15,13 +16,19 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.boot.webmvc.test.autoconfigure.MockMvcBuilderCustomizer;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 
+import it.govpay.common.auth.GovpayPasswordEncoder;
 import it.govpay.common.entity.ApplicazioneEntity;
 import it.govpay.common.entity.DominioEntity;
 import it.govpay.common.entity.IbanAccreditoEntity;
@@ -39,6 +46,8 @@ import it.govpay.common.repository.TipoVersamentoRepository;
 import it.govpay.common.repository.TributoRepository;
 import it.govpay.common.repository.UnitaOperativaRepository;
 import it.govpay.pendenze.repository.PosizioneDebitoriaRepository;
+import it.govpay.pendenze.security.UtenzaEntity;
+import it.govpay.pendenze.security.UtenzaRepository;
 
 /**
  * Verifica {@code POST /posizioni-debitorie/{idA2A}} a livello di integrazione (contesto
@@ -65,13 +74,40 @@ import it.govpay.pendenze.repository.PosizioneDebitoriaRepository;
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
+@Import(PosizioneDebitoriaControllerTest.BasicAuthDiDefaultConfig.class)
 class PosizioneDebitoriaControllerTest {
+
+    private static final String PRINCIPAL = "A2A-TEST";
+    private static final String PASSWORD = "test-password";
+
+    /**
+     * Applica di default le credenziali dell'applicazione "A2A-TEST" a ogni richiesta
+     * {@code mockMvc.perform(...)} di questa classe (bug del lead, 2026-09-29: senza
+     * autenticazione ogni richiesta tornerebbe 401 prima di raggiungere il controller —
+     * {@code verificaIdA2A} e' ora chiamata a inizio di ogni metodo). I pochi test che
+     * impersonano un'applicazione diversa (es. {@code A2A-DOMINIO-IGNOTO}) sovrascrivono
+     * queste credenziali con {@code .with(httpBasic(...))} sulla singola richiesta.
+     */
+    @TestConfiguration
+    static class BasicAuthDiDefaultConfig {
+        @Bean
+        MockMvcBuilderCustomizer basicAuthDiDefaultCustomizer() {
+            return builder -> builder.defaultRequest(
+                    MockMvcRequestBuilders.get("/").with(httpBasic(PRINCIPAL, PASSWORD)));
+        }
+    }
 
     @Autowired
     private MockMvc mockMvc;
 
     @Autowired
     private ApplicazioneRepository applicazioneRepository;
+
+    @Autowired
+    private UtenzaRepository utenzaRepository;
+
+    @Autowired
+    private GovpayPasswordEncoder passwordEncoder;
 
     @Autowired
     private DominioRepository dominioRepository;
@@ -101,11 +137,14 @@ class PosizioneDebitoriaControllerTest {
 
     @BeforeEach
     void creaAnagrafiche() {
+        UtenzaEntity utenza = creaUtenza(PRINCIPAL, PASSWORD);
+
         ApplicazioneEntity applicazione = ApplicazioneEntity.builder()
                 .codApplicazione("A2A-TEST")
                 .autoIuv(true)
                 .firmaRicevuta("N")
                 .trusted(true)
+                .idUtenza(utenza.getId())
                 .build();
         applicazioneRepository.save(applicazione);
 
@@ -198,6 +237,36 @@ class PosizioneDebitoriaControllerTest {
         unitaOperativaRepository.deleteAll();
         dominioRepository.deleteAll();
         applicazioneRepository.deleteAll();
+        utenzaRepository.deleteAll();
+    }
+
+    /**
+     * Nuova utenza per l'autenticazione Basic (verificata dal filter di govpay-common-auth
+     * tramite {@code PendenzeGovpayPrincipalLoader}) — password codificata con lo stesso
+     * {@link GovpayPasswordEncoder} usato dalla libreria per la verifica.
+     */
+    private UtenzaEntity creaUtenza(String principal, String password) {
+        UtenzaEntity utenza = new UtenzaEntity();
+        utenza.setPrincipal(principal);
+        utenza.setPrincipalOriginale(principal);
+        utenza.setAbilitato(true);
+        utenza.setPassword(passwordEncoder.encode(password));
+        return utenzaRepository.save(utenza);
+    }
+
+    /**
+     * Sovrascrive per una singola richiesta le credenziali di default applicate da
+     * {@link BasicAuthDiDefaultConfig} (bug del lead, 2026-09-29: {@code .with(httpBasic(...))}
+     * da solo AGGIUNGE un secondo header {@code Authorization} invece di sostituirlo —
+     * {@code defaultRequest} lo ha gia' impostato prima che i {@code RequestPostProcessor}
+     * vengano applicati — e il server autentica con il primo dei due, quello di default).
+     */
+    private static org.springframework.test.web.servlet.request.RequestPostProcessor comeApplicazione(
+            String principal, String password) {
+        return request -> {
+            request.removeHeader(org.springframework.http.HttpHeaders.AUTHORIZATION);
+            return httpBasic(principal, password).postProcessRequest(request);
+        };
     }
 
     @Test
@@ -662,8 +731,16 @@ class PosizioneDebitoriaControllerTest {
                 .andExpect(status().isBadRequest());
     }
 
+    /**
+     * Con l'autenticazione reale (govpay-common-auth) uno chiamante non puo' autenticarsi
+     * come un'applicazione che non esiste: {@code verificaIdA2A} confronta idA2A col codice
+     * dell'applicazione autenticata (qui "A2A-TEST", vedi {@link #BasicAuthDiDefaultConfig})
+     * PRIMA di qualunque ricerca — lo scenario originale ("idA2A non censito", 404) e' quindi
+     * ora irraggiungibile per un chiamante autenticato; il caso reale e' un mismatch di
+     * identita' (403), come in v2 (bug del lead, 2026-09-29).
+     */
     @Test
-    void rifiutaConNotFoundSeIdA2ANonEsiste() throws Exception {
+    void rifiutaConForbiddenSeIdA2ANonCorrispondeAllApplicazioneAutenticata() throws Exception {
         String body = """
                 {
                   "idPosizioneDebitoria": "pos-1",
@@ -686,18 +763,22 @@ class PosizioneDebitoriaControllerTest {
         mockMvc.perform(post("/posizioni-debitorie/{idA2A}", "A2A-INESISTENTE")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
-                .andExpect(status().isNotFound())
+                .andExpect(status().isForbidden())
                 .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
-                .andExpect(jsonPath("$.status").value(404));
+                .andExpect(jsonPath("$.status").value(403));
     }
 
     @Test
     void rifiutaConNotFoundSeIdDominioNonEsiste() throws Exception {
+        String principal = "A2A-DOMINIO-IGNOTO";
+        String password = "altra-password";
+        UtenzaEntity altraUtenza = creaUtenza(principal, password);
         applicazioneRepository.save(ApplicazioneEntity.builder()
-                .codApplicazione("A2A-DOMINIO-IGNOTO")
+                .codApplicazione(principal)
                 .autoIuv(true)
                 .firmaRicevuta("N")
                 .trusted(true)
+                .idUtenza(altraUtenza.getId())
                 .build());
 
         String body = """
@@ -719,7 +800,8 @@ class PosizioneDebitoriaControllerTest {
                 }
                 """;
 
-        mockMvc.perform(post("/posizioni-debitorie/{idA2A}", "A2A-DOMINIO-IGNOTO")
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}", principal)
+                        .with(comeApplicazione(principal, password))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isNotFound())

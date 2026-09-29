@@ -7,6 +7,7 @@ import java.util.List;
 import org.openapitools.jackson.nullable.JsonNullableModule;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.security.autoconfigure.UserDetailsServiceAutoConfiguration;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.boot.jackson.autoconfigure.JsonMapperBuilderCustomizer;
 import org.springframework.boot.web.servlet.support.SpringBootServletInitializer;
@@ -54,8 +55,9 @@ import it.govpay.common.repository.StazioneRepository;
  * qui vogliamo <b>includere</b> Applicazione/Dominio, la' venivano escluse perche' quel
  * servizio ha proprie entita' CRUD equivalenti).
  */
-@SpringBootApplication
-@EnableJpaRepositories(basePackages = { "it.govpay.pendenze.repository", "it.govpay.common.repository" },
+@SpringBootApplication(exclude = { UserDetailsServiceAutoConfiguration.class })
+@EnableJpaRepositories(basePackages = { "it.govpay.pendenze.repository", "it.govpay.pendenze.security",
+        "it.govpay.common.repository" },
         excludeFilters = @Filter(type = FilterType.ASSIGNABLE_TYPE,
                 classes = { ConnettoreEntityRepository.class, ConfigurazioneRepository.class,
                         IntermediarioRepository.class, StazioneRepository.class, DominioLogoRepository.class }))
@@ -105,7 +107,7 @@ public class GovPayPendenzeApiApplication extends SpringBootServletInitializer {
     @Bean
     public PersistenceManagedTypes persistenceManagedTypes(ResourceLoader resourceLoader) {
         PersistenceManagedTypes proprie = new PersistenceManagedTypesScanner(resourceLoader)
-                .scan("it.govpay.pendenze.entity");
+                .scan("it.govpay.pendenze.entity", "it.govpay.pendenze.security");
 
         List<String> nomiClassi = new ArrayList<>(proprie.getManagedClassNames());
         nomiClassi.add(ApplicazioneEntity.class.getName());
@@ -120,7 +122,7 @@ public class GovPayPendenzeApiApplication extends SpringBootServletInitializer {
         nomiClassi.add(TributoEntity.class.getName());
         nomiClassi.add(IbanAccreditoEntity.class.getName());
 
-        return PersistenceManagedTypes.of(nomiClassi, List.of("it.govpay.pendenze.entity"));
+        return PersistenceManagedTypes.of(nomiClassi, List.of("it.govpay.pendenze.entity", "it.govpay.pendenze.security"));
     }
 
     /**

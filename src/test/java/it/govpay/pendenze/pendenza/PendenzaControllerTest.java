@@ -1,5 +1,6 @@
 package it.govpay.pendenze.pendenza;
 
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -14,11 +15,17 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.boot.webmvc.test.autoconfigure.MockMvcBuilderCustomizer;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 
+import it.govpay.common.auth.GovpayPasswordEncoder;
 import it.govpay.common.entity.ApplicazioneEntity;
 import it.govpay.common.entity.DominioEntity;
 import it.govpay.common.entity.TipoTributoEntity;
@@ -32,6 +39,8 @@ import it.govpay.common.repository.TipoVersamentoDominioRepository;
 import it.govpay.common.repository.TipoVersamentoRepository;
 import it.govpay.common.repository.TributoRepository;
 import it.govpay.pendenze.repository.PosizioneDebitoriaRepository;
+import it.govpay.pendenze.security.UtenzaEntity;
+import it.govpay.pendenze.security.UtenzaRepository;
 
 /**
  * Verifica {@code GET /pendenze/{idA2A}} (ricerca per numero avviso) a livello di
@@ -43,13 +52,37 @@ import it.govpay.pendenze.repository.PosizioneDebitoriaRepository;
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
+@Import(PendenzaControllerTest.BasicAuthDiDefaultConfig.class)
 class PendenzaControllerTest {
+
+    private static final String PRINCIPAL = "A2A-TEST";
+    private static final String PASSWORD = "test-password";
+
+    /**
+     * Vedi Javadoc dell'omologo in {@code PosizioneDebitoriaControllerTest}: nessun test in
+     * questa classe usa un idA2A diverso da "A2A-TEST", quindi qui basta l'iniezione di
+     * default, senza override per-richiesta.
+     */
+    @TestConfiguration
+    static class BasicAuthDiDefaultConfig {
+        @Bean
+        MockMvcBuilderCustomizer basicAuthDiDefaultCustomizer() {
+            return builder -> builder.defaultRequest(
+                    MockMvcRequestBuilders.get("/").with(httpBasic(PRINCIPAL, PASSWORD)));
+        }
+    }
 
     @Autowired
     private MockMvc mockMvc;
 
     @Autowired
     private ApplicazioneRepository applicazioneRepository;
+
+    @Autowired
+    private UtenzaRepository utenzaRepository;
+
+    @Autowired
+    private GovpayPasswordEncoder passwordEncoder;
 
     @Autowired
     private DominioRepository dominioRepository;
@@ -74,11 +107,14 @@ class PendenzaControllerTest {
 
     @BeforeEach
     void creaAnagrafiche() {
+        UtenzaEntity utenza = creaUtenza(PRINCIPAL, PASSWORD);
+
         applicazioneRepository.save(ApplicazioneEntity.builder()
                 .codApplicazione("A2A-TEST")
                 .autoIuv(true)
                 .firmaRicevuta("N")
                 .trusted(true)
+                .idUtenza(utenza.getId())
                 .build());
 
         creaDominio("12345678901", "Comune di Test");
@@ -159,6 +195,19 @@ class PendenzaControllerTest {
         tipoTributoRepository.deleteAll();
         dominioRepository.deleteAll();
         applicazioneRepository.deleteAll();
+        utenzaRepository.deleteAll();
+    }
+
+    /**
+     * Vedi Javadoc dell'omologo in {@code PosizioneDebitoriaControllerTest}.
+     */
+    private UtenzaEntity creaUtenza(String principal, String password) {
+        UtenzaEntity utenza = new UtenzaEntity();
+        utenza.setPrincipal(principal);
+        utenza.setPrincipalOriginale(principal);
+        utenza.setAbilitato(true);
+        utenza.setPassword(passwordEncoder.encode(password));
+        return utenzaRepository.save(utenza);
     }
 
     /**
