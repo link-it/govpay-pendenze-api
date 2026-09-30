@@ -24,6 +24,7 @@ import tools.jackson.databind.cfg.CoercionInputShape;
 import tools.jackson.databind.type.LogicalType;
 
 import it.govpay.common.entity.ApplicazioneEntity;
+import it.govpay.common.entity.ConfigurazioneEntity;
 import it.govpay.common.entity.ConnettoreEntity;
 import it.govpay.common.entity.DominioEntity;
 import it.govpay.common.entity.IbanAccreditoEntity;
@@ -35,8 +36,6 @@ import it.govpay.common.entity.TipoVersamentoEntity;
 import it.govpay.common.entity.TributoEntity;
 import it.govpay.common.entity.UnitaOperativaEntity;
 import it.govpay.common.repository.ApplicazioneRepository;
-import it.govpay.common.repository.ConfigurazioneRepository;
-import it.govpay.common.repository.ConnettoreEntityRepository;
 import it.govpay.common.repository.DominioLogoRepository;
 import it.govpay.common.repository.DominioRepository;
 import it.govpay.common.repository.IntermediarioRepository;
@@ -47,20 +46,22 @@ import it.govpay.common.repository.StazioneRepository;
  * {@code excludeFilters}: questo servizio usa solo {@link ApplicazioneRepository}
  * (risoluzione {@code idA2A}) e {@link DominioRepository} (risoluzione dominio e
  * generazione IUV standard, {@code GeneratoreIuvStandard} di govpay-common-pendenze) —
- * gli altri repository di common (connettori/configurazione/intermediari/stazioni/loghi
- * dominio) non hanno un'entita' corrispondente nella {@link PersistenceManagedTypes} di
- * questo servizio: se restassero attivi, il bootstrap fallirebbe non trovando le loro
- * entity nel contesto di persistenza (stesso principio gia' applicato in
- * {@code GovPayConsoleApplication}, dove pero' l'esclusione va nella direzione opposta:
- * qui vogliamo <b>includere</b> Applicazione/Dominio, la' venivano escluse perche' quel
- * servizio ha proprie entita' CRUD equivalenti).
+ * i repository di common per cui questo servizio non ha un'entita' corrispondente nella
+ * {@link PersistenceManagedTypes} (intermediari/stazioni/loghi dominio) restano esclusi:
+ * se attivi, il bootstrap fallirebbe non trovando le loro entity nel contesto di
+ * persistenza (stesso principio gia' applicato in {@code GovPayConsoleApplication}, dove
+ * pero' l'esclusione va nella direzione opposta: qui vogliamo <b>includere</b>
+ * Applicazione/Dominio, la' venivano escluse perche' quel servizio ha proprie entita' CRUD
+ * equivalenti). {@code ConnettoreEntityRepository}/{@code ConfigurazioneRepository} sono
+ * invece attivi: li usano rispettivamente {@code ConnettoreService} e
+ * {@code ConfigurazioneService} di govpay-common, entrambi prerequisiti dei log dinamici e
+ * delle chiamate al GDE.
  */
 @SpringBootApplication(exclude = { UserDetailsServiceAutoConfiguration.class })
 @EnableJpaRepositories(basePackages = { "it.govpay.pendenze.repository", "it.govpay.pendenze.security",
         "it.govpay.common.repository" },
         excludeFilters = @Filter(type = FilterType.ASSIGNABLE_TYPE,
-                classes = { ConnettoreEntityRepository.class, ConfigurazioneRepository.class,
-                        IntermediarioRepository.class, StazioneRepository.class, DominioLogoRepository.class }))
+                classes = { IntermediarioRepository.class, StazioneRepository.class, DominioLogoRepository.class }))
 public class GovPayPendenzeApiApplication extends SpringBootServletInitializer {
 
     @Override
@@ -100,6 +101,8 @@ public class GovPayPendenzeApiApplication extends SpringBootServletInitializer {
      * {@code idIbanAccredito}/{@code idIbanAppoggio} — {@code codEntrata}/gli IBAN della
      * richiesta sono codici di anagrafica censita, non stringhe libere (vedi Javadoc di
      * classe di {@code VocePendenza}).</li>
+     * <li>{@link ConfigurazioneEntity}: {@code ConfigurazioneService}/{@code ConnettoreService}
+     * di govpay-common (log dinamici, connettore GDE) la leggono/scrivono direttamente.</li>
      * </ul>
      */
     @Bean
@@ -109,6 +112,7 @@ public class GovPayPendenzeApiApplication extends SpringBootServletInitializer {
 
         List<String> nomiClassi = new ArrayList<>(proprie.getManagedClassNames());
         nomiClassi.add(ApplicazioneEntity.class.getName());
+        nomiClassi.add(ConfigurazioneEntity.class.getName());
         nomiClassi.add(DominioEntity.class.getName());
         nomiClassi.add(StazioneEntity.class.getName());
         nomiClassi.add(IntermediarioEntity.class.getName());

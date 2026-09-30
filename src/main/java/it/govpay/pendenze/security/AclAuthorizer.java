@@ -12,14 +12,16 @@ import org.springframework.transaction.annotation.Transactional;
 import it.govpay.pendenze.web.AccessoNegatoException;
 
 /**
- * Verifica i diritti ACL (tabella condivisa {@code acl}) dell'applicazione autenticata sul
- * servizio "API Pendenze" — mirror di {@code it.govpay.console.security.AclAuthorizer} in
+ * Verifica i diritti ACL (tabella condivisa {@code acl}) dell'applicazione autenticata su un
+ * servizio — mirror di {@code it.govpay.console.security.AclAuthorizer} in
  * govpay-console-api, stesso schema/tabella condivisa col core v1/v2
- * ({@code it.govpay.model.Acl}, enum {@code Servizio.API_PENDENZE}/{@code Diritti.LETTURA,
- * SCRITTURA}), verificato in {@code AuthorizationManager.isAuthorized(Utenza, ...)}: un
- * diritto e' concesso se compare in una ACL diretta dell'utenza (id_utenza = quella
- * dell'applicazione) oppure in una ACL di definizione di un ruolo ({@code id_utenza IS NULL})
- * elencato nella colonna CSV {@code utenze.ruoli} dell'utenza.
+ * ({@code it.govpay.model.Acl}, enum {@code Servizio}/{@code Diritti.LETTURA, SCRITTURA}),
+ * verificato in {@code AuthorizationManager.isAuthorized(Utenza, ...)}: un diritto e' concesso
+ * se compare in una ACL diretta dell'utenza (id_utenza = quella dell'applicazione) oppure in
+ * una ACL di definizione di un ruolo ({@code id_utenza IS NULL}) elencato nella colonna CSV
+ * {@code utenze.ruoli} dell'utenza. Due servizi in uso: "API Pendenze" (l'aggregato pendenza,
+ * tutti i controller REST del dominio) e "Configurazione e manutenzione" (endpoint di
+ * amministrazione come {@code /admin/logging}, non generati dallo YAML v3).
  *
  * <p>Non replica {@code aclRuoliEsterni} del legacy (ruoli risolti da un provider esterno,
  * es. LDAP): non applicabile qui, dove l'unico metodo di autenticazione e' BASIC su
@@ -30,6 +32,14 @@ public class AclAuthorizer {
 
     /** Codifica di {@code it.govpay.model.Acl.Servizio.API_PENDENZE} nel legacy. */
     private static final String SERVIZIO_API_PENDENZE = "API Pendenze";
+
+    /**
+     * Codifica di {@code it.govpay.model.Acl.Servizio.CONFIGURAZIONE_E_MANUTENZIONE} nel
+     * legacy — stesso servizio usato da {@code LogLevelController} in govpay-console-api per
+     * proteggere {@code /admin/logging}: qui protegge lo stesso endpoint di amministrazione,
+     * non le operazioni sull'aggregato pendenza (quelle restano su "API Pendenze").
+     */
+    private static final String SERVIZIO_CONFIGURAZIONE_E_MANUTENZIONE = "Configurazione e manutenzione";
 
     private enum Diritto {
         LETTURA("R", "lettura"),
@@ -58,7 +68,7 @@ public class AclAuthorizer {
      */
     @Transactional(readOnly = true)
     public void richiedeLettura() {
-        richiede(Diritto.LETTURA);
+        richiede(SERVIZIO_API_PENDENZE, Diritto.LETTURA);
     }
 
     /**
@@ -67,18 +77,38 @@ public class AclAuthorizer {
      */
     @Transactional(readOnly = true)
     public void richiedeScrittura() {
-        richiede(Diritto.SCRITTURA);
+        richiede(SERVIZIO_API_PENDENZE, Diritto.SCRITTURA);
     }
 
-    private void richiede(Diritto diritto) {
+    /**
+     * Verifica che l'applicazione autenticata abbia il diritto di lettura su "Configurazione e
+     * manutenzione" (endpoint di amministrazione, non l'aggregato pendenza); altrimenti lancia
+     * {@link AccessoNegatoException} (403 problem+json).
+     */
+    @Transactional(readOnly = true)
+    public void richiedeLetturaConfigurazioneEManutenzione() {
+        richiede(SERVIZIO_CONFIGURAZIONE_E_MANUTENZIONE, Diritto.LETTURA);
+    }
+
+    /**
+     * Verifica che l'applicazione autenticata abbia il diritto di scrittura su "Configurazione e
+     * manutenzione" (endpoint di amministrazione, non l'aggregato pendenza); altrimenti lancia
+     * {@link AccessoNegatoException} (403 problem+json).
+     */
+    @Transactional(readOnly = true)
+    public void richiedeScritturaConfigurazioneEManutenzione() {
+        richiede(SERVIZIO_CONFIGURAZIONE_E_MANUTENZIONE, Diritto.SCRITTURA);
+    }
+
+    private void richiede(String servizio, Diritto diritto) {
         UtenzaEntity utenza = utenzaAutenticata();
         boolean autorizzata = aclDellUtenza(utenza).stream()
-                .anyMatch(acl -> SERVIZIO_API_PENDENZE.equals(acl.getServizio())
+                .anyMatch(acl -> servizio.equals(acl.getServizio())
                         && contieneDiritto(acl.getDiritti(), diritto));
         if (!autorizzata) {
             throw new AccessoNegatoException("l'applicazione '" + utenza.getPrincipal()
                     + "' non dispone del diritto di " + diritto.label + " sul servizio '"
-                    + SERVIZIO_API_PENDENZE + "'.");
+                    + servizio + "'.");
         }
     }
 
