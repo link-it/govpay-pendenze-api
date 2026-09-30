@@ -33,8 +33,7 @@ public class CurrentApplicazioneService {
      * invocato solo da codice dietro la SecurityFilterChain, che avrebbe gia' rifiutato la
      * richiesta con 401) se non c'e' affatto un'autenticazione nel {@code SecurityContext}.
      *
-     * <p>Lancia invece {@link AccessoNegatoException} (403 — bug del lead, 2026-09-29: prima
-     * lanciava anche qui {@code IllegalStateException}/500) se il principal autenticato ha
+     * <p>Lancia invece {@link AccessoNegatoException} (403) se il principal autenticato ha
      * credenziali VALIDE ma non e' risolvibile a un'{@link ApplicazioneEntity} — condizione di
      * dato reale (un'utenza abilitata senza applicazione associata, o senza nemmeno una riga
      * in {@code utenze} nonostante l'autenticazione — mai un errore di programmazione: le

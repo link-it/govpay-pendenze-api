@@ -29,6 +29,9 @@ import it.govpay.pendenze.api.model.DettaglioContabileCivilistico;
 import it.govpay.pendenze.api.model.DettaglioContabileCorrispettivoDL118;
 import it.govpay.pendenze.api.model.DettaglioContabileImportoNotifica;
 import it.govpay.pendenze.api.model.DettaglioContabileIncassoTipico;
+import it.govpay.pendenze.api.model.DettaglioContabileSconosciuto;
+import it.govpay.pendenze.api.model.DettaglioContabileSconosciutoEntriesInner;
+import it.govpay.pendenze.api.model.DettaglioLetto;
 import it.govpay.pendenze.api.model.NuovaOpzionePagamento;
 import it.govpay.pendenze.api.model.NuovaOpzionePagamentoPianoRateale;
 import it.govpay.pendenze.api.model.NuovaOpzionePagamentoSoluzioneUnica;
@@ -54,13 +57,18 @@ import it.govpay.pendenze.api.model.PendenzaOpzionePagamento;
 import it.govpay.pendenze.api.model.Soggetto;
 import it.govpay.pendenze.api.model.StatoOpzionePagamento;
 import it.govpay.pendenze.api.model.StatoPendenza;
+import it.govpay.pendenze.api.model.TipoDettaglioContabile;
 import it.govpay.pendenze.api.model.TipoSoggetto;
 import it.govpay.pendenze.api.model.TipologiaOpzionePagamento;
+import it.govpay.pendenze.api.model.VocePendenzaBollo;
+import it.govpay.pendenze.api.model.VocePendenzaEntrata;
+import it.govpay.pendenze.api.model.VocePendenzaRiferimentoEntrata;
 import it.govpay.pendenze.entity.SoggettoDebitore;
 import it.govpay.pendenze.entity.VocePendenza;
 import it.govpay.pendenze.exception.ValidazioneNonSuperataException;
 import it.govpay.pendenze.model.DettaglioContabile;
 import it.govpay.pendenze.model.StatoVocePendenza;
+import it.govpay.pendenze.model.TipoRiferimentoVocePendenza;
 import it.govpay.pendenze.security.UtenzaEntity;
 import it.govpay.pendenze.security.UtenzaRepository;
 import it.govpay.pendenze.security.UtenzaTipoVersamentoRepository;
@@ -79,7 +87,8 @@ import it.govpay.pendenze.web.AnagraficaNonTrovataException;
  * {@code DominioMapper} di {@code govpay-console-api}.</p>
  *
  * <p><b>Collisioni di nome</b>: {@code PosizioneDebitoria}/{@code OpzionePagamento}/
- * {@code TipologiaOpzionePagamento}/{@code StatoOpzionePagamento}/{@code StatoPendenza}/
+ * {@code Pendenza}/{@code VocePendenza}/{@code TipologiaOpzionePagamento}/
+ * {@code StatoOpzionePagamento}/{@code StatoPendenza}/{@code StatoVocePendenza}/
  * {@code TipoSoggetto} esistono identici sia in {@code it.govpay.pendenze.entity}/
  * {@code it.govpay.pendenze.model} (libreria) sia in {@code it.govpay.pendenze.api.model}
  * (generati dallo YAML). Import "a nudo" per i tipi DTO (piu' numerosi in questo file),
@@ -148,8 +157,8 @@ public class PosizioneDebitoriaMapper {
 
     /**
      * Come {@link #risolviIdDominio}, ma rifiuta anche un dominio disabilitato — solo per i
-     * percorsi di SCRITTURA (bug del lead, 2026-09-29: mancava — v2 lo fa in
-     * {@code VersamentoUtils}, {@code DOM_001}).
+     * percorsi di SCRITTURA (v2 applica lo stesso controllo in {@code VersamentoUtils},
+     * {@code DOM_001}).
      *
      * @throws AnagraficaNonTrovataException se {@code idDominio} non corrisponde a nessun
      *                                        dominio
@@ -166,11 +175,10 @@ public class PosizioneDebitoriaMapper {
     /**
      * Come {@link #risolviIdDominioAbilitato}, ma per un dominio gia' risolto per id — usato
      * da {@link #toOpzionePagamento(String, Long, NuovaOpzionePagamento)}, dove il dominio
-     * arriva gia' come {@code Long} dalla posizione esistente (bug del lead, 2026-09-29:
-     * quell'entry point riusava {@code idDominioPosizione} senza mai controllare se il
-     * dominio fosse ancora abilitato — a differenza di {@link #toEntity}, un dominio
-     * disabilitato DOPO la creazione della posizione non impediva di aggiungergli una nuova
-     * opzione di pagamento).
+     * arriva gia' come {@code Long} dalla posizione esistente. Necessario perche' quell'entry
+     * point riusa {@code idDominioPosizione} senza ripassare da {@link #toEntity}: senza
+     * questo controllo, un dominio disabilitato DOPO la creazione della posizione non
+     * impedirebbe di aggiungergli una nuova opzione di pagamento.
      *
      * @throws ValidazioneNonSuperataException se il dominio e' disabilitato
      */
@@ -194,9 +202,9 @@ public class PosizioneDebitoriaMapper {
     }
 
     /**
-     * Rifiuta un'unita' operativa disabilitata (bug del lead, 2026-09-29: mancava, come per
-     * {@link #risolviIdTributo}/{@link #risolviIdIban} — v2 lo fa in
-     * {@code VersamentoUtils.setUo}, {@code UOP_001}).
+     * Rifiuta un'unita' operativa disabilitata, come {@link #risolviIdTributo}/
+     * {@link #risolviIdIban} fanno per i rispettivi controlli — v2 applica lo stesso
+     * controllo in {@code VersamentoUtils.setUo}, {@code UOP_001}.
      *
      * @return {@code null} se {@code idUnitaOperativa} e' {@code null} (campo opzionale)
      * @throws AnagraficaNonTrovataException se {@code idUnitaOperativa} e' valorizzato ma
@@ -233,9 +241,9 @@ public class PosizioneDebitoriaMapper {
      * dominio) — stessa risoluzione a due livelli di {@link #risolviTipoVersamentoDominio}
      * per {@code idTipoPendenza}/{@code idTipoVersamento}.
      *
-     * <p>Rifiuta un tributo disabilitato per il dominio (bug del lead, 2026-09-29: mancava —
-     * v2 lo fa in {@code VersamentoUtils}, {@code TRB_001}: una POST con un tributo
-     * disabilitato tornava 201 invece di essere rifiutata).</p>
+     * <p>Rifiuta un tributo disabilitato per il dominio — v2 applica lo stesso controllo in
+     * {@code VersamentoUtils}, {@code TRB_001}: senza questo controllo una POST con un
+     * tributo disabilitato tornerebbe 201 invece di essere rifiutata.</p>
      *
      * @throws AnagraficaNonTrovataException se {@code codEntrata} non esiste nel catalogo
      *                                        globale, o non e' configurato per il dominio
@@ -262,8 +270,8 @@ public class PosizioneDebitoriaMapper {
      * L'IBAN di {@code ENTRATA} e' sempre un IBAN censito in anagrafica (mai una stringa
      * libera — v2 lo referenzia gia' cosi'), per questo dominio.
      *
-     * Rifiuta un IBAN disabilitato per il dominio (bug del lead, 2026-09-29: mancava — v2 lo
-     * fa in {@code VersamentoUtils}, {@code VER_032}/{@code VER_034} per accredito/appoggio).
+     * Rifiuta un IBAN disabilitato per il dominio — v2 applica lo stesso controllo in
+     * {@code VersamentoUtils}, {@code VER_032}/{@code VER_034} per accredito/appoggio.
      *
      * @return {@code null} se {@code codIban} e' {@code null} (campo opzionale, es.
      *         {@code ibanAppoggio})
@@ -286,10 +294,22 @@ public class PosizioneDebitoriaMapper {
         return iban.getId();
     }
 
+    /** Risoluzione inversa di {@link #risolviIdTributo}, per {@link #toVocePendenzaDto} (lettura). */
+    private String risolviCodEntrata(Long idTributo) {
+        return idTributo == null ? null
+                : tributoRepository.findById(idTributo).map(t -> t.getTipoTributo().getCodTributo()).orElse(null);
+    }
+
+    /** Risoluzione inversa di {@link #risolviIdIban}, per {@link #toVocePendenzaDto} (lettura). */
+    private String risolviCodIban(Long idIban) {
+        return idIban == null ? null : ibanAccreditoRepository.findById(idIban).map(IbanAccreditoEntity::getCodIban)
+                .orElse(null);
+    }
+
     /**
      * Rifiuta un tipo pendenza disabilitato, sia a livello globale sia nell'override per
-     * questo dominio (bug del lead, 2026-09-29: mancavano entrambi — v2 lo fa in
-     * {@code VersamentoUtils}, {@code TVR_001}/{@code TVD_001}). {@code abilitato} e' colonna
+     * questo dominio — v2 applica lo stesso controllo in {@code VersamentoUtils},
+     * {@code TVR_001}/{@code TVD_001}. {@code abilitato} e' colonna
      * condivisa tra {@code TipoVersamentoEntity} (globale, NOT NULL) e
      * {@code TipoVersamentoDominioEntity} (override per dominio, nullable — {@code null}
      * significa "nessun override, eredita il globale", gia' verificato sopra; solo un
@@ -323,10 +343,10 @@ public class PosizioneDebitoriaMapper {
 
     /**
      * Rifiuta un tipo pendenza che il CHIAMANTE non e' autorizzato a usare, anche se e'
-     * censito/abilitato per il dominio (bug del lead, 2026-09-29: mancava — v2 lo fa in
+     * censito/abilitato per il dominio — v2 applica lo stesso controllo in
      * {@code VersamentoUtils.setTipoVersamento}, {@code VER_022}: {@code !applicazione.isTrusted()
      * && !AuthorizationManager.isTipoVersamentoAuthorized(applicazione.getUtenza(),
-     * codTipoVersamento)}). Un'applicazione {@code trusted} e' sempre autorizzata a
+     * codTipoVersamento)}. Un'applicazione {@code trusted} e' sempre autorizzata a
      * qualunque tipo pendenza censito (nessun controllo aggiuntivo); una non-trusted deve
      * avere {@code utenze.autorizzazione_tipi_vers_star} oppure una riga esplicita in
      * {@code utenze_tipo_vers} per quel tipo versamento.
@@ -354,13 +374,13 @@ public class PosizioneDebitoriaMapper {
     }
 
     /**
-     * {@code findByIdFetchTipoVersamento}, non {@code findById} (bug del lead, 2026-09-27):
-     * senza il {@code join fetch}, {@code tvd.getTipoVersamento()} resta un proxy LAZY —
-     * qui viene tipicamente letto da {@link #toDto} dopo che la transazione di scrittura di
+     * {@code findByIdFetchTipoVersamento}, non {@code findById}: senza il {@code join fetch},
+     * {@code tvd.getTipoVersamento()} resta un proxy LAZY — qui viene tipicamente letto da
+     * {@link #toDto} dopo che la transazione di scrittura di
      * {@code PosizioneDebitoriaService#crea} e' gia' tornata (con {@code open-in-view=false}
-     * la sessione Hibernate è già chiusa), sollevando {@code LazyInitializationException}
-     * (500 anziché la risposta 201 — la posizione restava comunque salvata, riproducibile
-     * anche solo rileggendola con un secondo tentativo, che riceveva 409).
+     * la sessione Hibernate e' gia' chiusa), sollevando {@code LazyInitializationException}
+     * (500 anziche' la risposta 201 — la posizione resterebbe comunque salvata, come si vede
+     * rileggendola con un secondo tentativo, che riceve 409).
      */
     private String risolviCodTipoVersamento(Long idTipoVersamentoDominio) {
         return idTipoVersamentoDominio == null ? null
@@ -485,7 +505,11 @@ public class PosizioneDebitoriaMapper {
         }
     }
 
-    /** Stesso vincolo di {@code NuovaPosizioneDebitoria.descrizione} nello YAML (bug del lead, 2026-09-29: la PATCH non lo verificava — una descrizione di 141 caratteri passava con 200, mentre in creazione lo YAML impone 140). */
+    /**
+     * Stesso vincolo di {@code NuovaPosizioneDebitoria.descrizione} nello YAML: senza questo
+     * controllo la PATCH accetterebbe una descrizione piu' lunga del limite imposto in
+     * creazione (140 caratteri).
+     */
     private static final int DESCRIZIONE_MAX_LENGTH = 140;
 
     private void applicaDescrizione(it.govpay.pendenze.entity.PosizioneDebitoria posizione, PatchOp operazione) {
@@ -674,8 +698,8 @@ public class PosizioneDebitoriaMapper {
         pendenza.setIdTipoPendenza(tipoVersamentoDominio.getId());
         pendenza.setIdTipoVersamento(tipoVersamentoDominio.getTipoVersamento().getId());
         // Necessaria a GeneratoreIuvStandard per risolvere %(p)/%(t) nel prefisso IUV di
-        // dominio (bug del lead, 2026-09-27: dimenticata nel primo giro — la creazione
-        // falliva con 500 per ogni dominio il cui prefisso usa quel placeholder).
+        // dominio: senza questo campo la creazione fallisce con 500 per ogni dominio il cui
+        // prefisso usa quel placeholder.
         pendenza.setCodificaIuvTipoPendenza(codificaIuvEffettiva(tipoVersamentoDominio));
 
         pendenza.setImporto(dto.getImporto().doubleValue());
@@ -788,7 +812,78 @@ public class PosizioneDebitoriaMapper {
         return valore == null ? null : BigDecimal.valueOf(valore);
     }
 
+    private static Double doubleValue(BigDecimal valore) {
+        return valore == null ? null : valore.doubleValue();
+    }
+
     // ── Entita' -> risposta ──────────────────────────────────────────────────
+
+    /**
+     * Risoluzione inversa di {@link #toDettaglioContabile}: le classi generate dallo YAML per
+     * {@code dettaglioLetto} (schema di sola lettura, usato qui) e {@code Dettaglio} (schema di
+     * sola scrittura, usato da {@link #toDettaglioContabile}) collassano sugli STESSI 4 nomi
+     * Java per le varianti in comune ({@code DettaglioContabileCorrispettivoDL118}/
+     * {@code IncassoTipico}/{@code Civilistico}/{@code ImportoNotifica} — verificato nel
+     * sorgente generato: implementano entrambe le interfacce marker {@code Dettaglio} e
+     * {@code DettaglioLetto}), quindi qui si riusano le stesse classi via i loro setter, non
+     * se ne creano di nuove. {@code DettaglioContabileSconosciuto} (UNKNOWN_ENTRIES) e' invece
+     * esclusiva della lettura: nessuna scrittura la produce mai.
+     */
+    private DettaglioLetto toDettaglioLetto(DettaglioContabile modello) {
+        if (modello instanceof DettaglioContabile.CorrispettivoDl118 d) {
+            DettaglioContabileCorrispettivoDL118 dto = new DettaglioContabileCorrispettivoDL118();
+            dto.setTipo(TipoDettaglioContabile.CORRISPETTIVO_DL118);
+            dto.setAnnoCompetenza(d.annoCompetenza());
+            dto.setCodiceUfficio(d.codiceUfficio());
+            dto.setCapitolo(d.capitolo());
+            dto.setAccertamento(d.accertamento());
+            dto.setArticolo(d.articolo());
+            dto.setPianoFinanziario5Livello(d.pianoFinanziario5Livello());
+            dto.setImporto(doubleValue(d.importo()));
+            return dto;
+        }
+        if (modello instanceof DettaglioContabile.IncassoTipico d) {
+            DettaglioContabileIncassoTipico dto = new DettaglioContabileIncassoTipico();
+            dto.setTipo(TipoDettaglioContabile.INCASSO_TIPICO);
+            dto.setAnnoCompetenza(d.annoCompetenza());
+            dto.setCodiceUfficio(d.codiceUfficio());
+            dto.setTipoIncasso(d.tipoIncasso());
+            dto.setEmissioneFattura(d.emissioneFattura() == null ? null
+                    : DettaglioContabileIncassoTipico.EmissioneFatturaEnum.fromValue(d.emissioneFattura()));
+            dto.setNrDocumento(d.nrDocumento());
+            dto.setImporto(doubleValue(d.importo()));
+            return dto;
+        }
+        if (modello instanceof DettaglioContabile.Civilistico d) {
+            DettaglioContabileCivilistico dto = new DettaglioContabileCivilistico();
+            dto.setTipo(TipoDettaglioContabile.CIVILISTICO);
+            dto.setAnnoCompetenza(d.annoCompetenza());
+            dto.setCodiceUfficio(d.codiceUfficio());
+            dto.setConto(d.conto());
+            dto.setCommessa(d.commessa());
+            dto.setNrDocumento(d.nrDocumento());
+            dto.setImporto(doubleValue(d.importo()));
+            return dto;
+        }
+        if (modello instanceof DettaglioContabile.SpeseNotifica d) {
+            DettaglioContabileImportoNotifica dto = new DettaglioContabileImportoNotifica();
+            dto.setTipo(TipoDettaglioContabile.SPESE_NOTIFICA);
+            dto.setImporto(doubleValue(d.importo()));
+            return dto;
+        }
+        if (modello instanceof DettaglioContabile.Sconosciuto d) {
+            DettaglioContabileSconosciuto dto = new DettaglioContabileSconosciuto();
+            dto.setTipo(TipoDettaglioContabile.UNKNOWN_ENTRIES);
+            dto.setEntries(d.entries().stream().map(voce -> {
+                DettaglioContabileSconosciutoEntriesInner entry = new DettaglioContabileSconosciutoEntriesInner();
+                entry.setChiave(voce.chiave());
+                entry.setValore(voce.valore());
+                return entry;
+            }).toList());
+            return dto;
+        }
+        throw new IllegalStateException("tipo di DettaglioContabile non gestito: " + modello.getClass());
+    }
 
     /**
      * Costruisce la risposta di {@code POST /posizioni-debitorie/{idA2A}} ("stesso contenuto
@@ -841,9 +936,8 @@ public class PosizioneDebitoriaMapper {
     }
 
     /**
-     * Bug del lead, 2026-09-27: {@code toDto} non copiava affatto {@code soggettiDebitori} —
-     * una posizione con un solo debitore tornava con {@code "soggettiDebitori":[]},
-     * contrario al {@code minItems: 1} dello YAML.
+     * Lo YAML impone {@code minItems: 1} su {@code soggettiDebitori}: va sempre copiato in
+     * {@link #toDto}, anche per una posizione con un solo debitore.
      */
     private Soggetto toSoggettoDto(SoggettoDebitore entity) {
         Soggetto dto = new Soggetto();
@@ -971,9 +1065,8 @@ public class PosizioneDebitoriaMapper {
         dto.setNumeroRata(entity.getNumeroRata());
         dto.setImporto(BigDecimal.valueOf(entity.getImporto()));
         dto.setNumeroAvviso(entity.getNumeroAvviso());
-        // dataCaricamento non e' una colonna propria (decisione del lead, 2026-09-28, su
-        // richiesta esplicita — vedi Javadoc di classe di Pendenza): si deriva da
-        // dataCreazione, sempre valorizzata.
+        // dataCaricamento non e' una colonna propria (vedi Javadoc di classe di Pendenza):
+        // si deriva da dataCreazione, sempre valorizzata.
         dto.setDataCaricamento(entity.getDataCreazione().toLocalDate());
         dto.setDataValidita(entity.getDataValidita() == null ? null : entity.getDataValidita().toLocalDate());
         dto.setDataScadenzaAvviso(
@@ -1020,5 +1113,108 @@ public class PosizioneDebitoriaMapper {
                 entity.getDataScadenzaAvviso() == null ? null : entity.getDataScadenzaAvviso().toLocalDate());
         dto.setPosizioneDebitoria(toIndexDto(entity.getOpzionePagamento().getPosizioneDebitoria()));
         return dto;
+    }
+
+    /**
+     * Costruisce {@code GET /pendenze/{idA2A}/{idPendenza}}: come {@link #toPendenzaIndexDto}
+     * ma con in piu' {@code voci} (richiesto dallo schema {@code Pendenza}, a differenza di
+     * {@code PendenzaIndex}) — l'unico punto di questa API che espone le voci in lettura,
+     * quindi anche l'unico che chiama {@link #toVocePendenzaDto}/{@link #toDettaglioLetto}.
+     *
+     * @throws IllegalStateException se {@code entity.getOpzionePagamento()} e' {@code null} —
+     *         stessa guardia di {@link #toPendenzaIndexDto}, stessa motivazione (nessun caso
+     *         reale la esercita oggi).
+     */
+    public it.govpay.pendenze.api.model.Pendenza toPendenzaDto(it.govpay.pendenze.entity.Pendenza entity) {
+        if (entity.getOpzionePagamento() == null) {
+            throw new IllegalStateException("la pendenza [" + entity.getIdPendenza() + "] non ha un'opzione di "
+                    + "pagamento (creata da v2/migrazione): non rappresentabile in Pendenza, il chiamante doveva "
+                    + "escluderla prima di chiamare questo metodo");
+        }
+        it.govpay.pendenze.api.model.Pendenza dto = new it.govpay.pendenze.api.model.Pendenza();
+        dto.setIdA2A(risolviCodApplicazione(entity.getIdApplicazione()));
+        dto.setIdPendenza(entity.getIdPendenza());
+        dto.setIdTipoPendenza(risolviCodTipoVersamento(entity.getIdTipoPendenza()));
+        dto.setIdDominio(risolviCodDominio(entity.getIdDominio()));
+        dto.setStato(StatoPendenza.valueOf(entity.getStato().name()));
+        dto.setIuv(entity.getIuv());
+        dto.setDataPagamento(entity.getDataPagamento() == null ? null : entity.getDataPagamento().toLocalDate());
+        dto.setOpzionePagamento(toOpzionePagamentoIndexDto(entity.getOpzionePagamento()));
+        dto.setNumeroRata(entity.getNumeroRata());
+        dto.setImporto(BigDecimal.valueOf(entity.getImporto()));
+        dto.setNumeroAvviso(entity.getNumeroAvviso());
+        dto.setDataCaricamento(entity.getDataCreazione().toLocalDate());
+        dto.setDataValidita(entity.getDataValidita() == null ? null : entity.getDataValidita().toLocalDate());
+        dto.setDataScadenzaAvviso(
+                entity.getDataScadenzaAvviso() == null ? null : entity.getDataScadenzaAvviso().toLocalDate());
+        dto.setPosizioneDebitoria(toIndexDto(entity.getOpzionePagamento().getPosizioneDebitoria()));
+        dto.setVoci(entity.getVoci().stream().map(this::toVocePendenzaDto).toList());
+        return dto;
+    }
+
+    /**
+     * Costruisce la voce in lettura — tre varianti come in scrittura ({@link #toVocePendenza}),
+     * ma discriminate da {@link VocePendenza#getTipoRiferimento()} (derivato, vedi Javadoc
+     * dell'entita') invece che dal tipo del DTO in ingresso. {@code idDominio} torna
+     * valorizzato solo se la voce ha un override esplicito (multi-beneficiario pagoPA) — mai
+     * quello ereditato dalla posizione, che il chiamante gia' conosce (stessa asimmetria
+     * lettura/scrittura di {@code VocePendenza.idDominio}, vedi il suo Javadoc).
+     *
+     * @throws IllegalStateException se la voce non ha ne' {@code idTributo} ne'
+     *         {@code idIbanAccredito} ne' {@code tipoBollo} valorizzati — non dovrebbe mai
+     *         accadere per una voce creata da questa libreria (uno dei tre e' sempre richiesto
+     *         in scrittura).
+     */
+    private it.govpay.pendenze.api.model.VocePendenza toVocePendenzaDto(VocePendenza entity) {
+        TipoRiferimentoVocePendenza tipoRiferimento = entity.getTipoRiferimento();
+        StatoVocePendenza statoEntity = entity.getStato();
+        it.govpay.pendenze.api.model.StatoVocePendenza stato = statoEntity == null ? null
+                : it.govpay.pendenze.api.model.StatoVocePendenza.valueOf(statoEntity.name());
+        String idDominio = risolviCodDominio(entity.getIdDominio());
+        List<DettaglioLetto> dettaglioContabile = entity.getDettaglioContabile().stream()
+                .map(this::toDettaglioLetto).toList();
+
+        if (tipoRiferimento == TipoRiferimentoVocePendenza.RIFERIMENTO_ENTRATA) {
+            VocePendenzaRiferimentoEntrata dto = new VocePendenzaRiferimentoEntrata();
+            dto.setIdVocePendenza(entity.getIdVocePendenza());
+            dto.setImporto(BigDecimal.valueOf(entity.getImporto()));
+            dto.setDescrizione(entity.getDescrizione());
+            dto.setIndice(BigDecimal.valueOf(entity.getIndice()));
+            dto.setStato(stato);
+            dto.setIdDominio(idDominio);
+            dto.setCodEntrata(risolviCodEntrata(entity.getIdTributo()));
+            dto.setDettaglioContabile(dettaglioContabile);
+            return dto;
+        }
+        if (tipoRiferimento == TipoRiferimentoVocePendenza.ENTRATA) {
+            VocePendenzaEntrata dto = new VocePendenzaEntrata();
+            dto.setIdVocePendenza(entity.getIdVocePendenza());
+            dto.setImporto(BigDecimal.valueOf(entity.getImporto()));
+            dto.setDescrizione(entity.getDescrizione());
+            dto.setIndice(BigDecimal.valueOf(entity.getIndice()));
+            dto.setStato(stato);
+            dto.setIdDominio(idDominio);
+            dto.setIbanAccredito(risolviCodIban(entity.getIdIbanAccredito()));
+            dto.setIbanAppoggio(risolviCodIban(entity.getIdIbanAppoggio()));
+            dto.setTassonomia(entity.getTassonomia());
+            dto.setDettaglioContabile(dettaglioContabile);
+            return dto;
+        }
+        if (tipoRiferimento == TipoRiferimentoVocePendenza.BOLLO) {
+            VocePendenzaBollo dto = new VocePendenzaBollo();
+            dto.setIdVocePendenza(entity.getIdVocePendenza());
+            dto.setImporto(BigDecimal.valueOf(entity.getImporto()));
+            dto.setDescrizione(entity.getDescrizione());
+            dto.setIndice(BigDecimal.valueOf(entity.getIndice()));
+            dto.setStato(stato);
+            dto.setIdDominio(idDominio);
+            dto.setTipoBollo(VocePendenzaBollo.TipoBolloEnum.fromValue(entity.getTipoBollo()));
+            dto.setHashDocumento(entity.getHashDocumento());
+            dto.setProvinciaResidenza(entity.getProvinciaResidenza());
+            dto.setTassonomia(entity.getTassonomia());
+            return dto;
+        }
+        throw new IllegalStateException("la voce [" + entity.getIdVocePendenza() + "] non ha ne' idTributo ne' "
+                + "idIbanAccredito ne' tipoBollo valorizzati: non rappresentabile in lettura");
     }
 }

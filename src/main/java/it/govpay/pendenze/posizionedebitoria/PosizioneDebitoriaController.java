@@ -88,8 +88,8 @@ public class PosizioneDebitoriaController implements PosizioniDebitorieApi {
     }
 
     /**
-     * {@code @Transactional} qui, non solo su {@code PosizioneDebitoriaService.trovaPerIdentificativo}
-     * (bug del lead, 2026-09-27): quel metodo apre e chiude la propria transazione prima di
+     * {@code @Transactional} qui, non solo su {@code PosizioneDebitoriaService.trovaPerIdentificativo}:
+     * quel metodo apre e chiude la propria transazione prima di
      * tornare al controller — con {@code open-in-view=false} la sessione Hibernate e' gia'
      * chiusa quando {@code mapper.toDto(...)} legge le collezioni LAZY dell'aggregato
      * ({@code soggettiDebitori}/{@code opzioniPagamento}/{@code pendenze}), sollevando

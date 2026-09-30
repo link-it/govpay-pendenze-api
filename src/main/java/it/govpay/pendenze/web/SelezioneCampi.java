@@ -14,10 +14,9 @@ import tools.jackson.databind.ObjectMapper;
 /**
  * Applica il parametro di query {@code fields} (elenco separato da virgole dei campi da
  * restituire per ciascun risultato — RAC_REST_NAME dello YAML v3) agli elementi di una lista
- * di risultati. Estratta come utility condivisa dopo essere stata scritta una prima volta
- * solo per {@code PosizioneDebitoriaController} (bug del lead, 2026-09-27: il parametro era
- * dichiarato dallo YAML ma completamente ignorato) e poi riservita identica da
- * {@code PendenzaController}.
+ * di risultati. Senza questa utility il parametro resterebbe dichiarato dallo YAML ma
+ * completamente ignorato: condivisa tra {@code PosizioneDebitoriaController} e
+ * {@code PendenzaController}, che ne hanno bisogno in modo identico.
  */
 public final class SelezioneCampi {
 

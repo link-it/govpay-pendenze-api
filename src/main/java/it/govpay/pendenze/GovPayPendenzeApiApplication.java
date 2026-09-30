@@ -82,9 +82,8 @@ public class GovPayPendenzeApiApplication extends SpringBootServletInitializer {
      * {@code it.govpay.pendenze.entity} restano scoperte dinamicamente (scan reale); quelle
      * di govpay-common realmente usate sono aggiunte per nome — non solo
      * {@link ApplicazioneEntity}/{@link DominioEntity}: anche entita' mai lette da nessun
-     * repository attivo qui servono comunque, per due ragioni diverse trovate scrivendo il
-     * primo test che usa davvero questi repository (Hibernate valida tutto all'avvio, non
-     * solo cio' che viene effettivamente letto a runtime) — bug del lead, 2026-09-26:
+     * repository attivo qui servono comunque, perche' Hibernate valida tutto all'avvio, non
+     * solo cio' che viene effettivamente letto a runtime:
      * <ul>
      * <li>{@link StazioneEntity}/{@link IntermediarioEntity}: {@code DominioEntity.stazione}
      * le referenzia via relazione JPA;</li>
@@ -93,15 +92,14 @@ public class GovPayPendenzeApiApplication extends SpringBootServletInitializer {
      * del repository alla creazione del bean, non solo di quelli effettivamente chiamati.</li>
      * <li>{@link TipoVersamentoEntity}/{@link TipoVersamentoDominioEntity}/
      * {@link UnitaOperativaEntity}: usate direttamente da {@code PosizioneDebitoriaMapper}
-     * per risolvere {@code idTipoPendenza}/{@code idUnitaOperativa} (decisione del lead,
-     * 2026-09-28, dopo govpay-common#9: questa libreria mappava prima le stesse tabelle con
-     * proprie entita' "slim", rimosse in favore di quelle a piena fedelta' di
-     * govpay-common).</li>
+     * per risolvere {@code idTipoPendenza}/{@code idUnitaOperativa} — entita' a piena
+     * fedelta' di govpay-common (govpay-common#9), non piu' proprie entita' "slim" di
+     * questa libreria.</li>
      * <li>{@link TipoTributoEntity}/{@link TributoEntity}/{@link IbanAccreditoEntity}: usate
      * da {@code PosizioneDebitoriaMapper} per risolvere {@code VocePendenza.idTributo}/
-     * {@code idIbanAccredito}/{@code idIbanAppoggio} (decisione del lead, 2026-09-28:
-     * {@code codEntrata}/gli IBAN della richiesta sono codici di anagrafica censita, non
-     * stringhe libere — vedi Javadoc di classe di {@code VocePendenza}).</li>
+     * {@code idIbanAccredito}/{@code idIbanAppoggio} — {@code codEntrata}/gli IBAN della
+     * richiesta sono codici di anagrafica censita, non stringhe libere (vedi Javadoc di
+     * classe di {@code VocePendenza}).</li>
      * </ul>
      */
     @Bean
@@ -138,11 +136,10 @@ public class GovPayPendenzeApiApplication extends SpringBootServletInitializer {
 
     /**
      * Rifiuta (400) un numero JSON con virgola dove lo schema richiede un intero (es.
-     * {@code giorni}), invece di troncarlo silenziosamente (bug del lead, 2026-09-27:
-     * Jackson 3 di default TRONCA un valore come {@code 1.9} a {@code 1} deserializzandolo
-     * su un campo {@code Integer} — cambiare lo schema OpenAPI da {@code number} a
-     * {@code integer} non basta da solo a farlo rifiutare, serve questa configurazione
-     * esplicita della coercizione).
+     * {@code giorni}), invece di troncarlo silenziosamente: Jackson 3 di default TRONCA un
+     * valore come {@code 1.9} a {@code 1} deserializzandolo su un campo {@code Integer} —
+     * cambiare lo schema OpenAPI da {@code number} a {@code integer} non basta da solo a
+     * farlo rifiutare, serve questa configurazione esplicita della coercizione.
      */
     @Bean
     public JsonMapperBuilderCustomizer rifiutaTroncamentoDecimaliSuInteriCustomizer() {

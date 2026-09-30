@@ -63,9 +63,9 @@ public class ProblemExceptionHandler {
     }
 
     /**
-     * Bug del lead, 2026-09-27: un parametro di query obbligatorio mancante (es. {@code idDebitore})
-     * o non convertibile al tipo atteso (es. {@code offset=abc}) finivano nel gestore generico
-     * (500) — sono invece errori della richiesta, non del servizio.
+     * Un parametro di query obbligatorio mancante (es. {@code idDebitore}) o non convertibile
+     * al tipo atteso (es. {@code offset=abc}) e' un errore della richiesta, non del servizio:
+     * senza questo handler finirebbe nel gestore generico (500).
      */
     @ExceptionHandler(MissingServletRequestParameterException.class)
     public ResponseEntity<Problem> handleMissingParameter(MissingServletRequestParameterException ex,
@@ -105,10 +105,8 @@ public class ProblemExceptionHandler {
     }
 
     /**
-     * Bug del lead, 2026-09-29: raggiungibile per la prima volta da
-     * {@code PosizioneDebitoriaController#addOpzionePagamento} (rifiuta l'aggiunta di
-     * un'alternativa quando la posizione ha gia' un'opzione ATTIVATA) — mai gestita finora
-     * perche' nessun endpoint la sollevava ancora.
+     * Sollevata da {@code PosizioneDebitoriaController#addOpzionePagamento} quando rifiuta
+     * l'aggiunta di un'alternativa a una posizione che ha gia' un'opzione ATTIVATA.
      */
     @ExceptionHandler(TransizioneStatoNonAmmessaException.class)
     public ResponseEntity<Problem> handleTransizioneStatoNonAmmessa(TransizioneStatoNonAmmessaException ex,
@@ -117,10 +115,10 @@ public class ProblemExceptionHandler {
     }
 
     /**
-     * Conflitto di lock ottimistico su {@code PosizioneDebitoria} (bug del lead, 2026-09-29:
-     * vedi Javadoc di {@code PosizioneDebitoriaService#aggiungiOpzionePagamento}) — 409 con
-     * invito a riprovare, non un errore interno: la richiesta stessa era corretta, solo in
-     * corsa con un'altra sulla stessa posizione.
+     * Conflitto di lock ottimistico su {@code PosizioneDebitoria} (vedi Javadoc di
+     * {@code PosizioneDebitoriaService#aggiungiOpzionePagamento}) — 409 con invito a
+     * riprovare, non un errore interno: la richiesta stessa era corretta, solo in corsa con
+     * un'altra sulla stessa posizione.
      */
     @ExceptionHandler(ModificaConcorrenteException.class)
     public ResponseEntity<Problem> handleModificaConcorrente(ModificaConcorrenteException ex,
@@ -129,16 +127,15 @@ public class ProblemExceptionHandler {
     }
 
     /**
-     * Rete di sicurezza al confine REST (bug del lead, 2026-09-29, dopo una prova reale con
-     * due transazioni sovrapposte su {@code attiva}/{@code annulla}: il conflitto veniva
-     * rilevato correttamente — l'attivazione perdente veniva annullata — ma usciva
-     * {@code ObjectOptimisticLockingFailureException} grezza, non tradotta, perche' quei due
-     * metodi (govpay-common-pendenze) non passano da {@code saveAndFlush} con un
-     * {@code catch} dedicato come {@code aggiungiOpzionePagamento}/{@code aggiorna} —
-     * lanciano l'eccezione cosi' come arriva dal commit implicito di fine transazione.
-     * Nessun endpoint REST li richiama ancora (restano da wire-are), ma quando succedera'
-     * questo handler li protegge comunque, senza dover ricordarsi di aggiungere una
-     * traduzione esplicita in ogni nuovo punto di chiamata — stesso status (409) di
+     * Rete di sicurezza al confine REST per {@code attiva}/{@code annulla}
+     * (govpay-common-pendenze): a differenza di
+     * {@code aggiungiOpzionePagamento}/{@code aggiorna}, questi due metodi non passano da
+     * {@code saveAndFlush} con un {@code catch} dedicato — lanciano
+     * {@code ObjectOptimisticLockingFailureException} cosi' come arriva dal commit implicito
+     * di fine transazione, con un conflitto rilevato correttamente (l'attivazione perdente
+     * viene annullata) ma non tradotto. Nessun endpoint REST li richiama ancora, ma quando
+     * succedera' questo handler li protegge comunque, senza dover ricordarsi di aggiungere
+     * una traduzione esplicita in ogni nuovo punto di chiamata — stesso status (409) di
      * {@link ModificaConcorrenteException}, il percorso esplicito resta preferibile dove
      * gia' presente (messaggio piu' specifico).
      *

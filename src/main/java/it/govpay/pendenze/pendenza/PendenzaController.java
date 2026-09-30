@@ -19,6 +19,7 @@ import it.govpay.pendenze.criteri.OffsetPageRequest;
 import it.govpay.pendenze.criteri.PaginaRisultati;
 import it.govpay.pendenze.criteri.PaginaSenzaConteggio;
 import it.govpay.pendenze.entity.Pendenza;
+import it.govpay.pendenze.exception.RisorsaNonTrovataException;
 import it.govpay.pendenze.exception.ValidazioneNonSuperataException;
 import it.govpay.pendenze.posizionedebitoria.PosizioneDebitoriaMapper;
 import it.govpay.pendenze.security.AclAuthorizer;
@@ -30,8 +31,9 @@ import jakarta.servlet.http.HttpServletRequest;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * Implementa {@link PendenzeApi}: per ora solo {@link #findPendenze}, le altre operazioni
- * restano sul default generato (501, vedi Javadoc dell'interfaccia) fino al loro sviluppo.
+ * Implementa {@link PendenzeApi}: per ora {@link #findPendenze} e {@link #getPendenza}, le
+ * altre operazioni restano sul default generato (501, vedi Javadoc dell'interfaccia) fino al
+ * loro sviluppo.
  */
 @RestController
 public class PendenzaController implements PendenzeApi {
@@ -55,6 +57,24 @@ public class PendenzaController implements PendenzeApi {
         this.currentRequest = currentRequest;
         this.currentApplicazioneService = currentApplicazioneService;
         this.aclAuthorizer = aclAuthorizer;
+    }
+
+    /**
+     * {@code @Transactional} qui, non solo sul servizio (stesso motivo di
+     * {@code PosizioneDebitoriaController#getPosizioneDebitoria}): {@code mapper.toPendenzaDto}
+     * attraversa {@code Pendenza.voci}/{@code opzionePagamento}/
+     * {@code opzionePagamento.posizioneDebitoria.soggettiDebitori} (tutte LAZY), lette dopo che
+     * la transazione di sola lettura del servizio sarebbe altrimenti gia' chiusa.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public ResponseEntity<it.govpay.pendenze.api.model.Pendenza> getPendenza(String idA2A, String idPendenza) {
+        aclAuthorizer.richiedeLettura();
+        currentApplicazioneService.verificaIdA2A(idA2A);
+        Pendenza pendenza = posizioneDebitoriaService.trovaPendenzaPerIdentificativo(idA2A, idPendenza)
+                .orElseThrow(() -> new RisorsaNonTrovataException("nessuna pendenza con idPendenza [" + idPendenza
+                        + "] per idA2A [" + idA2A + "]"));
+        return ResponseEntity.ok(mapper.toPendenzaDto(pendenza));
     }
 
     /**
@@ -100,10 +120,10 @@ public class PendenzaController implements PendenzeApi {
         List<PendenzaIndex> risultati;
 
         // Le pendenze prive di opzionePagamento (v2/migrazione) sono gia' escluse dalla query
-        // di PosizioneDebitoriaService (bug del lead, 2026-09-28: un filtro qui, DOPO che il
-        // servizio ha gia' paginato/contato, lascerebbe pagination/nextCursor disallineati dai
-        // risultati restituiti) — la guardia in PosizioneDebitoriaMapper#toPendenzaIndexDto
-        // resta solo come difesa esplicita, non dovrebbe mai scattare.
+        // di PosizioneDebitoriaService: un filtro qui, DOPO che il servizio ha gia'
+        // paginato/contato, lascerebbe pagination/nextCursor disallineati dai risultati
+        // restituiti — la guardia in PosizioneDebitoriaMapper#toPendenzaIndexDto resta solo
+        // come difesa esplicita, non dovrebbe mai scattare.
         if (modalitaCursore) {
             CursorCodec.Cursore decodificato = cursor.isBlank() ? null : CursorCodec.decode(cursor);
             PaginaSenzaConteggio<Pendenza> pagina = posizioneDebitoriaService.cercaPendenzeDaCursore(idA2A,

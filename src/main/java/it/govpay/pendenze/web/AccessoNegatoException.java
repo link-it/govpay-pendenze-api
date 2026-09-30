@@ -13,10 +13,9 @@ package it.govpay.pendenze.web;
  * <li>l'applicazione autenticata non ha il diritto ACL richiesto sul servizio "API Pendenze"
  * (vedi {@link it.govpay.pendenze.security.AclAuthorizer});</li>
  * <li>l'utenza autenticata (credenziali valide, {@code abilitato=true}) non e' associata a
- * nessuna {@code ApplicazioneEntity} — bug del lead, 2026-09-29: {@code CurrentApplicazioneService#get}
- * lanciava {@code IllegalStateException} in questo caso (500 invece di 403): un'utenza senza
- * applicazione e' una condizione di dato reale (configurazione incompleta), non un errore di
- * programmazione — vedi Javadoc di {@link it.govpay.pendenze.security.CurrentApplicazioneService#get}.</li>
+ * nessuna {@code ApplicazioneEntity}: e' una condizione di dato reale (configurazione
+ * incompleta), non un errore di programmazione — vedi Javadoc di
+ * {@link it.govpay.pendenze.security.CurrentApplicazioneService#get}.</li>
  * </ul>
  */
 public class AccessoNegatoException extends RuntimeException {

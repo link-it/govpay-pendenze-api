@@ -95,9 +95,8 @@ public class AclAuthorizer {
      * {@link IllegalStateException} (500) solo se manca del tutto l'autenticazione (vero
      * errore di programmazione, va invocato dietro la SecurityFilterChain — vedi Javadoc di
      * {@code CurrentApplicazioneService#get}, stesso principio). Se invece l'autenticazione
-     * c'e' ma il principal non risolve a un'utenza, e' {@link AccessoNegatoException} (403 —
-     * bug del lead, 2026-09-29: qui lanciava ancora {@code IllegalStateException}/500, stesso
-     * bug corretto in {@code CurrentApplicazioneService#get}).
+     * c'e' ma il principal non risolve a un'utenza, e' {@link AccessoNegatoException} (403),
+     * stesso principio di {@code CurrentApplicazioneService#get}.
      */
     private UtenzaEntity utenzaAutenticata() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();

@@ -1,5 +1,6 @@
 package it.govpay.pendenze.pendenza;
 
+import static org.hamcrest.Matchers.notNullValue;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -470,5 +471,38 @@ class PendenzaControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
                 .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    @DisplayName("GET /pendenze/{idA2A}/{idPendenza} restituisce il dettaglio completo, comprensivo "
+            + "di voci, opzione di pagamento e posizione debitoria di appartenenza")
+    void getPendenzaRestituisceIlDettaglioCompleto() throws Exception {
+        String numeroAvviso = creaPosizioneConPendenza("pos-get-1", "12345678901", "pendenza-get-1");
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST", "pendenza-get-1"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.idA2A").value("A2A-TEST"))
+                .andExpect(jsonPath("$.idPendenza").value("pendenza-get-1"))
+                .andExpect(jsonPath("$.idDominio").value("12345678901"))
+                .andExpect(jsonPath("$.stato").value("NON_ESEGUITO"))
+                .andExpect(jsonPath("$.numeroAvviso").value(numeroAvviso))
+                .andExpect(jsonPath("$.iuv").value(notNullValue()))
+                .andExpect(jsonPath("$.opzionePagamento.tipologia").value("SOLUZIONE_UNICA"))
+                .andExpect(jsonPath("$.opzionePagamento.stato").value("DISPONIBILE"))
+                .andExpect(jsonPath("$.posizioneDebitoria.idPosizioneDebitoria").value("pos-get-1"))
+                .andExpect(jsonPath("$.voci.length()").value(1))
+                .andExpect(jsonPath("$.voci[0].idVocePendenza").value("voce-pendenza-get-1"))
+                .andExpect(jsonPath("$.voci[0].codEntrata").value("DIRITTI_SEGRETERIA"))
+                .andExpect(jsonPath("$.voci[0].stato").value("NON_ESEGUITO"));
+    }
+
+    @Test
+    @DisplayName("GET /pendenze/{idA2A}/{idPendenza} restituisce 404 se la pendenza non esiste")
+    void getPendenzaRestituisce404SeNonEsiste() throws Exception {
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST", "pendenza-inesistente"))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(404));
     }
 }
