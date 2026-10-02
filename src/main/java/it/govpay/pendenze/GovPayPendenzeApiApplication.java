@@ -27,6 +27,7 @@ import it.govpay.common.entity.ApplicazioneEntity;
 import it.govpay.common.entity.ConfigurazioneEntity;
 import it.govpay.common.entity.ConnettoreEntity;
 import it.govpay.common.entity.DominioEntity;
+import it.govpay.common.entity.DominioLogoEntity;
 import it.govpay.common.entity.IbanAccreditoEntity;
 import it.govpay.common.entity.IntermediarioEntity;
 import it.govpay.common.entity.StazioneEntity;
@@ -43,25 +44,26 @@ import it.govpay.common.repository.StazioneRepository;
 
 /**
  * Repository scan esteso a {@code it.govpay.common.repository}, ma con
- * {@code excludeFilters}: questo servizio usa solo {@link ApplicazioneRepository}
- * (risoluzione {@code idA2A}) e {@link DominioRepository} (risoluzione dominio e
- * generazione IUV standard, {@code GeneratoreIuvStandard} di govpay-common-pendenze) —
- * i repository di common per cui questo servizio non ha un'entita' corrispondente nella
- * {@link PersistenceManagedTypes} (intermediari/stazioni/loghi dominio) restano esclusi:
- * se attivi, il bootstrap fallirebbe non trovando le loro entity nel contesto di
- * persistenza (stesso principio gia' applicato in {@code GovPayConsoleApplication}, dove
- * pero' l'esclusione va nella direzione opposta: qui vogliamo <b>includere</b>
- * Applicazione/Dominio, la' venivano escluse perche' quel servizio ha proprie entita' CRUD
- * equivalenti). {@code ConnettoreEntityRepository}/{@code ConfigurazioneRepository} sono
- * invece attivi: li usano rispettivamente {@code ConnettoreService} e
- * {@code ConfigurazioneService} di govpay-common, entrambi prerequisiti dei log dinamici e
- * delle chiamate al GDE.
+ * {@code excludeFilters}: questo servizio usa {@link ApplicazioneRepository}
+ * (risoluzione {@code idA2A}), {@link DominioRepository} (risoluzione dominio e
+ * generazione IUV standard, {@code GeneratoreIuvStandard} di govpay-common-pendenze) e
+ * {@link DominioLogoRepository} (logo del dominio per l'avviso PDF, vedi
+ * {@code AvvisoPdfPayloadMapper}) — i repository di common per cui questo servizio non ha
+ * un'entita' corrispondente nella {@link PersistenceManagedTypes} (intermediari/stazioni)
+ * restano esclusi: se attivi, il bootstrap fallirebbe non trovando le loro entity nel
+ * contesto di persistenza (stesso principio gia' applicato in
+ * {@code GovPayConsoleApplication}, dove pero' l'esclusione va nella direzione opposta: qui
+ * vogliamo <b>includere</b> Applicazione/Dominio, la' venivano escluse perche' quel servizio
+ * ha proprie entita' CRUD equivalenti). {@code ConnettoreEntityRepository}/
+ * {@code ConfigurazioneRepository} sono invece attivi: li usano rispettivamente
+ * {@code ConnettoreService} e {@code ConfigurazioneService} di govpay-common, entrambi
+ * prerequisiti dei log dinamici e delle chiamate al GDE.
  */
 @SpringBootApplication(exclude = { UserDetailsServiceAutoConfiguration.class })
 @EnableJpaRepositories(basePackages = { "it.govpay.pendenze.repository", "it.govpay.pendenze.security",
         "it.govpay.common.repository" },
         excludeFilters = @Filter(type = FilterType.ASSIGNABLE_TYPE,
-                classes = { IntermediarioRepository.class, StazioneRepository.class, DominioLogoRepository.class }))
+                classes = { IntermediarioRepository.class, StazioneRepository.class }))
 public class GovPayPendenzeApiApplication extends SpringBootServletInitializer {
 
     @Override
@@ -103,6 +105,11 @@ public class GovPayPendenzeApiApplication extends SpringBootServletInitializer {
      * classe di {@code VocePendenza}).</li>
      * <li>{@link ConfigurazioneEntity}: {@code ConfigurazioneService}/{@code ConnettoreService}
      * di govpay-common (log dinamici, connettore GDE) la leggono/scrivono direttamente.</li>
+     * <li>{@link DominioLogoEntity}: usata da {@code AvvisoPdfPayloadMapper} per leggere il
+     * logo del dominio per l'avviso PDF — entity "slim" dedicata (stessa tabella
+     * {@code domini} di {@link DominioEntity}, solo {@code cod_dominio}/{@code logo}) per non
+     * caricare il BLOB su ogni lettura di {@link DominioEntity}, stesso pattern gia' in uso
+     * in govpay-portal-api.</li>
      * </ul>
      */
     @Bean
@@ -114,6 +121,7 @@ public class GovPayPendenzeApiApplication extends SpringBootServletInitializer {
         nomiClassi.add(ApplicazioneEntity.class.getName());
         nomiClassi.add(ConfigurazioneEntity.class.getName());
         nomiClassi.add(DominioEntity.class.getName());
+        nomiClassi.add(DominioLogoEntity.class.getName());
         nomiClassi.add(StazioneEntity.class.getName());
         nomiClassi.add(IntermediarioEntity.class.getName());
         nomiClassi.add(ConnettoreEntity.class.getName());

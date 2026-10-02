@@ -26,6 +26,9 @@
         <!-- govpay-common-auth (not in BOM) -->
         <govpay-common-auth.version>1.0.1</govpay-common-auth.version>
 
+        <!-- Resilience4j (not in BOM, stessa versione di govpay-console-api) -->
+        <resilience4j.version>2.4.0</resilience4j.version>
+
         <!-- OWASP config -->
         <owasp.falsePositives.dir>src/main/resources/owasp/falsePositives</owasp.falsePositives.dir>
         <owasp>verify</owasp>
@@ -172,6 +175,12 @@
             <artifactId>spring-boot-starter-data-jpa</artifactId>
         </dependency>
 
+        <!-- RestTemplate/RestTemplateBuilder (client verso il microservizio govpay-stampe) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-restclient</artifactId>
+        </dependency>
+
         <!-- GovPay Common Pendenze: modello ed entita' dell'aggregato pendenza -->
         <dependency>
             <groupId>org.gov4j.govpay</groupId>
@@ -239,6 +248,14 @@
         <dependency>
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+
+        <!-- Resilience4j: circuit breaker sul client del microservizio govpay-stampe
+             (nessun retry, deliberatamente: vedi Javadoc di StampeRawClient) -->
+        <dependency>
+            <groupId>io.github.resilience4j</groupId>
+            <artifactId>resilience4j-spring-boot4</artifactId>
+            <version>${resilience4j.version}</version>
         </dependency>
 
         <!-- Test -->
@@ -353,6 +370,31 @@
                             </configOptions>
                         </configuration>
                     </execution>
+                    <!-- Generazione Client GovPay Stampe API (PDF avviso di pagamento) -->
+                    <execution>
+                        <id>generate-govpay-stampe-client</id>
+                        <goals>
+                            <goal>generate</goal>
+                        </goals>
+                        <configuration>
+                            <inputSpec>${project.basedir}/src/main/resources/openapi/govpay-stampe.yaml</inputSpec>
+                            <generatorName>java</generatorName>
+                            <apiPackage>it.govpay.stampe.client.api</apiPackage>
+                            <modelPackage>it.govpay.stampe.client.model</modelPackage>
+                            <invokerPackage>it.govpay.stampe.client</invokerPackage>
+                            <output>${project.build.directory}/generated-sources/govpay-stampe-client</output>
+                            <typeMappings>
+                                <typeMapping>File=byte[]</typeMapping>
+                            </typeMappings>
+                            <configOptions>
+                                <library>resttemplate</library>
+                                <useJakartaEe>true</useJakartaEe>
+                                <openApiNullable>true</openApiNullable>
+                                <serializableModel>true</serializableModel>
+                                <dateLibrary>java8</dateLibrary>
+                            </configOptions>
+                        </configuration>
+                    </execution>
                 </executions>
             </plugin>
 
@@ -371,6 +413,7 @@
                         <configuration>
                             <sources>
                                 <source>${project.build.directory}/generated-sources/openapi/src/main/java</source>
+                                <source>${project.build.directory}/generated-sources/govpay-stampe-client/src/main/java</source>
                             </sources>
                         </configuration>
                     </execution>
@@ -402,6 +445,7 @@
                     <!-- Esclude codice generato (OpenAPI server stubs/model) e classi di bootstrap. -->
                     <excludes>
                         <exclude>it/govpay/pendenze/api/**</exclude>
+                        <exclude>it/govpay/stampe/client/**</exclude>
                         <exclude>it/govpay/pendenze/GovPayPendenzeApiApplication.class</exclude>
                     </excludes>
                 </configuration>

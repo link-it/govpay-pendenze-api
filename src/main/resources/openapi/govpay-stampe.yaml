@@ -1,0 +1,648 @@
+openapi: 3.0.3
+
+info:
+  title: GovPay Stampe API
+  description: API per la generazione di avvisi di pagamento e ricevute pagoPA in formato PDF
+  version: 1.1.0
+  contact:
+    name: Link.it
+    email: info@link.it
+
+servers:
+  - url: https://govhub.backoffice.it/api/v1
+    description: Sample Deployment URL (Not Actual)
+
+tags:
+  - name: PaymentNotice
+    description: Generazione avvisi di pagamento pagoPA
+  - name: Receipt
+    description: Generazione ricevute di pagamento pagoPA
+
+paths:
+
+  '/standard':
+    post:
+      tags:
+        - PaymentNotice
+      operationId: createPaymentNotice
+      summary: Avviso di pagamento con e senza rate
+      description: Genera un avviso di pagamento pagoPA in formato PDF. Supporta rata unica, rate multiple, bollettino postale e formato bilingue.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentNotice'
+        required: true
+      responses:
+        '201':
+          description: Avviso stampato
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: "#/components/responses/400BadRequest"
+        '401':
+          $ref: "#/components/responses/401Unauthorized"
+        '403':
+          $ref: "#/components/responses/403Forbidden"
+        '404':
+          $ref: "#/components/responses/404NotFound"
+        '503':
+          $ref: "#/components/responses/503ServiceUnavailable"
+        default:
+          $ref: "#/components/responses/ResponseDefault"
+
+  '/cds_violation':
+    post:
+      tags:
+        - PaymentNotice
+      operationId: createCdsViolationNotice
+      summary: Avviso per Violazione del Codice della Strada
+      description: Genera un avviso di pagamento per violazioni CDS con importo ridotto e scontato.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CdsViolation'
+        required: true
+      responses:
+        '201':
+          description: Avviso stampato
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: "#/components/responses/400BadRequest"
+        '401':
+          $ref: "#/components/responses/401Unauthorized"
+        '403':
+          $ref: "#/components/responses/403Forbidden"
+        '404':
+          $ref: "#/components/responses/404NotFound"
+        '503':
+          $ref: "#/components/responses/503ServiceUnavailable"
+        default:
+          $ref: "#/components/responses/ResponseDefault"
+
+  '/receipt':
+    post:
+      tags:
+        - Receipt
+      operationId: createReceipt
+      summary: Ricevuta di pagamento
+      description: Genera una ricevuta telematica di pagamento pagoPA in formato PDF.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Receipt'
+        required: true
+      responses:
+        '201':
+          description: Ricevuta stampata
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: "#/components/responses/400BadRequest"
+        '401':
+          $ref: "#/components/responses/401Unauthorized"
+        '403':
+          $ref: "#/components/responses/403Forbidden"
+        '404':
+          $ref: "#/components/responses/404NotFound"
+        '503':
+          $ref: "#/components/responses/503ServiceUnavailable"
+        default:
+          $ref: "#/components/responses/ResponseDefault"
+
+components:
+  responses:
+    '400BadRequest':
+      description: Bad Request.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            detail: "Missing required field."
+            status: 400
+            title: "Bad Request"
+            type: "https://www.rfc-editor.org/rfc/rfc9110.html#name-400-bad-request"
+    '401Unauthorized':
+      description: "Required credentials missing."
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            detail: "Invalid Credentials"
+            status: 401
+            title: "Unauthorized"
+            type: "https://www.rfc-editor.org/rfc/rfc9110.html#name-401-unauthorized"
+    '403Forbidden':
+      description: Agent not authorized for the operation.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            detail: "User not authorized for the operation."
+            status: 403
+            title: "Forbidden"
+            type: "https://www.rfc-editor.org/rfc/rfc9110.html#name-403-forbidden"
+    '404NotFound':
+      description: Not Found.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            detail: "Resource not found."
+            status: 404
+            title: "Not Found"
+            type: "https://www.rfc-editor.org/rfc/rfc9110.html#name-404-not-found"
+    '409Conflict':
+      description: Conflict (The entity already exists).
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            detail: "Resource with the same id already present"
+            status: 409
+            title: "Conflict"
+            type: "https://www.rfc-editor.org/rfc/rfc9110.html#name-409-conflict"
+    '503ServiceUnavailable':
+      description: Service Unavailable.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            detail: Request Can't be fulfilled at the moment.
+            status: 503
+            title: Service Unavailable
+            type: "https://www.rfc-editor.org/rfc/rfc9110.html#name-503-service-unavailable"
+    'ResponseDefault':
+      description: Unexpected error.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+
+  schemas:
+    # ==================== Payment Notice Schemas ====================
+
+    Creditor:
+      type: object
+      required:
+        - fiscal_code
+        - business_name
+      properties:
+        fiscal_code:
+          type: string
+          maxLength: 16
+          example: "01234567890"
+        business_name:
+          type: string
+          maxLength: 50
+          example: "Comune di Test"
+        department_name:
+          type: string
+          maxLength: 50
+          example: "Ufficio dimostrativo"
+        info_line_1:
+          type: string
+          maxLength: 50
+          example: "Tel 000-000 0000 · Fax 000-000 0000"
+        info_line_2:
+          type: string
+          maxLength: 50
+          example: "Mail info@comune.test.it"
+        cbill_code:
+          type: string
+          pattern: "[A-Z0-9]{5}"
+        postal_auth_message:
+          type: string
+          maxLength: 70
+          example: "Autorizzazione n. 0000 del 00/00/0000"
+
+    Debtor:
+      type: object
+      required:
+        - fiscal_code
+        - full_name
+      properties:
+        fiscal_code:
+          type: string
+          maxLength: 16
+          example: "AAAAAA00A00A000A"
+        full_name:
+          type: string
+          maxLength: 70
+          example: "Nomen Nescio"
+        address_line_1:
+          type: string
+          maxLength: 70
+          example: "Viale dei Giardini, 00"
+        address_line_2:
+          type: string
+          maxLength: 70
+          example: "00000 Roma (RM)"
+
+    NoticeMetadata:
+      type: object
+      additionalProperties: false
+      required:
+        - language
+        - first_logo
+        - creditor
+        - debtor
+        - pages
+        - postal
+        - title
+      properties:
+        language:
+          $ref: '#/components/schemas/Languages'
+        first_logo:
+          type: string
+          format: binary
+        second_logo:
+          type: string
+          format: binary
+        title:
+          type: string
+          example: "Avviso di pagamento"
+        second_language:
+          type: object
+          properties:
+            bilinguism:
+              type: boolean
+            language:
+              $ref: '#/components/schemas/Languages'
+            title:
+              type: string
+            informativa_importo:
+              type: string
+              maxLength: 255
+              description: >-
+                Versione tradotta di informativa_importo (PaymentNotice). Letta solo se
+                informativa_importo (principale) e' valorizzato: se la dicitura in italiano
+                non e' stata personalizzata, non viene personalizzata neanche quella nella
+                lingua secondaria, indipendentemente dalla valorizzazione di questo campo.
+          required:
+            ["bilinguism", "language", "title"]
+          example:
+            bilinguism: false
+            language: "eng"
+            title: "Payment advice"
+        creditor:
+          $ref: '#/components/schemas/Creditor'
+        debtor:
+          $ref: '#/components/schemas/Debtor'
+        postal:
+          type: boolean
+
+    CdsViolation:
+      allOf:
+        - $ref: '#/components/schemas/NoticeMetadata'
+        - type: object
+          required: ["discounted_amount", "reduced_amount"]
+          properties:
+            discounted_amount:
+              $ref: '#/components/schemas/Amount'
+            reduced_amount:
+              $ref: '#/components/schemas/Amount'
+
+    PaymentNotice:
+      allOf:
+        - $ref: '#/components/schemas/NoticeMetadata'
+        - type: object
+          properties:
+            full:
+              $ref: '#/components/schemas/Amount'
+            instalments:
+              type: array
+              items:
+                $ref: '#/components/schemas/Instalment'
+            reduced_payments:
+              type: array
+              items:
+                $ref: '#/components/schemas/ThresholdPayment'
+            informativa_importo:
+              type: string
+              maxLength: 255
+              description: >-
+                Se valorizzato, sostituisce il testo standard della nota informativa
+                sull'importo. Se valorizzato con stringa vuota, l'informativa viene omessa.
+              example: "L'importo può variare in base a sgravi, interessi o sanzioni."
+
+    Iban:
+      type: object
+      required:
+        - iban_code
+      properties:
+        iban_code:
+          type: string
+          pattern: "^[A-Z]{2}[0-9]{2}[A-Z0-9]{1,30}$"
+          description: "International Bank Account Number (IBAN)"
+        owner_business_name:
+            type: string
+            maxLength: 50
+            example: "Comune di Test 2"
+        postal_auth_message:
+          type: string
+          maxLength: 70
+          example: "Autorizzazione n. 0000 del 00/00/0000"
+
+    Instalment:
+      allOf:
+        - $ref: '#/components/schemas/Amount'
+        - type: object
+          required: ["properties"]
+          properties:
+            instalment_number:
+              type: integer
+
+    ThresholdType:
+      type: string
+      enum: [ENTRO, OLTRE]
+
+    ThresholdPayment:
+      allOf:
+        - $ref: '#/components/schemas/Amount'
+        - type: object
+          required: [threshold_type, threshold_days]
+          properties:
+            threshold_type:
+              $ref: '#/components/schemas/ThresholdType'
+            threshold_days:
+              type: integer
+              minimum: 1
+
+    Amount:
+      type: object
+      required:
+        - amount
+        - notice_number
+        - qrcode
+      properties:
+        amount:
+          type: number
+          format: double
+          minimum: 0.01
+        due_date:
+          type: string
+          format: date
+        notice_number:
+          type: string
+          pattern: "[0-9]{18}"
+        qrcode:
+          type: string
+        iban:
+          $ref: '#/components/schemas/Iban'
+
+    # ==================== Receipt Schemas ====================
+
+    ReceiptOrganization:
+      type: object
+      description: Creditor organization data
+      required:
+        - fiscal_code
+        - business_name
+        - address
+        - location
+      properties:
+        fiscal_code:
+          type: string
+          maxLength: 16
+          description: Creditor fiscal code / VAT number
+          example: "01234567890"
+        business_name:
+          type: string
+          maxLength: 70
+          description: Creditor business name
+          example: "Comune di Test"
+        address:
+          type: string
+          maxLength: 70
+          description: Creditor address
+          example: "Via Roma, 1"
+        location:
+          type: string
+          maxLength: 70
+          description: Creditor location (postal code, city, province)
+          example: "00100 Roma (RM)"
+
+    Payer:
+      type: object
+      description: Payer data
+      required:
+        - fiscal_code
+        - full_name
+        - address
+        - location
+      properties:
+        fiscal_code:
+          type: string
+          maxLength: 16
+          description: Payer fiscal code
+          example: "RSSMRA80A01H501U"
+        full_name:
+          type: string
+          maxLength: 70
+          description: Payer full name or business name
+          example: "Mario Rossi"
+        address:
+          type: string
+          maxLength: 70
+          description: Payer address
+          example: "Viale dei Giardini, 00"
+        location:
+          type: string
+          maxLength: 70
+          description: Payer location (postal code, city, province)
+          example: "00000 Roma (RM)"
+
+    Receipt:
+      type: object
+      description: Input for payment receipt generation
+      required:
+        - creditor_logo
+        - pagopa_logo
+        - payment_subject
+        - organization
+        - payer
+        - psp
+        - amount
+        - operation_date
+        - application_date
+        - status
+        - creditor_reference_id
+        - receipt_id
+        - object_version
+        - items
+      properties:
+        creditor_logo:
+          type: string
+          description: Creditor logo in base64 format
+          example: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+        pagopa_logo:
+          type: string
+          description: pagoPA logo in base64 format
+          example: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+        payment_subject:
+          type: string
+          maxLength: 140
+          description: Payment subject/description
+          example: "Pagamento TARI 2024"
+        organization:
+          $ref: '#/components/schemas/ReceiptOrganization'
+        payer:
+          $ref: '#/components/schemas/Payer'
+        psp:
+          type: string
+          maxLength: 70
+          description: Payment Service Provider name
+          example: "Banca di Test S.p.A."
+        amount:
+          type: number
+          format: double
+          minimum: 0.01
+          description: Total payment amount
+          example: 150.00
+        operation_date:
+          type: string
+          description: Payment date and time
+          example: "15/01/2024 10:30:00"
+        application_date:
+          type: string
+          description: Application date
+          example: "15/01/2024"
+        status:
+          $ref: '#/components/schemas/ReceiptStatus'
+        creditor_reference_id:
+          type: string
+          maxLength: 35
+          description: Creditor Reference Identifier (Identificativo Univoco Versamento)
+          example: "01234567890123456"
+        receipt_id:
+          type: string
+          maxLength: 35
+          description: Receipt Identifier (Codice Contesto Pagamento)
+          example: "0123456789012345678901234567890"
+        object_version:
+          $ref: '#/components/schemas/ReceiptVersion'
+        items:
+          type: array
+          description: List of payment items
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/ReceiptItem'
+
+    ReceiptItem:
+      type: object
+      description: Single payment receipt item
+      required:
+        - description
+        - iur
+        - amount
+        - status
+      properties:
+        description:
+          type: string
+          maxLength: 140
+          description: Payment item description
+          example: "TARI 2024 - Quota fissa"
+        iur:
+          type: string
+          maxLength: 35
+          description: Unique Collection Identifier (Identificativo Univoco Riscossione)
+          example: "1"
+        amount:
+          type: number
+          format: double
+          minimum: 0.01
+          description: Item amount
+          example: 100.00
+        status:
+          $ref: '#/components/schemas/ReceiptItemStatus'
+
+    ReceiptStatus:
+      type: string
+      description: Receipt payment outcome status
+      enum:
+        - EXECUTED
+        - NOT_EXECUTED
+        - PARTIALLY_EXECUTED
+        - EXPIRED
+        - PARTIALLY_EXPIRED
+
+    ReceiptItemStatus:
+      type: string
+      description: Receipt item status
+      enum:
+        - EXECUTED
+        - NOT_EXECUTED
+
+    ReceiptVersion:
+      type: string
+      description: RT object version (SANP version)
+      enum:
+        - SANP_240_V2
+        - SANP_240
+        - SANP_230
+
+    # ==================== Common Schemas ====================
+
+    Languages:
+      enum:
+        - it
+        - en
+        - de
+        - fr
+        - sl
+
+    Problem:
+      type: object
+      additionalProperties: false
+      properties:
+        detail:
+          type: string
+          description: A human readable description of the occurred problem.
+          example: Connection to database timed out
+          maxLength: 255
+          pattern: ^[ -~]+$
+        instance:
+          type: string
+          description: Link to a specific occurence of the problem.
+          format: uri
+          maxLength: 255
+        status:
+          maximum: 600
+          exclusiveMaximum: true
+          minimum: 100
+          type: integer
+          description: HTTP Status Code.
+          format: int32
+          example: 503
+        title:
+          type: string
+          description: Short description of the occurred problem.
+          maxLength: 255
+          pattern: ^[ -~]+$
+          example: Service Unavailable
+        type:
+          type: string
+          description: Absolute URI for the problem description.
+          maxLength: 255
+          format: uri
+          example: "https://tools.ietf.org/html/rfc7231#section-6.6.4"
+          default: about:blank

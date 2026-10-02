@@ -10,13 +10,20 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.HttpMediaTypeNotAcceptableException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.servlet.NoHandlerFoundException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import it.govpay.pendenze.api.model.Problem;
+import it.govpay.pendenze.avviso.AvvisoMbtException;
+import it.govpay.pendenze.avviso.StampeNotConfiguredException;
+import it.govpay.pendenze.avviso.StampeUnavailableException;
 import it.govpay.pendenze.exception.ModificaConcorrenteException;
 import it.govpay.pendenze.exception.RisorsaGiaEsistenteException;
 import it.govpay.pendenze.exception.RisorsaNonTrovataException;
@@ -92,6 +99,63 @@ public class ProblemExceptionHandler {
     @ExceptionHandler({ AnagraficaNonTrovataException.class, RisorsaNonTrovataException.class })
     public ResponseEntity<Problem> handleNonTrovata(RuntimeException ex, HttpServletRequest request) {
         return build(HttpStatus.NOT_FOUND, ex.getMessage(), request, ex);
+    }
+
+    /**
+     * URL non mappato a nessun controller (path sbagliato, non una risorsa applicativa
+     * mancante come {@link RisorsaNonTrovataException}) — senza questo handler cadrebbe nel
+     * gestore generico (500). Entrambe le eccezioni gestite insieme, come in
+     * {@code govpay-console-api}: quale delle due venga effettivamente sollevata dipende da
+     * dettagli di versione/configurazione di Spring, non da qualcosa che questo servizio
+     * controlla.
+     */
+    @ExceptionHandler({ NoResourceFoundException.class, NoHandlerFoundException.class })
+    public ResponseEntity<Problem> handleNotFound(Exception ex, HttpServletRequest request) {
+        return build(HttpStatus.NOT_FOUND, ex.getMessage(), request, ex);
+    }
+
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+    public ResponseEntity<Problem> handleMediaTypeNotSupported(HttpMediaTypeNotSupportedException ex,
+            HttpServletRequest request) {
+        String detail = "Content-Type non supportato"
+                + (ex.getContentType() != null ? " (" + ex.getContentType() + ")" : "")
+                + ": tipi ammessi " + ex.getSupportedMediaTypes() + ".";
+        return build(HttpStatus.UNSUPPORTED_MEDIA_TYPE, detail, request, ex);
+    }
+
+    @ExceptionHandler(HttpMediaTypeNotAcceptableException.class)
+    public ResponseEntity<Problem> handleMediaTypeNotAcceptable(HttpMediaTypeNotAcceptableException ex,
+            HttpServletRequest request) {
+        return build(HttpStatus.NOT_ACCEPTABLE, "Accept header non compatibile coi content-type supportati.",
+                request, ex);
+    }
+
+    /**
+     * Stessa risposta di {@link #handleMediaTypeNotAcceptable}, per un endpoint che sceglie il
+     * content-type a mano invece di usare la negoziazione automatica di Spring MVC — vedi
+     * Javadoc di {@link NotAcceptableMediaTypeException}.
+     */
+    @ExceptionHandler(NotAcceptableMediaTypeException.class)
+    public ResponseEntity<Problem> handleNotAcceptableMediaType(NotAcceptableMediaTypeException ex,
+            HttpServletRequest request) {
+        return build(HttpStatus.NOT_ACCEPTABLE, ex.getMessage(), request, ex);
+    }
+
+    @ExceptionHandler(AvvisoMbtException.class)
+    public ResponseEntity<Problem> handleAvvisoMbt(AvvisoMbtException ex, HttpServletRequest request) {
+        return build(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage(), request, ex);
+    }
+
+    @ExceptionHandler(StampeUnavailableException.class)
+    public ResponseEntity<Problem> handleStampeUnavailable(StampeUnavailableException ex,
+            HttpServletRequest request) {
+        return build(HttpStatus.BAD_GATEWAY, ex.getMessage(), request, ex);
+    }
+
+    @ExceptionHandler(StampeNotConfiguredException.class)
+    public ResponseEntity<Problem> handleStampeNotConfigured(StampeNotConfiguredException ex,
+            HttpServletRequest request) {
+        return build(HttpStatus.SERVICE_UNAVAILABLE, ex.getMessage(), request, ex);
     }
 
     @ExceptionHandler(AccessoNegatoException.class)
