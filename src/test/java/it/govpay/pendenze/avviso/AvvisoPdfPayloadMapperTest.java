@@ -496,4 +496,27 @@ class AvvisoPdfPayloadMapperTest {
 
         assertThat(AvvisoPdfPayloadMapper.isPendenzaMbt(pendenza)).isTrue();
     }
+
+    @Test
+    void isAnagraficaDebitoreAssenteFalseSeValorizzata() {
+        Pendenza pendenza = pendenza(dominio(), "Via Roma");
+
+        assertThat(AvvisoPdfPayloadMapper.isAnagraficaDebitoreAssente(pendenza)).isFalse();
+    }
+
+    @Test
+    void isAnagraficaDebitoreAssenteVeroSeAnagraficaNulla() {
+        SoggettoDebitore soggetto = soggettoCon(null, "Via Roma", "10", "00100", "Roma", "RM");
+        Pendenza pendenza = pendenzaConSoggetto(dominio(), soggetto);
+
+        assertThat(AvvisoPdfPayloadMapper.isAnagraficaDebitoreAssente(pendenza)).isTrue();
+    }
+
+    @Test
+    void isAnagraficaDebitoreAssenteVeroSeAnagraficaVuota() {
+        SoggettoDebitore soggetto = soggettoCon("   ", "Via Roma", "10", "00100", "Roma", "RM");
+        Pendenza pendenza = pendenzaConSoggetto(dominio(), soggetto);
+
+        assertThat(AvvisoPdfPayloadMapper.isAnagraficaDebitoreAssente(pendenza)).isTrue();
+    }
 }

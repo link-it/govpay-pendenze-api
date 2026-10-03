@@ -126,6 +126,19 @@ public class AvvisoPdfPayloadMapper {
     }
 
     /**
+     * Un {@code SoggettoDebitore} v3 puo' avere solo {@code tipo}+{@code identificativo} —
+     * {@code anagrafica} non e' {@code required} nello schema {@code Soggetto}. Lo schema di
+     * govpay-stampe-api invece richiede {@code Debtor.full_name}: senza questo controllo a
+     * monte govpay-stampe risponderebbe 400, tradotto poi in 502 generico dal client HTTP.
+     * Stesso stile del controllo MBT qui sopra — 422 esplicito prima di costruire il payload,
+     * invece di un fallback silenzioso nel mapper (nessun precedente legacy per questo caso,
+     * scelta di prodotto nuova per la v3).
+     */
+    public static boolean isAnagraficaDebitoreAssente(Pendenza pendenza) {
+        return !StringUtils.hasText(primoSoggettoDebitore(pendenza).getAnagrafica());
+    }
+
+    /**
      * Per una pendenza v3 il debitore reale e' sempre {@code soggettiDebitori.get(0)} (indice
      * piu' basso, lista gia' ordinata) — vedi Javadoc di campo su {@code Pendenza}:
      * {@code debitoreIdentificativo}/{@code debitoreAnagrafica} sono placeholder fissi, mai il

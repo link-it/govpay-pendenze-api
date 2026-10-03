@@ -676,14 +676,54 @@ paths:
               schema:
                 type: string
                 format: binary
+        '400':
+          description: >-
+            Bilinguismo richiesto (`linguaSecondaria`) senza
+            `causaleTradotta`, oppure `causaleTradotta`/
+            `informativaImporto`/`informativaImportoTradotta` specificati
+            sulla variante `application/json` (hanno effetto solo sul PDF)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
         '401':
           $ref: '#/components/responses/401NotAuthenticated'
         '403':
           $ref: '#/components/responses/403NotAuthorized'
         '404':
           $ref: '#/components/responses/404NotFound'
+        '406':
+          description: >-
+            Header `Accept` non compatibile con `application/json` o
+            `application/pdf`
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: >-
+            L'avviso PDF non è generabile per questa pendenza (Marca da
+            Bollo Telematica, o debitore senza anagrafica)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
         '500':
           $ref: '#/components/responses/500ServiceUnavailable'
+        '502':
+          description: 'Errore di comunicazione con il microservizio `govpay-stampe`'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: >-
+            Microservizio `govpay-stampe` non configurato
+            (`app.stampe.base-url` mancante)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
 
   '/pendenze/{idA2A}/{idPendenza}/ricevute':
     get:

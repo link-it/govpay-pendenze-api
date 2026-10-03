@@ -14,6 +14,7 @@ import it.govpay.common.utils.IuvUtils;
 import it.govpay.pendenze.api.model.Avviso;
 import it.govpay.pendenze.api.model.StatoAvviso;
 import it.govpay.pendenze.entity.Pendenza;
+import it.govpay.pendenze.model.StatoOpzionePagamento;
 import it.govpay.pendenze.model.StatoPendenza;
 
 /**
@@ -63,8 +64,22 @@ public class AvvisoMapper {
      * tentano di distinguerli ulteriormente — {@code SCONOSCIUTA} e' quindi la mappatura
      * corretta, non un ripiego: stesso valore gia' prodotto da un'altra API GovPay per lo
      * stesso identico problema, non un'invenzione locale di questo mapper.
+     *
+     * <p>Controllo preliminare sull'opzione di pagamento, non solo sulla pendenza: concetto
+     * nuovo della v3, senza equivalente legacy (in v2 la mutua esclusione tra opzioni
+     * alternative non esiste in nessuna forma, vedi Javadoc di campo su
+     * {@code OpzionePagamento}). {@code PosizioneDebitoriaService#annulla} porta l'opzione a
+     * {@code StatoOpzionePagamento.ANNULLATA} senza toccare {@code StatoPendenza}: senza
+     * questo controllo l'avviso di una pendenza con opzione annullata resterebbe
+     * {@code NON_ESEGUITA} per sempre, dato che nulla fara' mai transitare
+     * {@code StatoPendenza}. Nessun valore enum dedicato in {@code StatoAvviso}: si riusa
+     * {@code ANNULLATA}, semanticamente corretto anche qui (l'avviso non e' piu' pagabile
+     * tramite questa opzione).</p>
      */
     private StatoAvviso mapStato(Pendenza pendenza) {
+        if (pendenza.getOpzionePagamento().getStato() == StatoOpzionePagamento.ANNULLATA) {
+            return StatoAvviso.ANNULLATA;
+        }
         StatoPendenza stato = pendenza.getStato();
         return switch (stato) {
             case ANNULLATO -> StatoAvviso.ANNULLATA;

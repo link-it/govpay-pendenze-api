@@ -275,7 +275,8 @@ class PendenzaControllerTest {
                   "idPosizioneDebitoria": "%s",
                   "idDominio": "%s",
                   "descrizione": "test ricerca pendenze",
-                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
+                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y",
+                                           "anagrafica": "Mario Rossi" } ],
                   "opzioniPagamento": [ {
                     "tipologia": "SOLUZIONE_UNICA",
                     "pendenze": [ {
@@ -314,7 +315,8 @@ class PendenzaControllerTest {
                   "idPosizioneDebitoria": "%s",
                   "idDominio": "%s",
                   "descrizione": "test ricerca pendenze",
-                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
+                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y",
+                                           "anagrafica": "Mario Rossi" } ],
                   "opzioniPagamento": [ {
                     "tipologia": "SOLUZIONE_UNICA",
                     "pendenze": [ {
@@ -876,6 +878,39 @@ class PendenzaControllerTest {
                 .andExpect(jsonPath("$.stato").value("SCONOSCIUTA"));
     }
 
+    private String idOpzioneDi(String idPosizioneDebitoria) throws Exception {
+        String risposta = mockMvc
+                .perform(get("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", idPosizioneDebitoria))
+                .andReturn().getResponse().getContentAsString();
+        return JsonPath.read(risposta, "$.opzioniPagamento[0].idOpzionePagamento");
+    }
+
+    /**
+     * {@code PosizioneDebitoriaService#annulla} tocca solo {@code StatoOpzionePagamento}, mai
+     * {@code StatoPendenza} (vedi Javadoc di {@code AvvisoMapper#mapStato}): la pendenza resta
+     * {@code NON_ESEGUITO} per sempre, ma l'avviso deve riflettere comunque l'annullamento.
+     */
+    @Test
+    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/stampa mappa su ANNULLATA quando l'opzione di pagamento e' "
+            + "stata annullata via PATCH, anche se lo stato della pendenza resta NON_ESEGUITO")
+    void getStampaPendenzaMappaSuAnnullataSeOpzioneAnnullata() throws Exception {
+        creaPosizioneConPendenza("pos-stampa-opz-annullata", "12345678901", "pendenza-stampa-opz-annullata");
+        String idOpzione = idOpzioneDi("pos-stampa-opz-annullata");
+
+        mockMvc.perform(MockMvcRequestBuilders.patch(
+                        "/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}",
+                        "A2A-TEST", "pos-stampa-opz-annullata", idOpzione)
+                        .contentType("application/json-patch+json")
+                        .content("""
+                                [ { "op": "replace", "path": "/stato", "value": "ANNULLATA" } ]
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/stampa", "A2A-TEST", "pendenza-stampa-opz-annullata"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.stato").value("ANNULLATA"));
+    }
+
     @Test
     @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/stampa restituisce 404 se la pendenza non esiste")
     void getStampaPendenzaRestituisce404SeNonEsiste() throws Exception {
@@ -1101,6 +1136,46 @@ class PendenzaControllerTest {
                 .andExpect(status().isCreated());
 
         mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/stampa", "A2A-TEST", "pendenza-stampa-pdf-mbt")
+                        .accept(MediaType.APPLICATION_PDF))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(422));
+    }
+
+    /**
+     * Un {@code SoggettoDebitore} con solo {@code tipo}+{@code identificativo} e' ammesso
+     * dallo schema v3 ({@code anagrafica} non e' {@code required}), ma govpay-stampe-api
+     * richiede {@code Debtor.full_name}: senza il controllo esplicito la chiamata a
+     * govpay-stampe risponderebbe 400, tradotto poi in 502 generico dal client HTTP.
+     */
+    @Test
+    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/stampa (Accept: application/pdf) restituisce 422 se il "
+            + "debitore non ha anagrafica")
+    void getStampaPendenzaPdfRestituisce422PerAnagraficaDebitoreAssente() throws Exception {
+        String body = """
+                {
+                  "idPosizioneDebitoria": "pos-stampa-pdf-no-anagrafica",
+                  "idDominio": "12345678901",
+                  "descrizione": "test anagrafica assente",
+                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
+                  "opzioniPagamento": [ {
+                    "tipologia": "SOLUZIONE_UNICA",
+                    "pendenze": [ {
+                      "idPendenza": "pendenza-stampa-pdf-no-anagrafica",
+                      "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                      "importo": 16.00,
+                      "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-no-anagrafica",
+                                  "importo": 16.00, "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
+                    } ]
+                  } ]
+                }
+                """;
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}", "A2A-TEST")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/stampa", "A2A-TEST", "pendenza-stampa-pdf-no-anagrafica")
                         .accept(MediaType.APPLICATION_PDF))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))

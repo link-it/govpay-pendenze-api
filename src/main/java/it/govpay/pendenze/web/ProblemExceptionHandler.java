@@ -21,6 +21,7 @@ import org.springframework.web.servlet.NoHandlerFoundException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import it.govpay.pendenze.api.model.Problem;
+import it.govpay.pendenze.avviso.AvvisoAnagraficaAssenteException;
 import it.govpay.pendenze.avviso.AvvisoMbtException;
 import it.govpay.pendenze.avviso.StampeNotConfiguredException;
 import it.govpay.pendenze.avviso.StampeUnavailableException;
@@ -141,8 +142,8 @@ public class ProblemExceptionHandler {
         return build(HttpStatus.NOT_ACCEPTABLE, ex.getMessage(), request, ex);
     }
 
-    @ExceptionHandler(AvvisoMbtException.class)
-    public ResponseEntity<Problem> handleAvvisoMbt(AvvisoMbtException ex, HttpServletRequest request) {
+    @ExceptionHandler({ AvvisoMbtException.class, AvvisoAnagraficaAssenteException.class })
+    public ResponseEntity<Problem> handleAvvisoNonGenerabile(RuntimeException ex, HttpServletRequest request) {
         return build(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage(), request, ex);
     }
 

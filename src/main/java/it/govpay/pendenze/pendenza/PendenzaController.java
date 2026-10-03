@@ -26,6 +26,7 @@ import it.govpay.pendenze.api.model.Ricevuta;
 import it.govpay.pendenze.api.model.RicevutaIndex;
 import it.govpay.pendenze.api.model.Ricevute;
 import it.govpay.pendenze.api.rest.PendenzeApi;
+import it.govpay.pendenze.avviso.AvvisoAnagraficaAssenteException;
 import it.govpay.pendenze.avviso.AvvisoMapper;
 import it.govpay.pendenze.avviso.AvvisoMbtException;
 import it.govpay.pendenze.avviso.AvvisoPdfPayloadMapper;
@@ -134,7 +135,9 @@ public class PendenzaController implements PendenzeApi {
      *
      * <p>Ramo PDF: {@code isPendenzaMbt} blocca con 422 le pendenze con Marca da Bollo
      * Telematica (l'avviso PDF non le si applica, vedi Javadoc di
-     * {@link AvvisoPdfPayloadMapper#isPendenzaMbt}); altrimenti costruisce il payload e fa
+     * {@link AvvisoPdfPayloadMapper#isPendenzaMbt}); stesso 422 se il debitore non ha
+     * anagrafica (vedi Javadoc di {@link AvvisoPdfPayloadMapper#isAnagraficaDebitoreAssente});
+     * altrimenti costruisce il payload e fa
      * streaming diretto della risposta di govpay-stampe sulla {@link HttpServletResponse},
      * senza passare per gli {@code HttpMessageConverter} (che non saprebbero gestire un body
      * PDF qui) — la {@code return null} segnala al chiamante ({@code getStampaPendenza} stesso)
@@ -186,6 +189,10 @@ public class PendenzaController implements PendenzeApi {
         if (AvvisoPdfPayloadMapper.isPendenzaMbt(pendenza)) {
             throw new AvvisoMbtException(
                     "Avviso PDF non disponibile per pendenze con Marca da Bollo Telematica.");
+        }
+        if (AvvisoPdfPayloadMapper.isAnagraficaDebitoreAssente(pendenza)) {
+            throw new AvvisoAnagraficaAssenteException(
+                    "Avviso PDF non disponibile: anagrafica del debitore assente.");
         }
         PaymentNotice payload = avvisoPdfPayloadMapper.toPaymentNotice(pendenza, linguaSecondaria, causaleTradotta,
                 informativaImporto, informativaImportoTradotta);
