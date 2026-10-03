@@ -20,6 +20,7 @@ import it.govpay.pendenze.api.model.LinguaSecondaria;
 import it.govpay.pendenze.api.model.Pagination;
 import it.govpay.pendenze.api.model.PendenzaIndex;
 import it.govpay.pendenze.api.model.Pendenze;
+import it.govpay.pendenze.api.model.Ricevuta;
 import it.govpay.pendenze.api.model.RicevutaIndex;
 import it.govpay.pendenze.api.model.Ricevute;
 import it.govpay.pendenze.api.rest.PendenzeApi;
@@ -33,6 +34,7 @@ import it.govpay.pendenze.criteri.OffsetPageRequest;
 import it.govpay.pendenze.criteri.PaginaRisultati;
 import it.govpay.pendenze.criteri.PaginaSenzaConteggio;
 import it.govpay.pendenze.entity.Pendenza;
+import it.govpay.pendenze.entity.Rpt;
 import it.govpay.pendenze.exception.RisorsaNonTrovataException;
 import it.govpay.pendenze.exception.ValidazioneNonSuperataException;
 import it.govpay.pendenze.posizionedebitoria.PosizioneDebitoriaMapper;
@@ -421,6 +423,25 @@ public class PendenzaController implements PendenzeApi {
 
         dto.setResults(SelezioneCampi.applica(risultati, fields, objectMapper));
         return ResponseEntity.ok(dto);
+    }
+
+    /**
+     * Dettaglio di una ricevuta: despecializza l'XML grezzo nel formato dichiarato da
+     * {@code Rpt.versione} (vedi Javadoc di {@link RicevutaMapper#toRicevuta}). 404 se la
+     * pendenza non esiste o se non ha ancora una ricevuta con questo {@code iur} — stesso
+     * trattamento, nessuna distinzione: un {@code iur} formalmente valido ma mai arrivato non
+     * e' distinguibile lato chiamante da un {@code iur} del tutto inventato.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public ResponseEntity<Ricevuta> getRicevutaPendenza(String idA2A, String idPendenza, String iur) {
+        aclAuthorizer.richiedeLettura();
+        currentApplicazioneService.verificaIdA2A(idA2A);
+        Pendenza pendenza = trovaPendenza(idA2A, idPendenza);
+        Rpt rpt = ricevutaRendicontazioneService.trovaRicevuta(pendenza.getId(), iur)
+                .orElseThrow(() -> new RisorsaNonTrovataException(
+                        "nessuna ricevuta con iur [" + iur + "] per idPendenza [" + idPendenza + "]"));
+        return ResponseEntity.ok(ricevutaMapper.toRicevuta(rpt));
     }
 
     /**

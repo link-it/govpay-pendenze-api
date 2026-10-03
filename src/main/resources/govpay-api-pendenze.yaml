@@ -3148,6 +3148,22 @@ components:
 
     # --- ctRicevutaTelematica (formato SANP storico) ---
 
+    TipoIdentificativoUnivocoRT:
+      description: >-
+        Natura del codice che identifica il soggetto in una ricevuta ctRicevutaTelematica
+        (SANP 2.3.0): F persona fisica, G persona giuridica (soggetto versante/pagatore o
+        ente beneficiario), A codice ABI, B codice BIC (istituto attestante — qui la natura
+        del codice e il tipo di soggetto, non sovrapponibile a TipoSoggetto, che modella solo
+        persona fisica/giuridica).
+      type: string
+      enum:
+        - F
+        - G
+        - A
+        - B
+      examples:
+        - G
+
     RTIdentificativoUnivoco:
       type: object
       required:
@@ -3155,7 +3171,7 @@ components:
         - codiceIdentificativoUnivoco
       properties:
         tipoIdentificativoUnivoco:
-          $ref: '#/components/schemas/TipoSoggetto'
+          $ref: '#/components/schemas/TipoIdentificativoUnivocoRT'
         codiceIdentificativoUnivoco:
           type: string
 
@@ -3331,15 +3347,18 @@ components:
       type: array
       description: Metadata pagoPA associati (Dizionario dei metadata).
       items:
-        type: object
-        required:
-          - chiave
-          - valore
-        properties:
-          chiave:
-            type: string
-          valore:
-            type: string
+        $ref: '#/components/schemas/RTMetadataEntry'
+
+    RTMetadataEntry:
+      type: object
+      required:
+        - chiave
+        - valore
+      properties:
+        chiave:
+          type: string
+        valore:
+          type: string
 
     RTSubject:
       type: object

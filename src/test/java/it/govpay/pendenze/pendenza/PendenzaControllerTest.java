@@ -580,6 +580,55 @@ class PendenzaControllerTest {
     }
 
     @Test
+    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/ricevute/{iur} restituisce il dettaglio nel "
+            + "formato ctReceipt, con 'tipo' coerente con quello dell'elenco")
+    void getRicevutaPendenzaRestituisceCtReceipt() throws Exception {
+        creaPosizioneConPendenza("pos-ricevuta-det-1", "12345678901", "pendenza-ricevuta-det-1");
+        ricevutaPersistita("pendenza-ricevuta-det-1", "RT900000003", "RPTV2_RTV1", OffsetDateTime.now(),
+                xmlFixture("rt-v2-ok.xml"));
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/ricevute/{iur}", "A2A-TEST",
+                        "pendenza-ricevuta-det-1", "RT900000003"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.tipo").value("ctReceipt"))
+                .andExpect(jsonPath("$.receiptId").value("RT900000003"))
+                .andExpect(jsonPath("$.fiscalCode").value("12345678901"))
+                .andExpect(jsonPath("$.outcome").value("OK"))
+                .andExpect(jsonPath("$.paymentAmount").value(10.00))
+                .andExpect(jsonPath("$.debtor.fullName").value("Mario Rossi"))
+                .andExpect(jsonPath("$.transferList[0].IBAN").value("IT60X0542811101000000123456"));
+    }
+
+    @Test
+    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/ricevute/{iur} restituisce il dettaglio nel "
+            + "formato ctReceiptV2")
+    void getRicevutaPendenzaRestituisceCtReceiptV2() throws Exception {
+        creaPosizioneConPendenza("pos-ricevuta-det-2", "12345678901", "pendenza-ricevuta-det-2");
+        ricevutaPersistita("pendenza-ricevuta-det-2", "RT900000001", "SANP_321_V2", OffsetDateTime.now(),
+                xmlFixture("rt-v2_2-ok.xml"));
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/ricevute/{iur}", "A2A-TEST",
+                        "pendenza-ricevuta-det-2", "RT900000001"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.tipo").value("ctReceiptV2"))
+                .andExpect(jsonPath("$.receiptId").value("RT900000001"))
+                .andExpect(jsonPath("$.officeName").value("Ufficio Tributi"))
+                .andExpect(jsonPath("$.debtor.city").value("Roma"))
+                .andExpect(jsonPath("$.paymentMethod").value("AD"));
+    }
+
+    @Test
+    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/ricevute/{iur} restituisce 404 se l'iur non esiste "
+            + "o se la pendenza non ha ancora questa ricevuta")
+    void getRicevutaPendenzaRestituisce404SeIurNonEsiste() throws Exception {
+        creaPosizioneConPendenza("pos-ricevuta-404", "12345678901", "pendenza-ricevuta-404");
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/ricevute/{iur}", "A2A-TEST",
+                        "pendenza-ricevuta-404", "iur-inesistente"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
     @DisplayName("GET /pendenze/{idA2A}/{idPendenza} restituisce il dettaglio completo, comprensivo "
             + "di voci, opzione di pagamento e posizione debitoria di appartenenza")
     void getPendenzaRestituisceIlDettaglioCompleto() throws Exception {
@@ -619,6 +668,12 @@ class PendenzaControllerTest {
      * endpoint di transizione che questo servizio non espone ancora.
      */
     private Rpt ricevutaPersistita(String idPendenza, String iur, String versione, OffsetDateTime dataMsgRicevuta) {
+        return ricevutaPersistita(idPendenza, iur, versione, dataMsgRicevuta,
+                "<Receipt/>".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    }
+
+    private Rpt ricevutaPersistita(String idPendenza, String iur, String versione, OffsetDateTime dataMsgRicevuta,
+            byte[] xmlRt) {
         Pendenza pendenza = pendenzaRepository.findAll().stream()
                 .filter(p -> idPendenza.equals(p.getIdPendenza()))
                 .findFirst().orElseThrow();
@@ -627,10 +682,16 @@ class PendenzaControllerTest {
         rpt.setIuv(pendenza.getIuv());
         rpt.setIur(iur);
         rpt.setCodDominio("12345678901");
-        rpt.setXmlRt("<Receipt/>".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        rpt.setXmlRt(xmlRt);
         rpt.setDataMsgRicevuta(dataMsgRicevuta);
         rpt.setVersione(versione);
         return rptRepository.save(rpt);
+    }
+
+    private static byte[] xmlFixture(String nome) throws java.io.IOException {
+        try (var in = PendenzaControllerTest.class.getResourceAsStream("/rt/" + nome)) {
+            return in.readAllBytes();
+        }
     }
 
     private void forzaStato(String idPendenza, StatoPendenza stato) {

@@ -1,6 +1,7 @@
 package it.govpay.pendenze.ricevuta;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.OffsetDateTime;
 
@@ -8,6 +9,7 @@ import org.junit.jupiter.api.Test;
 
 import it.govpay.pendenze.api.model.RicevutaIndex;
 import it.govpay.pendenze.api.model.TipoRicevuta;
+import it.govpay.pendenze.entity.Rpt;
 import it.govpay.pendenze.repository.RicevutaElenco;
 
 class RicevutaMapperTest {
@@ -45,6 +47,26 @@ class RicevutaMapperTest {
 
         assertThat(dto.getIur()).isEqualTo("iur-1");
         assertThat(dto.getData()).isEqualTo(data);
+    }
+
+    /**
+     * {@code RptRepository.findByIdVersamentoAndIurAndDataMsgRicevutaIsNotNull} filtra solo su
+     * {@code dataMsgRicevuta}: non garantisce {@code xmlRt} non nullo. Senza il controllo
+     * esplicito in {@code toRicevuta}, questo caso produrrebbe una {@code NullPointerException}
+     * grezza (passando {@code null} a {@code new ByteArrayInputStream(...)}) invece di un
+     * errore leggibile.
+     */
+    @Test
+    void toRicevutaSollevaEccezioneLeggibileSeXmlRtAssente() {
+        Rpt rpt = new Rpt();
+        rpt.setIur("iur-senza-xml");
+        rpt.setVersione("SANP_240");
+        rpt.setXmlRt(null);
+
+        assertThatThrownBy(() -> mapper.toRicevuta(rpt))
+                .isInstanceOf(RicevutaNonLeggibileException.class)
+                .hasMessageContaining("iur-senza-xml")
+                .hasMessageContaining("xmlRt assente");
     }
 
     // --- mapVersioneATipo: replica il dispatch legacy di MessaggiPagoPARtUtils.getMessaggioRT ---
