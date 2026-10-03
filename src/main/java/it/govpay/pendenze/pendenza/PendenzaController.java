@@ -20,6 +20,8 @@ import it.govpay.pendenze.api.model.LinguaSecondaria;
 import it.govpay.pendenze.api.model.Pagination;
 import it.govpay.pendenze.api.model.PendenzaIndex;
 import it.govpay.pendenze.api.model.Pendenze;
+import it.govpay.pendenze.api.model.Rendicontazione;
+import it.govpay.pendenze.api.model.Rendicontazioni;
 import it.govpay.pendenze.api.model.Ricevuta;
 import it.govpay.pendenze.api.model.RicevutaIndex;
 import it.govpay.pendenze.api.model.Ricevute;
@@ -38,6 +40,7 @@ import it.govpay.pendenze.entity.Rpt;
 import it.govpay.pendenze.exception.RisorsaNonTrovataException;
 import it.govpay.pendenze.exception.ValidazioneNonSuperataException;
 import it.govpay.pendenze.posizionedebitoria.PosizioneDebitoriaMapper;
+import it.govpay.pendenze.rendicontazione.RendicontazioneMapper;
 import it.govpay.pendenze.repository.RicevutaElenco;
 import it.govpay.pendenze.ricevuta.RicevutaMapper;
 import it.govpay.pendenze.security.AclAuthorizer;
@@ -71,6 +74,7 @@ public class PendenzaController implements PendenzeApi {
     private final PosizioneDebitoriaService posizioneDebitoriaService;
     private final RicevutaRendicontazioneService ricevutaRendicontazioneService;
     private final RicevutaMapper ricevutaMapper;
+    private final RendicontazioneMapper rendicontazioneMapper;
     private final ObjectMapper objectMapper;
     private final HttpServletRequest currentRequest;
     private final HttpServletResponse currentResponse;
@@ -82,7 +86,8 @@ public class PendenzaController implements PendenzeApi {
             ExternalCallMetricsRecorder externalCallMetricsRecorder,
             PosizioneDebitoriaService posizioneDebitoriaService,
             RicevutaRendicontazioneService ricevutaRendicontazioneService, RicevutaMapper ricevutaMapper,
-            ObjectMapper objectMapper, HttpServletRequest currentRequest, HttpServletResponse currentResponse,
+            RendicontazioneMapper rendicontazioneMapper, ObjectMapper objectMapper,
+            HttpServletRequest currentRequest, HttpServletResponse currentResponse,
             CurrentApplicazioneService currentApplicazioneService, AclAuthorizer aclAuthorizer) {
         this.mapper = mapper;
         this.avvisoMapper = avvisoMapper;
@@ -92,6 +97,7 @@ public class PendenzaController implements PendenzeApi {
         this.posizioneDebitoriaService = posizioneDebitoriaService;
         this.ricevutaRendicontazioneService = ricevutaRendicontazioneService;
         this.ricevutaMapper = ricevutaMapper;
+        this.rendicontazioneMapper = rendicontazioneMapper;
         this.objectMapper = objectMapper;
         this.currentRequest = currentRequest;
         this.currentResponse = currentResponse;
@@ -442,6 +448,66 @@ public class PendenzaController implements PendenzeApi {
                 .orElseThrow(() -> new RisorsaNonTrovataException(
                         "nessuna ricevuta con iur [" + iur + "] per idPendenza [" + idPendenza + "]"));
         return ResponseEntity.ok(ricevutaMapper.toRicevuta(rpt));
+    }
+
+    /** Unico campo ordinabile per le rendicontazioni: stesso principio di {@link #CAMPI_ORDINABILI_RICEVUTE}. */
+    private static final Map<String, String> CAMPI_ORDINABILI_RENDICONTAZIONI = Map.of("data", "data");
+
+    /**
+     * Stesso pattern page/cursor/limit/sort/fields/total di {@link #findRicevutePendenza}, qui
+     * su {@link RicevutaRendicontazioneService#cercaRendicontazioni}/
+     * {@link RicevutaRendicontazioneService#cercaRendicontazioniDaCursore}.
+     *
+     * <p>{@code total=false} non evita un {@code COUNT} per lo stesso motivo gia' documentato
+     * su {@link #findRicevutePendenza}: nessuna variante "senza conteggio" nel servizio,
+     * rendicontazioni per pendenza tipicamente poche.</p>
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public ResponseEntity<Rendicontazioni> findRendicontazioniPendenza(String idA2A, String idPendenza, Integer page,
+            String cursor, Integer limit, String sort, String fields, Boolean total) {
+        aclAuthorizer.richiedeLettura();
+        currentApplicazioneService.verificaIdA2A(idA2A);
+        boolean modalitaCursore = cursor != null;
+        if (modalitaCursore) {
+            rifiutaSeIncompatibiliConCursore(sort, total);
+        }
+        Pendenza pendenza = trovaPendenza(idA2A, idPendenza);
+
+        Rendicontazioni dto = new Rendicontazioni();
+        List<Rendicontazione> risultati;
+
+        if (modalitaCursore) {
+            CursorCodec.Cursore decodificato = cursor.isBlank() ? null : CursorCodec.decode(cursor);
+            PaginaSenzaConteggio<it.govpay.pendenze.entity.Rendicontazione> pagina = ricevutaRendicontazioneService
+                    .cercaRendicontazioniDaCursore(pendenza.getId(),
+                            decodificato == null ? null : decodificato.dataCreazione(),
+                            decodificato == null ? null : decodificato.id(), limit);
+            risultati = pagina.risultati().stream().map(rendicontazioneMapper::toRendicontazioneDto).toList();
+            if (pagina.haAltriRisultati() && !pagina.risultati().isEmpty()) {
+                it.govpay.pendenze.entity.Rendicontazione ultima = pagina.risultati()
+                        .get(pagina.risultati().size() - 1);
+                dto.setNextCursor(CursorCodec.encode(ultima.getFlusso().getDataOraFlusso(), ultima.getId()));
+            }
+        } else {
+            int paginaEffettiva = QueryParamUtils.isExplicit(currentRequest, "page") ? page : 1;
+            Sort ordinamento = CriteriOrdinamento.parse(sort, CAMPI_ORDINABILI_RENDICONTAZIONI);
+            Pageable pageable = OffsetPageRequest.of((long) (paginaEffettiva - 1) * limit, limit, ordinamento);
+
+            Pagination pagination = new Pagination(paginaEffettiva, limit, false);
+            PaginaRisultati<it.govpay.pendenze.entity.Rendicontazione> pagina = ricevutaRendicontazioneService
+                    .cercaRendicontazioni(pendenza.getId(), pageable);
+            risultati = pagina.risultati().stream().map(rendicontazioneMapper::toRendicontazioneDto).toList();
+            pagination.setHasNextPage(pagina.haAltriRisultati());
+            if (Boolean.TRUE.equals(total)) {
+                pagination.setTotalResults(Math.toIntExact(pagina.numeroRisultatiTotali()));
+                pagination.setTotalPages((int) Math.ceil(pagina.numeroRisultatiTotali() / (double) limit));
+            }
+            dto.setPagination(pagination);
+        }
+
+        dto.setResults(SelezioneCampi.applica(risultati, fields, objectMapper));
+        return ResponseEntity.ok(dto);
     }
 
     /**

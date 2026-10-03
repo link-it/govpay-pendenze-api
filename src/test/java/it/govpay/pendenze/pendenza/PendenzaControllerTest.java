@@ -41,11 +41,17 @@ import it.govpay.common.repository.TipoTributoRepository;
 import it.govpay.common.repository.TipoVersamentoDominioRepository;
 import it.govpay.common.repository.TipoVersamentoRepository;
 import it.govpay.common.repository.TributoRepository;
+import it.govpay.pendenze.entity.FlussoRendicontazione;
 import it.govpay.pendenze.entity.Pendenza;
+import it.govpay.pendenze.entity.Rendicontazione;
 import it.govpay.pendenze.entity.Rpt;
+import it.govpay.pendenze.model.StatoFlussoRendicontazione;
 import it.govpay.pendenze.model.StatoPendenza;
+import it.govpay.pendenze.model.StatoRendicontazione;
+import it.govpay.pendenze.repository.FlussoRendicontazioneRepository;
 import it.govpay.pendenze.repository.PendenzaRepository;
 import it.govpay.pendenze.repository.PosizioneDebitoriaRepository;
+import it.govpay.pendenze.repository.RendicontazioneRepository;
 import it.govpay.pendenze.repository.RptRepository;
 import it.govpay.pendenze.security.AclEntity;
 import it.govpay.pendenze.security.AclRepository;
@@ -120,6 +126,12 @@ class PendenzaControllerTest {
 
     @Autowired
     private RptRepository rptRepository;
+
+    @Autowired
+    private FlussoRendicontazioneRepository flussoRendicontazioneRepository;
+
+    @Autowired
+    private RendicontazioneRepository rendicontazioneRepository;
 
     private TipoVersamentoEntity tipoVersamento;
     private TipoTributoEntity tipoTributo;
@@ -207,6 +219,8 @@ class PendenzaControllerTest {
 
     @AfterEach
     void pulisci() {
+        rendicontazioneRepository.deleteAll();
+        flussoRendicontazioneRepository.deleteAll();
         rptRepository.deleteAll();
         posizioneDebitoriaRepository.deleteAll();
         tipoVersamentoDominioRepository.deleteAll();
@@ -629,6 +643,72 @@ class PendenzaControllerTest {
     }
 
     @Test
+    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/rendicontazioni restituisce l'elenco, comprensivo dei dati "
+            + "di testata del flusso (trn = flusso.iur, rename verificato contro il legacy)")
+    void findRendicontazioniPendenzaRestituisceElenco() throws Exception {
+        creaPosizioneConPendenza("pos-rend-1", "12345678901", "pendenza-rend-1");
+        OffsetDateTime adesso = OffsetDateTime.now();
+        rendicontazionePersistita("pendenza-rend-1", "flusso-rend-1", adesso, "iur-rend-1");
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/rendicontazioni", "A2A-TEST", "pendenza-rend-1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.results.length()").value(1))
+                .andExpect(jsonPath("$.results[0].iur").value("iur-rend-1"))
+                .andExpect(jsonPath("$.results[0].esito").value(0))
+                .andExpect(jsonPath("$.results[0].stato").value("OK"))
+                .andExpect(jsonPath("$.results[0].flusso.idFlusso").value("flusso-rend-1"))
+                .andExpect(jsonPath("$.results[0].flusso.trn").value("trn-flusso-rend-1"))
+                .andExpect(jsonPath("$.results[0].flusso.stato").value("ACCETTATA"));
+    }
+
+    @Test
+    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/rendicontazioni paginazione a cursore: nextCursor porta "
+            + "al resto dei risultati senza sovrapposizioni, ordinati per flusso.dataOraFlusso desc")
+    void findRendicontazioniPendenzaCursoreScorreSenzaSovrapposizioni() throws Exception {
+        creaPosizioneConPendenza("pos-rend-cursore", "12345678901", "pendenza-rend-cursore");
+        OffsetDateTime adesso = OffsetDateTime.now();
+        rendicontazionePersistita("pendenza-rend-cursore", "flusso-rc-1", adesso.minusDays(2), "iur-1");
+        rendicontazionePersistita("pendenza-rend-cursore", "flusso-rc-2", adesso.minusDays(1), "iur-2");
+        rendicontazionePersistita("pendenza-rend-cursore", "flusso-rc-3", adesso, "iur-3");
+
+        org.springframework.test.web.servlet.MvcResult primaPagina = mockMvc
+                .perform(get("/pendenze/{idA2A}/{idPendenza}/rendicontazioni", "A2A-TEST", "pendenza-rend-cursore")
+                        .param("cursor", "")
+                        .param("limit", "2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.pagination").doesNotExist())
+                .andExpect(jsonPath("$.nextCursor").exists())
+                .andExpect(jsonPath("$.results.length()").value(2))
+                .andExpect(jsonPath("$.results[0].iur").value("iur-3"))
+                .andExpect(jsonPath("$.results[1].iur").value("iur-2"))
+                .andReturn();
+
+        String nextCursor = com.jayway.jsonpath.JsonPath.read(
+                primaPagina.getResponse().getContentAsString(), "$.nextCursor");
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/rendicontazioni", "A2A-TEST", "pendenza-rend-cursore")
+                        .param("cursor", nextCursor)
+                        .param("limit", "2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nextCursor").doesNotExist())
+                .andExpect(jsonPath("$.results.length()").value(1))
+                .andExpect(jsonPath("$.results[0].iur").value("iur-1"));
+    }
+
+    @Test
+    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/rendicontazioni rifiuta con 400 'page' e 'cursor' insieme")
+    void findRendicontazioniPendenzaRifiutaPageECursoreInsieme() throws Exception {
+        creaPosizioneConPendenza("pos-rend-mutex", "12345678901", "pendenza-rend-mutex");
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/rendicontazioni", "A2A-TEST", "pendenza-rend-mutex")
+                        .param("page", "1")
+                        .param("cursor", ""))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
     @DisplayName("GET /pendenze/{idA2A}/{idPendenza} restituisce il dettaglio completo, comprensivo "
             + "di voci, opzione di pagamento e posizione debitoria di appartenenza")
     void getPendenzaRestituisceIlDettaglioCompleto() throws Exception {
@@ -686,6 +766,40 @@ class PendenzaControllerTest {
         rpt.setDataMsgRicevuta(dataMsgRicevuta);
         rpt.setVersione(versione);
         return rptRepository.save(rpt);
+    }
+
+    private Rendicontazione rendicontazionePersistita(String idPendenza, String codFlusso,
+            OffsetDateTime dataOraFlusso, String iurRendicontazione) {
+        Pendenza pendenza = pendenzaRepository.findAll().stream()
+                .filter(p -> idPendenza.equals(p.getIdPendenza()))
+                .findFirst().orElseThrow();
+        DominioEntity dominio = dominioRepository.findByCodDominio("12345678901").orElseThrow();
+
+        FlussoRendicontazione flusso = new FlussoRendicontazione();
+        flusso.setIdDominio(dominio.getId());
+        flusso.setCodDominio(dominio.getCodDominio());
+        flusso.setCodFlusso(codFlusso);
+        flusso.setDataOraFlusso(dataOraFlusso);
+        flusso.setIur("trn-" + codFlusso);
+        flusso.setDataAcquisizione(dataOraFlusso);
+        flusso.setDataRegolamento(dataOraFlusso);
+        flusso.setCodPsp("PSP-1");
+        flusso.setNumeroPagamenti(1L);
+        flusso.setImportoTotale(pendenza.getImporto());
+        flusso.setStato(StatoFlussoRendicontazione.ACCETTATA);
+        flusso.setRevisione(1L);
+        flusso.setObsoleto(false);
+        flussoRendicontazioneRepository.save(flusso);
+
+        Rendicontazione rendicontazione = new Rendicontazione();
+        rendicontazione.setFlusso(flusso);
+        rendicontazione.setIuv(pendenza.getIuv());
+        rendicontazione.setIur(iurRendicontazione);
+        rendicontazione.setImportoPagato(pendenza.getImporto());
+        rendicontazione.setEsito(0);
+        rendicontazione.setData(dataOraFlusso);
+        rendicontazione.setStato(StatoRendicontazione.OK);
+        return rendicontazioneRepository.save(rendicontazione);
     }
 
     private static byte[] xmlFixture(String nome) throws java.io.IOException {

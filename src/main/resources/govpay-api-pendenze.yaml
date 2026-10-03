@@ -829,7 +829,8 @@ paths:
       description: >-
         Fornisce le rendicontazioni ricevute da pagoPA per la pendenza,
         comprensive dei dati di testata del flusso di rendicontazione a
-        cui appartengono.
+        cui appartengono. L'elenco include le rendicontazioni di tutte le
+        revisioni dei flussi, comprese quelle obsolete.
       parameters:
         - in: path
           name: idA2A
@@ -3625,10 +3626,14 @@ components:
             Codice di esito dell'operazione rendicontata:
              * 0 = Pagamento eseguito
              * 3 = Pagamento revocato
+             * 4 = Pagamento eseguito in standin
+             * 8 = Pagamento eseguito in standin, in assenza di RPT
              * 9 = Pagamento eseguito in assenza di RPT
           enum:
             - 0
             - 3
+            - 4
+            - 8
             - 9
           examples:
             - 0
