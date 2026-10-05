@@ -64,10 +64,12 @@ paths:
             type: string
             pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
         - $ref: '#/components/parameters/idDebitore'
-        - $ref: '#/components/parameters/offset'
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/cursor'
         - $ref: '#/components/parameters/limit'
         - $ref: '#/components/parameters/sort'
         - $ref: '#/components/parameters/fields'
+        - $ref: '#/components/parameters/total'
       responses:
         '200':
           description: Elenco delle posizioni debitorie che rispettano i filtri di ricerca
@@ -75,6 +77,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PosizioniDebitorie'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
         '401':
           $ref: '#/components/responses/401NotAuthenticated'
         '403':
@@ -133,6 +137,7 @@ paths:
                             - idVocePendenza: CERT2026-000058-UNICA_1
                               importo: 16.00
                               descrizione: 'Diritti di segreteria - certificato di residenza'
+                              tipoRiferimento: RIFERIMENTO_ENTRATA
                               codEntrata: DIRITTI_SEGRETERIA
               unicaSoluzioneORateale:
                 summary: >-
@@ -157,6 +162,7 @@ paths:
                             - idVocePendenza: IMU2026-000017-UNICA_1
                               importo: 600.00
                               descrizione: 'IMU 2026 - saldo unico'
+                              tipoRiferimento: RIFERIMENTO_ENTRATA
                               codEntrata: IMU
                     - tipologia: PIANO_RATEALE
                       dataScadenza: '2026-12-16'
@@ -168,6 +174,7 @@ paths:
                             - idVocePendenza: IMU2026-000017-R1_1
                               importo: 200.00
                               descrizione: 'IMU 2026 - rata 1 di 3'
+                              tipoRiferimento: RIFERIMENTO_ENTRATA
                               codEntrata: IMU
                         - idPendenza: IMU2026-000017-R2
                           idTipoPendenza: IMU
@@ -176,6 +183,7 @@ paths:
                             - idVocePendenza: IMU2026-000017-R2_1
                               importo: 200.00
                               descrizione: 'IMU 2026 - rata 2 di 3'
+                              tipoRiferimento: RIFERIMENTO_ENTRATA
                               codEntrata: IMU
                         - idPendenza: IMU2026-000017-R3
                           idTipoPendenza: IMU
@@ -184,6 +192,7 @@ paths:
                             - idVocePendenza: IMU2026-000017-R3_1
                               importo: 200.00
                               descrizione: 'IMU 2026 - rata 3 di 3'
+                              tipoRiferimento: RIFERIMENTO_ENTRATA
                               codEntrata: IMU
               multaConRiduzione:
                 summary: >-
@@ -210,6 +219,7 @@ paths:
                               descrizione: >-
                                 Sanzione in misura ridotta (-30%), pagamento
                                 entro 5 giorni dalla notifica
+                              tipoRiferimento: RIFERIMENTO_ENTRATA
                               codEntrata: SANZIONE_CDS
                     - tipologia: SOLUZIONE_UNICA_OLTRE
                       giorni: 5
@@ -223,6 +233,7 @@ paths:
                               descrizione: >-
                                 Sanzione in misura intera, pagamento dopo il
                                 5° giorno dalla notifica
+                              tipoRiferimento: RIFERIMENTO_ENTRATA
                               codEntrata: SANZIONE_CDS
       responses:
         '201':
@@ -395,6 +406,32 @@ paths:
           $ref: '#/components/responses/403NotAuthorized'
         '404':
           $ref: '#/components/responses/404NotFound'
+        '409':
+          description: >-
+            La posizione debitoria ha già un'opzione di pagamento ATTIVATA
+            (pagamento già eseguito): non è più possibile aggiungere
+            alternative. Oppure una pendenza della nuova opzione ha un
+            idPendenza già usato da un'altra pendenza della stessa
+            applicazione.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                giaAttivata:
+                  summary: La posizione ha già un'opzione ATTIVATA
+                  value:
+                    status: 409
+                    title: >-
+                      La posizione debitoria ha già un'opzione di pagamento
+                      ATTIVATA: non è più possibile aggiungere alternative
+                idPendenzaDuplicato:
+                  summary: idPendenza già usato da questa applicazione
+                  value:
+                    status: 409
+                    title: >-
+                      Una pendenza della nuova opzione ha un idPendenza già
+                      usato da un'altra pendenza della stessa applicazione
         '500':
           $ref: '#/components/responses/500ServiceUnavailable'
 
@@ -493,12 +530,12 @@ paths:
             pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
         - $ref: '#/components/parameters/numeroAvviso'
         - $ref: '#/components/parameters/idDominio'
-        - $ref: '#/components/parameters/offset'
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/cursor'
         - $ref: '#/components/parameters/limit'
         - $ref: '#/components/parameters/sort'
         - $ref: '#/components/parameters/fields'
-        - $ref: '#/components/parameters/metadatiPaginazione'
-        - $ref: '#/components/parameters/maxRisultati'
+        - $ref: '#/components/parameters/total'
       responses:
         '200':
           description: Elenco delle pendenze che rispettano i filtri di ricerca
@@ -639,14 +676,54 @@ paths:
               schema:
                 type: string
                 format: binary
+        '400':
+          description: >-
+            Bilinguismo richiesto (`linguaSecondaria`) senza
+            `causaleTradotta`, oppure `causaleTradotta`/
+            `informativaImporto`/`informativaImportoTradotta` specificati
+            sulla variante `application/json` (hanno effetto solo sul PDF)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
         '401':
           $ref: '#/components/responses/401NotAuthenticated'
         '403':
           $ref: '#/components/responses/403NotAuthorized'
         '404':
           $ref: '#/components/responses/404NotFound'
+        '406':
+          description: >-
+            Header `Accept` non compatibile con `application/json` o
+            `application/pdf`
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: >-
+            L'avviso PDF non è generabile per questa pendenza (Marca da
+            Bollo Telematica, o debitore senza anagrafica)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
         '500':
           $ref: '#/components/responses/500ServiceUnavailable'
+        '502':
+          description: 'Errore di comunicazione con il microservizio `govpay-stampe`'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: >-
+            Microservizio `govpay-stampe` non configurato
+            (`app.stampe.base-url` mancante)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
 
   '/pendenze/{idA2A}/{idPendenza}/ricevute':
     get:
@@ -673,10 +750,12 @@ paths:
           schema:
             type: string
             pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
-        - $ref: '#/components/parameters/offset'
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/cursor'
         - $ref: '#/components/parameters/limit'
         - $ref: '#/components/parameters/sort'
         - $ref: '#/components/parameters/fields'
+        - $ref: '#/components/parameters/total'
       responses:
         '200':
           description: Elenco delle ricevute di pagamento della pendenza
@@ -790,7 +869,8 @@ paths:
       description: >-
         Fornisce le rendicontazioni ricevute da pagoPA per la pendenza,
         comprensive dei dati di testata del flusso di rendicontazione a
-        cui appartengono.
+        cui appartengono. L'elenco include le rendicontazioni di tutte le
+        revisioni dei flussi, comprese quelle obsolete.
       parameters:
         - in: path
           name: idA2A
@@ -806,10 +886,12 @@ paths:
           schema:
             type: string
             pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
-        - $ref: '#/components/parameters/offset'
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/cursor'
         - $ref: '#/components/parameters/limit'
         - $ref: '#/components/parameters/sort'
         - $ref: '#/components/parameters/fields'
+        - $ref: '#/components/parameters/total'
       responses:
         '200':
           description: Elenco delle rendicontazioni della pendenza
@@ -850,10 +932,12 @@ paths:
           required: false
           schema:
             type: string
-        - $ref: '#/components/parameters/offset'
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/cursor'
         - $ref: '#/components/parameters/limit'
         - $ref: '#/components/parameters/sort'
         - $ref: '#/components/parameters/fields'
+        - $ref: '#/components/parameters/total'
       responses:
         '200':
           description: Elenco dei domini che rispettano i filtri di ricerca
@@ -928,10 +1012,12 @@ paths:
           required: false
           schema:
             type: string
-        - $ref: '#/components/parameters/offset'
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/cursor'
         - $ref: '#/components/parameters/limit'
         - $ref: '#/components/parameters/sort'
         - $ref: '#/components/parameters/fields'
+        - $ref: '#/components/parameters/total'
       responses:
         '200':
           description: Elenco delle unità operative che rispettano i filtri di ricerca
@@ -1015,10 +1101,12 @@ paths:
           required: false
           schema:
             type: string
-        - $ref: '#/components/parameters/offset'
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/cursor'
         - $ref: '#/components/parameters/limit'
         - $ref: '#/components/parameters/sort'
         - $ref: '#/components/parameters/fields'
+        - $ref: '#/components/parameters/total'
       responses:
         '200':
           description: Elenco delle tipologie di pendenza che rispettano i filtri di ricerca
@@ -1096,10 +1184,12 @@ paths:
           required: false
           schema:
             type: string
-        - $ref: '#/components/parameters/offset'
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/cursor'
         - $ref: '#/components/parameters/limit'
         - $ref: '#/components/parameters/sort'
         - $ref: '#/components/parameters/fields'
+        - $ref: '#/components/parameters/total'
       responses:
         '200':
           description: Elenco degli IBAN di accredito che rispettano i filtri di ricerca
@@ -1183,10 +1273,12 @@ paths:
           required: false
           schema:
             type: string
-        - $ref: '#/components/parameters/offset'
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/cursor'
         - $ref: '#/components/parameters/limit'
         - $ref: '#/components/parameters/sort'
         - $ref: '#/components/parameters/fields'
+        - $ref: '#/components/parameters/total'
       responses:
         '200':
           description: Elenco dei tipi di entrata che rispettano i filtri di ricerca
@@ -1295,48 +1387,67 @@ components:
       required: false
       schema:
         type: string
-    maxRisultati:
-      name: maxRisultati
+    page:
+      name: page
       in: query
       description: >-
-        Indica se il servizio deve impostare o meno il limite sul calcolo del numero di risultati
+        Numero di pagina (1-based), in modalità di paginazione a offset.
+        Alternativo a `cursor`: non è consentito specificare entrambi
+        nella stessa richiesta. Se nessuno dei due è specificato, si
+        applica la modalità a offset con `page=1`.
       required: false
       schema:
-        type: boolean
-        default: true
-      example: true
-    metadatiPaginazione:
-      name: metadatiPaginazione
+        type: integer
+        minimum: 1
+        default: 1
+      example: 1
+    cursor:
+      name: cursor
       in: query
       description: >-
-        Indica se il servizio calcola e valorizza i dati di paginazione o meno
-      required: false
-      schema:
-        type: boolean
-        default: true
-      example: true
-    limit:
-      name: limit
-      in: query
-      description: Numero massimo di risultati da restituire (max 200).
-      required: false
-      schema:
-        $ref: '#/components/schemas/Limit'
-    offset:
-      name: offset
-      in: query
-      description: Numero di risultati da saltare rispetto all'inizio dell'elenco.
-      required: false
-      schema:
-        $ref: '#/components/schemas/Offset'
-    sort:
-      name: sort
-      in: query
-      description: Criterio di ordinamento dei risultati.
+        Cursore opaco (il valore `nextCursor` della risposta precedente)
+        da cui continuare l'elenco, in modalità di paginazione a cursore.
+        Alternativo a `page`: non è consentito specificare entrambi
+        nella stessa richiesta. In questa modalità l'ordinamento dei
+        risultati è quello fisso previsto per la risorsa, e non è
+        influenzato da `sort`.
       required: false
       schema:
         type: string
-      example: +name
+    total:
+      name: total
+      in: query
+      description: >-
+        Se `true`, calcola e restituisce in `pagination.totalResults` e
+        `pagination.totalPages` il conteggio complessivo dei risultati
+        che rispettano i filtri di ricerca (richiede una query aggiuntiva
+        di conteggio). Ignorato in modalità cursore.
+      required: false
+      schema:
+        type: boolean
+        default: false
+      example: false
+    limit:
+      name: limit
+      in: query
+      description: Numero massimo di risultati per pagina (max 200).
+      required: false
+      schema:
+        $ref: '#/components/schemas/Limit'
+    sort:
+      name: sort
+      in: query
+      description: >-
+        Criterio di ordinamento dei risultati: uno o più campi nella
+        forma `campo:asc` o `campo:desc`, separati da virgola (priorità
+        nell'ordine specificato). Ignorato in modalità cursore, dove
+        l'ordinamento è quello fisso previsto per la risorsa. Se assente
+        (in modalità a offset), si applica l'ordinamento predefinito
+        della risorsa.
+      required: false
+      schema:
+        type: string
+      example: 'dataCreazione:desc'
     linguaSecondaria:
       name: linguaSecondaria
       in: query
@@ -1541,6 +1652,18 @@ components:
           items:
             $ref: '#/components/schemas/NuovaOpzionePagamento'
 
+    TipologiaOpzionePagamento:
+      type: string
+      description: >-
+        Modalità con cui può essere estinta la posizione debitoria.
+      enum:
+        - PIANO_RATEALE
+        - SOLUZIONE_UNICA
+        - SOLUZIONE_UNICA_ENTRO
+        - SOLUZIONE_UNICA_OLTRE
+      examples:
+        - SOLUZIONE_UNICA
+
     NuovaOpzionePagamento:
       type: object
       description: >-
@@ -1548,6 +1671,10 @@ components:
         pagamento in un'unica soluzione oppure piano rateale). Ogni
         tipologia impone un proprio vincolo sulla cardinalità di `pendenze`
         e sui campi obbligatori.
+      required: [tipologia]
+      properties:
+        tipologia:
+          $ref: '#/components/schemas/TipologiaOpzionePagamento'
       oneOf:
         - $ref: '#/components/schemas/NuovaOpzionePagamentoPianoRateale'
         - $ref: '#/components/schemas/NuovaOpzionePagamentoSoluzioneUnica'
@@ -1566,8 +1693,7 @@ components:
       required: [tipologia, pendenze]
       properties:
         tipologia:
-          type: string
-          enum: [PIANO_RATEALE]
+          $ref: '#/components/schemas/TipologiaOpzionePagamento'
         dataInizioValidita:
           $ref: '#/components/schemas/dataInizioValiditaOpzionePagamento'
         dataScadenza:
@@ -1588,17 +1714,21 @@ components:
       required: [tipologia, pendenze]
       properties:
         tipologia:
-          type: string
-          enum: [SOLUZIONE_UNICA]
+          $ref: '#/components/schemas/TipologiaOpzionePagamento'
         dataInizioValidita:
           $ref: '#/components/schemas/dataInizioValiditaOpzionePagamento'
         dataScadenza:
           $ref: '#/components/schemas/dataScadenzaOpzionePagamento'
         pendenze:
           type: array
-          description: Esattamente una pendenza per l'intero importo.
+          description: >-
+            Una o più pendenze pagabili in un'unica soluzione: più di una
+            solo quando il dovuto supera le 5 voci ammesse per un singolo
+            avviso di pagamento, e va quindi ripartito su più avvisi. La
+            logica è la stessa del piano rateale (la posizione è pagata
+            quando tutte le sue pendenze sono pagate): cambia solo il
+            layout di stampa degli avvisi.
           minItems: 1
-          maxItems: 1
           items:
             $ref: '#/components/schemas/NuovaPendenza'
 
@@ -1607,18 +1737,15 @@ components:
       required: [tipologia, giorni, pendenze]
       properties:
         tipologia:
-          type: string
-          enum: [SOLUZIONE_UNICA_ENTRO]
+          $ref: '#/components/schemas/TipologiaOpzionePagamento'
         giorni:
-          type: number
-          minimum: 1
+          allOf:
+            - $ref: '#/components/schemas/giornoOpzionePagamento'
           description: >-
             Numero di giorni entro cui va eseguito il pagamento. Il
             conteggio non decorre necessariamente dalla creazione della
             posizione debitoria: può ad esempio partire dal momento in cui
             il debitore seleziona questa opzione tra quelle disponibili.
-          examples:
-            - 30
         dataInizioValidita:
           $ref: '#/components/schemas/dataInizioValiditaOpzionePagamento'
         dataScadenza:
@@ -1636,19 +1763,16 @@ components:
       required: [tipologia, giorni, pendenze]
       properties:
         tipologia:
-          type: string
-          enum: [SOLUZIONE_UNICA_OLTRE]
+          $ref: '#/components/schemas/TipologiaOpzionePagamento'
         giorni:
-          type: number
-          minimum: 1
+          allOf:
+            - $ref: '#/components/schemas/giornoOpzionePagamento'
           description: >-
             Numero di giorni decorsi i quali il pagamento diventa possibile
             (non prima). Il conteggio non decorre necessariamente dalla
             creazione della posizione debitoria: può ad esempio partire dal
             momento in cui il debitore seleziona questa opzione tra quelle
             disponibili.
-          examples:
-            - 30
         dataInizioValidita:
           $ref: '#/components/schemas/dataInizioValiditaOpzionePagamento'
         dataScadenza:
@@ -1682,6 +1806,17 @@ components:
         l'opzione non ha una scadenza di pagamento.
       examples:
         - '2026-06-30'
+
+    giornoOpzionePagamento:
+      type: integer
+      minimum: 1
+      maximum: 3650
+      description: >-
+        Numero di giorni (intero, non frazionario) entro/decorsi i quali va
+        eseguito il pagamento di SOLUZIONE_UNICA_ENTRO/OLTRE. Limite massimo
+        di 3650 (10 anni), ampiamente sufficiente per qualsiasi caso reale.
+      examples:
+        - 5
     NuovaPendenza:
       type: object
       required:
@@ -1743,6 +1878,19 @@ components:
           items:
             $ref: '#/components/schemas/NuovaVocePendenza'
 
+    TipoRiferimentoVocePendenza:
+      type: string
+      description: >-
+        Tipo di riferimento di incasso di una voce di pendenza: discrimina
+        quale delle 3 forme (RiferimentoEntrata/Entrata/Bollo) si sta
+        fornendo o leggendo.
+      enum:
+        - RIFERIMENTO_ENTRATA
+        - ENTRATA
+        - BOLLO
+      examples:
+        - RIFERIMENTO_ENTRATA
+
     NuovaVocePendenza:
       type: object
       description: >-
@@ -1751,10 +1899,20 @@ components:
         NuovaVocePendenzaRiferimentoEntrata e NuovaVocePendenzaEntrata; per
         una marca da bollo (NuovaVocePendenzaBollo) la classificazione
         contabile avviene solo tramite `tassonomia`.
+      required: [tipoRiferimento]
+      properties:
+        tipoRiferimento:
+          $ref: '#/components/schemas/TipoRiferimentoVocePendenza'
       oneOf:
         - $ref: '#/components/schemas/NuovaVocePendenzaRiferimentoEntrata'
         - $ref: '#/components/schemas/NuovaVocePendenzaEntrata'
         - $ref: '#/components/schemas/NuovaVocePendenzaBollo'
+      discriminator:
+        propertyName: tipoRiferimento
+        mapping:
+          RIFERIMENTO_ENTRATA: '#/components/schemas/NuovaVocePendenzaRiferimentoEntrata'
+          ENTRATA: '#/components/schemas/NuovaVocePendenzaEntrata'
+          BOLLO: '#/components/schemas/NuovaVocePendenzaBollo'
 
     DatiComuniVocePendenza:
       type: object
@@ -1799,7 +1957,10 @@ components:
         - $ref: '#/components/schemas/RiferimentoEntrata'
         - $ref: '#/components/schemas/DatiComuniVocePendenza'
         - type: object
+          required: [tipoRiferimento]
           properties:
+            tipoRiferimento:
+              $ref: '#/components/schemas/TipoRiferimentoVocePendenza'
             dettaglioContabile:
               type: array
               description: >-
@@ -1816,7 +1977,10 @@ components:
         - $ref: '#/components/schemas/Entrata'
         - $ref: '#/components/schemas/DatiComuniVocePendenza'
         - type: object
+          required: [tipoRiferimento]
           properties:
+            tipoRiferimento:
+              $ref: '#/components/schemas/TipoRiferimentoVocePendenza'
             dettaglioContabile:
               type: array
               description: >-
@@ -1835,6 +1999,11 @@ components:
       allOf:
         - $ref: '#/components/schemas/Bollo'
         - $ref: '#/components/schemas/DatiComuniVocePendenza'
+        - type: object
+          required: [tipoRiferimento]
+          properties:
+            tipoRiferimento:
+              $ref: '#/components/schemas/TipoRiferimentoVocePendenza'
 
     # ============================================================
     # POSIZIONE DEBITORIA - LETTURA
@@ -1953,6 +2122,10 @@ components:
       description: >-
         Riferimento all'opzione di pagamento a cui appartiene una pendenza,
         senza l'elenco delle pendenze che la compongono.
+      required: [tipologia]
+      properties:
+        tipologia:
+          $ref: '#/components/schemas/TipologiaOpzionePagamento'
       oneOf:
         - $ref: '#/components/schemas/OpzionePagamentoIndexPianoRateale'
         - $ref: '#/components/schemas/OpzionePagamentoIndexSoluzioneUnica'
@@ -2003,8 +2176,7 @@ components:
           examples:
             - 3fa85f64-5717-4562-b3fc-2c963f66afa6
         tipologia:
-          type: string
-          enum: [PIANO_RATEALE]
+          $ref: '#/components/schemas/TipologiaOpzionePagamento'
         stato:
           $ref: '#/components/schemas/StatoOpzionePagamento'
         dataInizioValidita:
@@ -2024,8 +2196,7 @@ components:
           examples:
             - 3fa85f64-5717-4562-b3fc-2c963f66afa6
         tipologia:
-          type: string
-          enum: [SOLUZIONE_UNICA]
+          $ref: '#/components/schemas/TipologiaOpzionePagamento'
         stato:
           $ref: '#/components/schemas/StatoOpzionePagamento'
         dataInizioValidita:
@@ -2045,12 +2216,9 @@ components:
           examples:
             - 3fa85f64-5717-4562-b3fc-2c963f66afa6
         tipologia:
-          type: string
-          enum: [SOLUZIONE_UNICA_ENTRO]
+          $ref: '#/components/schemas/TipologiaOpzionePagamento'
         giorni:
-          type: number
-          examples:
-            - 30
+          $ref: '#/components/schemas/giornoOpzionePagamento'
         stato:
           $ref: '#/components/schemas/StatoOpzionePagamento'
         dataInizioValidita:
@@ -2070,12 +2238,9 @@ components:
           examples:
             - 3fa85f64-5717-4562-b3fc-2c963f66afa6
         tipologia:
-          type: string
-          enum: [SOLUZIONE_UNICA_OLTRE]
+          $ref: '#/components/schemas/TipologiaOpzionePagamento'
         giorni:
-          type: number
-          examples:
-            - 30
+          $ref: '#/components/schemas/giornoOpzionePagamento'
         stato:
           $ref: '#/components/schemas/StatoOpzionePagamento'
         dataInizioValidita:
@@ -2090,6 +2255,10 @@ components:
       description: >-
         Vista completa di un'opzione di pagamento, comprensiva delle
         pendenze che la compongono.
+      required: [tipologia]
+      properties:
+        tipologia:
+          $ref: '#/components/schemas/TipologiaOpzionePagamento'
       oneOf:
         - $ref: '#/components/schemas/OpzionePagamentoPianoRateale'
         - $ref: '#/components/schemas/OpzionePagamentoSoluzioneUnica'
@@ -2119,8 +2288,7 @@ components:
           examples:
             - 3fa85f64-5717-4562-b3fc-2c963f66afa6
         tipologia:
-          type: string
-          enum: [PIANO_RATEALE]
+          $ref: '#/components/schemas/TipologiaOpzionePagamento'
         stato:
           $ref: '#/components/schemas/StatoOpzionePagamento'
         dataInizioValidita:
@@ -2137,8 +2305,9 @@ components:
 
     OpzionePagamentoSoluzioneUnica:
       description: >-
-        Opzione di pagamento in unica soluzione, comprensiva della pendenza
-        che la compone.
+        Opzione di pagamento in unica soluzione, comprensiva della/e
+        pendenza/e che la compongono (più di una solo quando il dovuto
+        supera le 5 voci ammesse per un singolo avviso di pagamento).
       type: object
       required: [idOpzionePagamento, tipologia, stato, pendenze]
       properties:
@@ -2148,8 +2317,7 @@ components:
           examples:
             - 3fa85f64-5717-4562-b3fc-2c963f66afa6
         tipologia:
-          type: string
-          enum: [SOLUZIONE_UNICA]
+          $ref: '#/components/schemas/TipologiaOpzionePagamento'
         stato:
           $ref: '#/components/schemas/StatoOpzionePagamento'
         dataInizioValidita:
@@ -2161,7 +2329,6 @@ components:
         pendenze:
           type: array
           minItems: 1
-          maxItems: 1
           items:
             $ref: '#/components/schemas/PendenzaOpzionePagamento'
 
@@ -2178,12 +2345,9 @@ components:
           examples:
             - 3fa85f64-5717-4562-b3fc-2c963f66afa6
         tipologia:
-          type: string
-          enum: [SOLUZIONE_UNICA_ENTRO]
+          $ref: '#/components/schemas/TipologiaOpzionePagamento'
         giorni:
-          type: number
-          examples:
-            - 30
+          $ref: '#/components/schemas/giornoOpzionePagamento'
         stato:
           $ref: '#/components/schemas/StatoOpzionePagamento'
         dataInizioValidita:
@@ -2212,12 +2376,9 @@ components:
           examples:
             - 3fa85f64-5717-4562-b3fc-2c963f66afa6
         tipologia:
-          type: string
-          enum: [SOLUZIONE_UNICA_OLTRE]
+          $ref: '#/components/schemas/TipologiaOpzionePagamento'
         giorni:
-          type: number
-          examples:
-            - 30
+          $ref: '#/components/schemas/giornoOpzionePagamento'
         stato:
           $ref: '#/components/schemas/StatoOpzionePagamento'
         dataInizioValidita:
@@ -2381,10 +2542,10 @@ components:
     Pendenze:
       type: object
       allOf:
-        - $ref: '#/components/schemas/Lista'
+        - $ref: '#/components/schemas/PaginatedResponse'
         - type: object
           properties:
-            risultati:
+            results:
               type: array
               items:
                 $ref: '#/components/schemas/PendenzaIndex'
@@ -2392,10 +2553,10 @@ components:
     PosizioniDebitorie:
       type: object
       allOf:
-        - $ref: '#/components/schemas/Lista'
+        - $ref: '#/components/schemas/PaginatedResponse'
         - type: object
           properties:
-            risultati:
+            results:
               type: array
               items:
                 $ref: '#/components/schemas/PosizioneDebitoriaIndex'
@@ -2646,14 +2807,33 @@ components:
         Prefisso/CodiceEC/MacroArea/Tipologia/MotivoGiuridico descritta in
         https://developer.pagopa.it/pago-pa/guides/sanp/ente-creditore/tassonomia-dei-servizi-di-incasso.
         Viene riportata così com'è nel campo `transferCategory` dell'RPT
-        verso il Nodo dei Pagamenti.
+        verso il Nodo dei Pagamenti. Alcuni clienti usano un ulteriore `/`
+        seguito da testo libero, in coda alla sintassi standard, per
+        annotarvi informazioni proprie: ammesso, ma non interpretato da
+        GovPay.
       examples:
         - '9/0101002IM/'
-      pattern: '^[6789]/[0-9]{7}(IM|TS|SP|SA|AP)/$'
+        - '9/0101002IM//rif.pratica123'
+      pattern: '^[6789]/[0-9]{7}(IM|TS|SP|SA|AP)/(/.*)?$'
 
     # ============================================================
     # DETTAGLIO CONTABILE (issue #877)
     # ============================================================
+
+    TipoDettaglioContabile:
+      type: string
+      description: >-
+        Tipologia di dettaglio di riconciliazione contabile. UNKNOWN_ENTRIES
+        è generato solo in lettura (metadata non riconosciuti, prodotti da un
+        intermediario/tecnologia terza), non ammesso in scrittura.
+      enum:
+        - CORRISPETTIVO_DL118
+        - INCASSO_TIPICO
+        - CIVILISTICO
+        - SPESE_NOTIFICA
+        - UNKNOWN_ENTRIES
+      examples:
+        - CIVILISTICO
 
     dettaglio:
       type: object
@@ -2665,6 +2845,10 @@ components:
         dall'applicativo; in tal caso `notificaSend` non va attivato sulla
         posizione debitoria, altrimenti le spese verrebbero applicate due
         volte.
+      required: [tipo]
+      properties:
+        tipo:
+          $ref: '#/components/schemas/TipoDettaglioContabile'
       oneOf:
         - $ref: '#/components/schemas/dettaglioContabileCorrispettivoDL118'
         - $ref: '#/components/schemas/dettaglioContabileIncassoTipico'
@@ -2684,6 +2868,10 @@ components:
         Variante in lettura di 'dettaglio': oltre alle tipologie ammesse in
         scrittura, include anche UNKNOWN_ENTRIES (metadata non riconosciuti,
         generati da un intermediario/tecnologia terza).
+      required: [tipo]
+      properties:
+        tipo:
+          $ref: '#/components/schemas/TipoDettaglioContabile'
       oneOf:
         - $ref: '#/components/schemas/dettaglioContabileCorrispettivoDL118'
         - $ref: '#/components/schemas/dettaglioContabileIncassoTipico'
@@ -2704,8 +2892,7 @@ components:
       required: [tipo, annoCompetenza, importo]
       properties:
         tipo:
-          type: string
-          enum: [CORRISPETTIVO_DL118]
+          $ref: '#/components/schemas/TipoDettaglioContabile'
         annoCompetenza:
           type: string
           pattern: '^[0-9]{4}$'
@@ -2749,8 +2936,7 @@ components:
       required: [tipo, annoCompetenza, tipoIncasso, importo]
       properties:
         tipo:
-          type: string
-          enum: [INCASSO_TIPICO]
+          $ref: '#/components/schemas/TipoDettaglioContabile'
         annoCompetenza:
           type: string
           pattern: '^[0-9]{4}$'
@@ -2784,8 +2970,7 @@ components:
       required: [tipo, annoCompetenza, importo]
       properties:
         tipo:
-          type: string
-          enum: [CIVILISTICO]
+          $ref: '#/components/schemas/TipoDettaglioContabile'
         annoCompetenza:
           type: string
           pattern: '^[0-9]{4}$'
@@ -2826,8 +3011,7 @@ components:
       required: [tipo, importo]
       properties:
         tipo:
-          type: string
-          enum: [SPESE_NOTIFICA]
+          $ref: '#/components/schemas/TipoDettaglioContabile'
         importo:
           type: number
           format: double
@@ -2843,8 +3027,7 @@ components:
       required: [tipo, entries]
       properties:
         tipo:
-          type: string
-          enum: [UNKNOWN_ENTRIES]
+          $ref: '#/components/schemas/TipoDettaglioContabile'
         entries:
           type: array
           minItems: 1
@@ -2936,10 +3119,10 @@ components:
     Ricevute:
       type: object
       allOf:
-        - $ref: '#/components/schemas/Lista'
+        - $ref: '#/components/schemas/PaginatedResponse'
         - type: object
           properties:
-            risultati:
+            results:
               type: array
               items:
                 $ref: '#/components/schemas/RicevutaIndex'
@@ -2989,6 +3172,10 @@ components:
         varia in base al campo `tipo`, che identifica il formato XML
         pagoPA da cui la ricevuta è stata convertita: ciascun formato ha
         i propri campi.
+      required: [tipo]
+      properties:
+        tipo:
+          $ref: '#/components/schemas/TipoRicevuta'
       oneOf:
         - $ref: '#/components/schemas/RicevutaCtRicevutaTelematica'
         - $ref: '#/components/schemas/RicevutaCtReceipt'
@@ -3002,6 +3189,22 @@ components:
 
     # --- ctRicevutaTelematica (formato SANP storico) ---
 
+    TipoIdentificativoUnivocoRT:
+      description: >-
+        Natura del codice che identifica il soggetto in una ricevuta ctRicevutaTelematica
+        (SANP 2.3.0): F persona fisica, G persona giuridica (soggetto versante/pagatore o
+        ente beneficiario), A codice ABI, B codice BIC (istituto attestante — qui la natura
+        del codice e il tipo di soggetto, non sovrapponibile a TipoSoggetto, che modella solo
+        persona fisica/giuridica).
+      type: string
+      enum:
+        - F
+        - G
+        - A
+        - B
+      examples:
+        - G
+
     RTIdentificativoUnivoco:
       type: object
       required:
@@ -3009,7 +3212,7 @@ components:
         - codiceIdentificativoUnivoco
       properties:
         tipoIdentificativoUnivoco:
-          $ref: '#/components/schemas/TipoSoggetto'
+          $ref: '#/components/schemas/TipoIdentificativoUnivocoRT'
         codiceIdentificativoUnivoco:
           type: string
 
@@ -3114,11 +3317,7 @@ components:
         - datiPagamento
       properties:
         tipo:
-          type: string
-          enum:
-            - ctRicevutaTelematica
-          examples:
-            - ctRicevutaTelematica
+          $ref: '#/components/schemas/TipoRicevuta'
         versioneOggetto:
           type: string
         dominio:
@@ -3189,15 +3388,18 @@ components:
       type: array
       description: Metadata pagoPA associati (Dizionario dei metadata).
       items:
-        type: object
-        required:
-          - chiave
-          - valore
-        properties:
-          chiave:
-            type: string
-          valore:
-            type: string
+        $ref: '#/components/schemas/RTMetadataEntry'
+
+    RTMetadataEntry:
+      type: object
+      required:
+        - chiave
+        - valore
+      properties:
+        chiave:
+          type: string
+        valore:
+          type: string
 
     RTSubject:
       type: object
@@ -3374,11 +3576,7 @@ components:
             - transferList
           properties:
             tipo:
-              type: string
-              enum:
-                - ctReceipt
-              examples:
-                - ctReceipt
+              $ref: '#/components/schemas/TipoRicevuta'
             transferList:
               type: array
               maxItems: 5
@@ -3396,11 +3594,7 @@ components:
             - transferList
           properties:
             tipo:
-              type: string
-              enum:
-                - ctReceiptV2
-              examples:
-                - ctReceiptV2
+              $ref: '#/components/schemas/TipoRicevuta'
             transferList:
               type: array
               maxItems: 5
@@ -3422,10 +3616,10 @@ components:
     Rendicontazioni:
       type: object
       allOf:
-        - $ref: '#/components/schemas/Lista'
+        - $ref: '#/components/schemas/PaginatedResponse'
         - type: object
           properties:
-            risultati:
+            results:
               type: array
               items:
                 $ref: '#/components/schemas/Rendicontazione'
@@ -3472,10 +3666,14 @@ components:
             Codice di esito dell'operazione rendicontata:
              * 0 = Pagamento eseguito
              * 3 = Pagamento revocato
+             * 4 = Pagamento eseguito in standin
+             * 8 = Pagamento eseguito in standin, in assenza di RPT
              * 9 = Pagamento eseguito in assenza di RPT
           enum:
             - 0
             - 3
+            - 4
+            - 8
             - 9
           examples:
             - 0
@@ -3562,35 +3760,50 @@ components:
           $ref: '#/components/schemas/StatoFlussoRendicontazione'
 
     StatoFlussoRendicontazione:
-      description: Stato del flusso di rendicontazione.
+      description: >-
+        Stato del flusso di rendicontazione, allineato 1:1 ai valori legacy
+        di `fr.stato` (stessa colonna condivisa da v2 e v3).
       type: string
       enum:
-        - Acquisito
-        - Anomalo
-        - Rifiutato
+        - ACCETTATA
+        - ANOMALA
+        - RIFIUTATA
       examples:
-        - Acquisito
+        - ACCETTATA
 
     StatoPendenza:
+      description: >-
+        Stato della pendenza, allineato 1:1 ai valori legacy di
+        `versamenti.stato_versamento` (stessa colonna condivisa da v2 e v3).
+        Non esiste uno stato "scaduta": la pagabilità dipende da
+        `dataScadenza` dell'opzione di pagamento (o da `dataScadenzaAvviso`
+        della pendenza, in sua assenza), calcolata a runtime, non uno stato
+        persistito.
       examples:
-        - NON_ESEGUITA
+        - NON_ESEGUITO
       type: string
       enum:
-        - ESEGUITA
-        - NON_ESEGUITA
-        - ESEGUITA_PARZIALE
-        - ANNULLATA
-        - SCADUTA
-        - ANOMALA
-        - INCASSATA
+        - NON_ESEGUITO
+        - ESEGUITO
+        - PARZIALMENTE_ESEGUITO
+        - ANNULLATO
+        - ESEGUITO_ALTRO_CANALE
+        - ANOMALO
+        - ESEGUITO_SENZA_RPT
+        - INCASSATO
 
     StatoVocePendenza:
       type: string
-      description: Stato della voce di pagamento
+      description: >-
+        Stato della voce di pagamento. NON_ESEGUITO/ESEGUITO coincidono per
+        stringa con lo stato legacy di `singoli_versamenti`; ANOMALO è un
+        valore proprio di v3, senza equivalente legacy.
       enum:
-        - Eseguito
-        - Non eseguito
-        - Anomalo
+        - NON_ESEGUITO
+        - ESEGUITO
+        - ANOMALO
+      examples:
+        - NON_ESEGUITO
 
     Dominio:
       type: object
@@ -3693,10 +3906,10 @@ components:
     Domini:
       type: object
       allOf:
-        - $ref: '#/components/schemas/Lista'
+        - $ref: '#/components/schemas/PaginatedResponse'
         - type: object
           properties:
-            risultati:
+            results:
               type: array
               items:
                 $ref: '#/components/schemas/Dominio'
@@ -3791,10 +4004,10 @@ components:
     UnitaOperative:
       type: object
       allOf:
-        - $ref: '#/components/schemas/Lista'
+        - $ref: '#/components/schemas/PaginatedResponse'
         - type: object
           properties:
-            risultati:
+            results:
               type: array
               items:
                 $ref: '#/components/schemas/UnitaOperativa'
@@ -3825,10 +4038,10 @@ components:
     TipiPendenza:
       type: object
       allOf:
-        - $ref: '#/components/schemas/Lista'
+        - $ref: '#/components/schemas/PaginatedResponse'
         - type: object
           properties:
-            risultati:
+            results:
               type: array
               items:
                 $ref: '#/components/schemas/TipoPendenza'
@@ -3862,10 +4075,10 @@ components:
     IbanAccrediti:
       type: object
       allOf:
-        - $ref: '#/components/schemas/Lista'
+        - $ref: '#/components/schemas/PaginatedResponse'
         - type: object
           properties:
-            risultati:
+            results:
               type: array
               items:
                 $ref: '#/components/schemas/IbanAccredito'
@@ -3905,10 +4118,10 @@ components:
     TipiEntrata:
       type: object
       allOf:
-        - $ref: '#/components/schemas/Lista'
+        - $ref: '#/components/schemas/PaginatedResponse'
         - type: object
           properties:
-            risultati:
+            results:
               type: array
               items:
                 $ref: '#/components/schemas/TipoEntrata'
@@ -3924,48 +4137,71 @@ components:
         - 'fr'
         - 'sl'
 
-    Lista:
+    Pagination:
       type: object
       description: >-
-        Metadati di paginazione, coerenti con i parametri di query
-        standardizzati `limit`/`offset` (Linee guida di interoperabilità
-        AGID, RAC_REST_NAME_005).
+        Metadati di paginazione a offset (richiesta con `page`, o senza
+        alcun parametro di paginazione): assenti in modalità cursore
+        (richiesta con `cursor`), dove l'unico metadato di paginazione è
+        `nextCursor`.
       required:
-        - numRisultati
+        - page
         - limit
-        - offset
+        - hasNextPage
       properties:
-        numRisultati:
-          type: number
-          format: integer
-          description: Numero totale di risultati che rispettano i filtri di ricerca.
+        page:
+          type: integer
+          description: Numero della pagina restituita.
           examples:
-            - '100'
+            - 1
         limit:
-          type: number
-          format: integer
+          type: integer
           description: Numero massimo di risultati per pagina usato per produrre questa risposta.
           examples:
-            - '25'
-        offset:
-          type: number
-          format: integer
-          description: Numero di risultati saltati rispetto all'inizio dell'elenco per produrre questa risposta.
+            - 25
+        hasNextPage:
+          type: boolean
+          description: Indica se esiste una pagina successiva.
           examples:
-            - '0'
-        prossimiRisultati:
+            - true
+        totalResults:
+          type: integer
+          description: >-
+            Numero totale di risultati che rispettano i filtri di
+            ricerca. Presente solo se richiesto con `total=true`.
+          examples:
+            - 100
+        totalPages:
+          type: integer
+          description: >-
+            Numero totale di pagine, calcolato da `totalResults` e
+            `limit`. Presente solo se richiesto con `total=true`.
+          examples:
+            - 4
+
+    PaginatedResponse:
+      type: object
+      description: >-
+        Busta generica di risposta per un elenco paginato, specializzata
+        per singola risorsa tramite `allOf` con l'array `results`
+        tipizzato. Riporta `pagination` in modalità a offset, `nextCursor`
+        in modalità a cursore (vedi parametri `page`/`cursor`): mai
+        entrambi, e nessuno dei due se non esistono altri
+        risultati/pagine.
+      required:
+        - results
+      properties:
+        results:
+          type: array
+          items: {}
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+        nextCursor:
           type: string
           description: >-
-            URI relativo alla pagina di risultati successiva, secondo la
-            raccomandazione AGID di non usare l'header HTTP Link per i link
-            applicativi (RAC_REST_NAME_006). Assente se non esistono altri
-            risultati.
-          examples:
-            - '/risorsa?offset=25&limit=25'
-    Offset:
-      type: integer
-      minimum: 0
-      default: 0
+            Cursore opaco da passare come parametro `cursor` per ottenere
+            la pagina successiva, in modalità cursore. Assente se non
+            esistono altri risultati.
 
     Limit:
       type: integer
