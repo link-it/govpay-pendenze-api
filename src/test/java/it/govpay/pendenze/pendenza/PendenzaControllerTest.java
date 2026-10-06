@@ -743,6 +743,296 @@ class PendenzaControllerTest {
                 .andExpect(jsonPath("$.status").value(404));
     }
 
+    @Test
+    @DisplayName("PATCH /pendenze/{idA2A}/{idPendenza} annulla la pendenza, leggibile dalla GET successiva")
+    void updatePendenzaAnnullaConSuccesso() throws Exception {
+        creaPosizioneConPendenza("pos-patch-pendenza-annulla", "12345678901", "pendenza-patch-annulla");
+
+        mockMvc.perform(MockMvcRequestBuilders.patch("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+                        "pendenza-patch-annulla")
+                        .contentType("application/json-patch+json")
+                        .content("""
+                                [ { "op": "replace", "path": "/stato", "value": "ANNULLATO" } ]
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST", "pendenza-patch-annulla"))
+                .andExpect(jsonPath("$.stato").value("ANNULLATO"));
+    }
+
+    @Test
+    @DisplayName("PATCH /pendenze/{idA2A}/{idPendenza} e' idempotente se applicato due volte con lo stesso valore")
+    void updatePendenzaAnnullaEIdempotente() throws Exception {
+        creaPosizioneConPendenza("pos-patch-pendenza-idem", "12345678901", "pendenza-patch-idem");
+        String body = """
+                [ { "op": "replace", "path": "/stato", "value": "ANNULLATO" } ]
+                """;
+
+        mockMvc.perform(MockMvcRequestBuilders.patch("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+                        "pendenza-patch-idem")
+                        .contentType("application/json-patch+json")
+                        .content(body))
+                .andExpect(status().isOk());
+        mockMvc.perform(MockMvcRequestBuilders.patch("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+                        "pendenza-patch-idem")
+                        .contentType("application/json-patch+json")
+                        .content(body))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST", "pendenza-patch-idem"))
+                .andExpect(jsonPath("$.stato").value("ANNULLATO"));
+    }
+
+    /**
+     * Deviazione deliberata dal legacy (vedi Javadoc di
+     * {@code PosizioneDebitoriaService#ripristinaPendenza}): qui NON_ESEGUITO e' idempotente
+     * anche a partire da NON_ESEGUITO, non solo da ANNULLATO.
+     */
+    @Test
+    @DisplayName("PATCH /pendenze/{idA2A}/{idPendenza} ripristina a NON_ESEGUITO una pendenza annullata")
+    void updatePendenzaRipristinaConSuccesso() throws Exception {
+        creaPosizioneConPendenza("pos-patch-pendenza-ripristina", "12345678901", "pendenza-patch-ripristina");
+        mockMvc.perform(MockMvcRequestBuilders.patch("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+                        "pendenza-patch-ripristina")
+                        .contentType("application/json-patch+json")
+                        .content("""
+                                [ { "op": "replace", "path": "/stato", "value": "ANNULLATO" } ]
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(MockMvcRequestBuilders.patch("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+                        "pendenza-patch-ripristina")
+                        .contentType("application/json-patch+json")
+                        .content("""
+                                [ { "op": "replace", "path": "/stato", "value": "NON_ESEGUITO" } ]
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST", "pendenza-patch-ripristina"))
+                .andExpect(jsonPath("$.stato").value("NON_ESEGUITO"));
+    }
+
+    @Test
+    @DisplayName("PATCH /pendenze/{idA2A}/{idPendenza} rifiuta con 400 un path diverso da /stato")
+    void updatePendenzaRifiutaConBadRequestSePathNonSupportato() throws Exception {
+        creaPosizioneConPendenza("pos-patch-pendenza-path", "12345678901", "pendenza-patch-path");
+
+        mockMvc.perform(MockMvcRequestBuilders.patch("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+                        "pendenza-patch-path")
+                        .contentType("application/json-patch+json")
+                        .content("""
+                                [ { "op": "replace", "path": "/importo", "value": 1.00 } ]
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    /**
+     * ESEGUITO non e' raggiungibile da un PATCH del chiamante (semantica dello YAML v3: la
+     * transizione a ESEGUITO e' innescata da un pagamento reale) — rifiutato con lo stesso 400
+     * di qualunque altro valore non supportato, prima ancora di interrogare la pendenza.
+     */
+    @Test
+    @DisplayName("PATCH /pendenze/{idA2A}/{idPendenza} rifiuta con 400 value=ESEGUITO: non raggiungibile da questo endpoint")
+    void updatePendenzaRifiutaConBadRequestSeValoreEseguito() throws Exception {
+        creaPosizioneConPendenza("pos-patch-pendenza-eseguito", "12345678901", "pendenza-patch-eseguito");
+
+        mockMvc.perform(MockMvcRequestBuilders.patch("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+                        "pendenza-patch-eseguito")
+                        .contentType("application/json-patch+json")
+                        .content("""
+                                [ { "op": "replace", "path": "/stato", "value": "ESEGUITO" } ]
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    @DisplayName("PATCH /pendenze/{idA2A}/{idPendenza} restituisce 404 se la pendenza non esiste")
+    void updatePendenzaRestituisce404SeNonEsiste() throws Exception {
+        mockMvc.perform(MockMvcRequestBuilders.patch("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+                        "pendenza-inesistente")
+                        .contentType("application/json-patch+json")
+                        .content("""
+                                [ { "op": "replace", "path": "/stato", "value": "ANNULLATO" } ]
+                                """))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(404));
+    }
+
+    @Test
+    @DisplayName("PATCH /pendenze/{idA2A}/{idPendenza} restituisce 409 se la pendenza e' ESEGUITA: "
+            + "non puo' essere annullata da uno stato diverso da NON_ESEGUITO")
+    void updatePendenzaRestituisce409SePendenzaEseguita() throws Exception {
+        creaPosizioneConPendenza("pos-patch-pendenza-409", "12345678901", "pendenza-patch-409");
+        forzaStato("pendenza-patch-409", StatoPendenza.ESEGUITO);
+
+        mockMvc.perform(MockMvcRequestBuilders.patch("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+                        "pendenza-patch-409")
+                        .contentType("application/json-patch+json")
+                        .content("""
+                                [ { "op": "replace", "path": "/stato", "value": "ANNULLATO" } ]
+                                """))
+                .andExpect(status().isConflict())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(409));
+    }
+
+    /**
+     * L'opzione ANNULLATA e' uno stato definitivo: ripristinare la pendenza non la renderebbe
+     * comunque pagabile (l'avviso continua a segnalare ANNULLATA, derivato dall'opzione) —
+     * vedi Javadoc di {@code PosizioneDebitoriaService#ripristinaPendenza}.
+     */
+    @Test
+    @DisplayName("PATCH /pendenze/{idA2A}/{idPendenza} restituisce 409 se si tenta di ripristinare una pendenza "
+            + "la cui opzione di pagamento e' ANNULLATA")
+    void updatePendenzaRestituisce409SeOpzioneAnnullata() throws Exception {
+        creaPosizioneConPendenza("pos-patch-pendenza-opz-annullata", "12345678901", "pendenza-patch-opz-annullata");
+        String idOpzione = idOpzioneDi("pos-patch-pendenza-opz-annullata");
+        mockMvc.perform(MockMvcRequestBuilders.patch(
+                        "/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}",
+                        "A2A-TEST", "pos-patch-pendenza-opz-annullata", idOpzione)
+                        .contentType("application/json-patch+json")
+                        .content("""
+                                [ { "op": "replace", "path": "/stato", "value": "ANNULLATA" } ]
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(MockMvcRequestBuilders.patch("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+                        "pendenza-patch-opz-annullata")
+                        .contentType("application/json-patch+json")
+                        .content("""
+                                [ { "op": "replace", "path": "/stato", "value": "NON_ESEGUITO" } ]
+                                """))
+                .andExpect(status().isConflict())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(409));
+    }
+
+    @Test
+    @DisplayName("PATCH /pendenze/{idA2A}/{idPendenza} imposta descrizioneStato, leggibile dalla GET successiva")
+    void updatePendenzaImpostaDescrizioneStato() throws Exception {
+        creaPosizioneConPendenza("pos-patch-descr", "12345678901", "pendenza-patch-descr");
+
+        mockMvc.perform(MockMvcRequestBuilders.patch("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+                        "pendenza-patch-descr")
+                        .contentType("application/json-patch+json")
+                        .content("""
+                                [ { "op": "replace", "path": "/descrizioneStato", "value": "motivo di test" } ]
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST", "pendenza-patch-descr"))
+                .andExpect(jsonPath("$.descrizioneStato").value("motivo di test"))
+                .andExpect(jsonPath("$.stato").value("NON_ESEGUITO"));
+    }
+
+    @Test
+    @DisplayName("PATCH /pendenze/{idA2A}/{idPendenza} applica /stato e /descrizioneStato insieme nella stessa richiesta")
+    void updatePendenzaApplicaStatoEDescrizioneStatoInsieme() throws Exception {
+        creaPosizioneConPendenza("pos-patch-combo", "12345678901", "pendenza-patch-combo");
+
+        mockMvc.perform(MockMvcRequestBuilders.patch("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+                        "pendenza-patch-combo")
+                        .contentType("application/json-patch+json")
+                        .content("""
+                                [ { "op": "replace", "path": "/stato", "value": "ANNULLATO" },
+                                  { "op": "replace", "path": "/descrizioneStato", "value": "annullata per errore" } ]
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST", "pendenza-patch-combo"))
+                .andExpect(jsonPath("$.stato").value("ANNULLATO"))
+                .andExpect(jsonPath("$.descrizioneStato").value("annullata per errore"));
+    }
+
+    @Test
+    @DisplayName("PATCH /pendenze/{idA2A}/{idPendenza} rifiuta con 400 un /descrizioneStato di 256 caratteri")
+    void updatePendenzaRifiutaDescrizioneStatoTroppoLunga() throws Exception {
+        creaPosizioneConPendenza("pos-patch-descr-lunga", "12345678901", "pendenza-patch-descr-lunga");
+
+        mockMvc.perform(MockMvcRequestBuilders.patch("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+                        "pendenza-patch-descr-lunga")
+                        .contentType("application/json-patch+json")
+                        .content("""
+                                [ { "op": "replace", "path": "/descrizioneStato", "value": "%s" } ]
+                                """.formatted("A".repeat(256))))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    @DisplayName("PATCH /pendenze/{idA2A}/{idPendenza} rifiuta con 400 un valore vuoto per /descrizioneStato")
+    void updatePendenzaRifiutaDescrizioneStatoVuota() throws Exception {
+        creaPosizioneConPendenza("pos-patch-descr-vuota", "12345678901", "pendenza-patch-descr-vuota");
+
+        mockMvc.perform(MockMvcRequestBuilders.patch("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+                        "pendenza-patch-descr-vuota")
+                        .contentType("application/json-patch+json")
+                        .content("""
+                                [ { "op": "replace", "path": "/descrizioneStato", "value": "" } ]
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    /**
+     * Mirror del legacy ({@code PendenzeDAO.patchDescrizioneStato}): solo {@code replace} e'
+     * ammesso, {@code remove} e' rifiutato — nessun modo di azzerare {@code descrizioneStato}
+     * una volta impostato.
+     */
+    @Test
+    @DisplayName("PATCH /pendenze/{idA2A}/{idPendenza} rifiuta con 400 l'operazione 'remove' su /descrizioneStato")
+    void updatePendenzaRifiutaRemoveSuDescrizioneStato() throws Exception {
+        creaPosizioneConPendenza("pos-patch-descr-remove", "12345678901", "pendenza-patch-descr-remove");
+
+        mockMvc.perform(MockMvcRequestBuilders.patch("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+                        "pendenza-patch-descr-remove")
+                        .contentType("application/json-patch+json")
+                        .content("""
+                                [ { "op": "remove", "path": "/descrizioneStato" } ]
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    @DisplayName("PATCH /pendenze/{idA2A}/{idPendenza} rifiuta con 400 lo stesso path specificato due volte")
+    void updatePendenzaRifiutaPathDuplicato() throws Exception {
+        creaPosizioneConPendenza("pos-patch-dup", "12345678901", "pendenza-patch-dup");
+
+        mockMvc.perform(MockMvcRequestBuilders.patch("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+                        "pendenza-patch-dup")
+                        .contentType("application/json-patch+json")
+                        .content("""
+                                [ { "op": "replace", "path": "/stato", "value": "ANNULLATO" },
+                                  { "op": "replace", "path": "/stato", "value": "NON_ESEGUITO" } ]
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    @DisplayName("PATCH /pendenze/{idA2A}/{idPendenza} rifiuta con 400 un body vuoto")
+    void updatePendenzaRifiutaBodyVuoto() throws Exception {
+        creaPosizioneConPendenza("pos-patch-vuoto", "12345678901", "pendenza-patch-vuoto");
+
+        mockMvc.perform(MockMvcRequestBuilders.patch("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+                        "pendenza-patch-vuoto")
+                        .contentType("application/json-patch+json")
+                        .content("[]"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
     /**
      * Le pendenze create dall'helper di setup sono sempre {@code NON_ESEGUITO} senza scadenza:
      * per i test sulla mappatura STATO -> {@code Avviso.stato} si forza direttamente lo stato

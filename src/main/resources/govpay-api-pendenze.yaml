@@ -552,7 +552,13 @@ paths:
 
   '/pendenze/{idA2A}/{idPendenza}':
     patch:
-      description: aggiornamento puntuale di una pendenza
+      description: >-
+        Due path supportati, indipendenti tra loro, ciascuno al massimo una
+        volta nella stessa richiesta: `/stato` (solo `replace`/`add`, valori
+        `ANNULLATO` o `NON_ESEGUITO` — annulla o ripristina la singola
+        pendenza, non l'intera opzione di pagamento) e/o `/descrizioneStato`
+        (solo `replace`, valore testuale non vuoto). Almeno una delle due
+        operazioni deve essere presente.
       tags:
         - Pendenze
       summary: Aggiornamento di uno o più campi di una pendenza
@@ -591,6 +597,33 @@ paths:
           $ref: '#/components/responses/403NotAuthorized'
         '404':
           $ref: '#/components/responses/404NotFound'
+        '409':
+          description: >-
+            La transizione di stato richiesta non è ammessa: la pendenza non
+            è in uno stato di partenza compatibile, oppure si tenta di
+            ripristinarla mentre la sua opzione di pagamento è ANNULLATA
+            (stato definitivo, che non la renderebbe comunque pagabile)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                statoNonCompatibile:
+                  summary: Pendenza in uno stato non compatibile con la transizione richiesta
+                  value:
+                    status: 409
+                    title: >-
+                      la pendenza [idPendenza] è ESEGUITO: può essere
+                      annullata solo da NON_ESEGUITO
+                opzioneAnnullata:
+                  summary: Ripristino richiesto sotto un'opzione di pagamento ANNULLATA
+                  value:
+                    status: 409
+                    title: >-
+                      la pendenza [idPendenza] appartiene a un'opzione di
+                      pagamento ANNULLATA (stato definitivo): il ripristino
+                      non la renderebbe pagabile, l'avviso continuerebbe a
+                      segnalare ANNULLATA
         '500':
           $ref: '#/components/responses/500ServiceUnavailable'
     get:
@@ -2436,6 +2469,16 @@ components:
             - '01234567890'
         stato:
           $ref: '#/components/schemas/StatoPendenza'
+        descrizioneStato:
+          type: string
+          description: >-
+            Motivazione testuale libera legata allo stato della pendenza
+            (es. perché è stata annullata). Assente finché nessuno la
+            imposta tramite `PATCH .../pendenze/{idA2A}/{idPendenza}`
+            (path `/descrizioneStato`).
+          examples:
+            - Annullata per errore di imputazione
+          maxLength: 255
         iuv:
           type: string
           description: Identificativo Univoco di Versamento assegnato alla pendenza.

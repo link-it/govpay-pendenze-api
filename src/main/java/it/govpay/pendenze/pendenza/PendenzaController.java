@@ -18,6 +18,7 @@ import it.govpay.common.metrics.ExternalCallMetricsRecorder;
 import it.govpay.pendenze.api.model.Avviso;
 import it.govpay.pendenze.api.model.LinguaSecondaria;
 import it.govpay.pendenze.api.model.Pagination;
+import it.govpay.pendenze.api.model.PatchOp;
 import it.govpay.pendenze.api.model.PendenzaIndex;
 import it.govpay.pendenze.api.model.Pendenze;
 import it.govpay.pendenze.api.model.Rendicontazione;
@@ -40,6 +41,8 @@ import it.govpay.pendenze.entity.Pendenza;
 import it.govpay.pendenze.entity.Rpt;
 import it.govpay.pendenze.exception.RisorsaNonTrovataException;
 import it.govpay.pendenze.exception.ValidazioneNonSuperataException;
+import it.govpay.pendenze.model.StatoPendenza;
+import it.govpay.pendenze.posizionedebitoria.EsitoPatchPendenza;
 import it.govpay.pendenze.posizionedebitoria.PosizioneDebitoriaMapper;
 import it.govpay.pendenze.rendicontazione.RendicontazioneMapper;
 import it.govpay.pendenze.repository.RicevutaElenco;
@@ -104,6 +107,32 @@ public class PendenzaController implements PendenzeApi {
         this.currentResponse = currentResponse;
         this.currentApplicazioneService = currentApplicazioneService;
         this.aclAuthorizer = aclAuthorizer;
+    }
+
+    /**
+     * {@code PATCH .../pendenze/{idA2A}/{idPendenza}}: due operazioni indipendenti, vedi
+     * Javadoc di {@link PosizioneDebitoriaMapper#validaPatchPendenza} per la superficie
+     * esatta — {@code /stato} (solo {@code ANNULLATO}/{@code NON_ESEGUITO}) e/o
+     * {@code /descrizioneStato}. Entita' diversa da {@code PATCH .../opzioni-pagamento/{id}}
+     * ({@code PosizioneDebitoriaController}): qui si annulla/ripristina la singola rata, non
+     * l'intera opzione di pagamento — vedi Javadoc di
+     * {@code PosizioneDebitoriaService#annullaPendenza}.
+     */
+    @Override
+    @Transactional
+    public ResponseEntity<Void> updatePendenza(String idA2A, String idPendenza, List<PatchOp> patchOp) {
+        aclAuthorizer.richiedeScrittura();
+        currentApplicazioneService.verificaIdA2A(idA2A);
+        EsitoPatchPendenza esito = mapper.validaPatchPendenza(patchOp);
+        if (esito.nuovoStato() == StatoPendenza.ANNULLATO) {
+            posizioneDebitoriaService.annullaPendenza(idA2A, idPendenza);
+        } else if (esito.nuovoStato() == StatoPendenza.NON_ESEGUITO) {
+            posizioneDebitoriaService.ripristinaPendenza(idA2A, idPendenza);
+        }
+        if (esito.descrizioneStato() != null) {
+            posizioneDebitoriaService.aggiornaDescrizioneStatoPendenza(idA2A, idPendenza, esito.descrizioneStato());
+        }
+        return ResponseEntity.ok().build();
     }
 
     /**

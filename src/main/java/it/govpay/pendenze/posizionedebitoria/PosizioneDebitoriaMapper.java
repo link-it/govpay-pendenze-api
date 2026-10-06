@@ -512,6 +512,15 @@ public class PosizioneDebitoriaMapper {
      */
     private static final int DESCRIZIONE_MAX_LENGTH = 140;
 
+    /**
+     * Limite della colonna legacy {@code versamenti.descrizione_stato} ({@code VARCHAR(255)},
+     * vedi Javadoc di campo su {@code Pendenza.descrizioneStato}) e dello schema v3
+     * ({@code PendenzaBase.descrizioneStato.maxLength}). Senza questo controllo un valore di
+     * 256+ caratteri arriverebbe al DB e fallirebbe con un 500 (violazione del vincolo di
+     * colonna), invece di un 400 sulla richiesta che lo ha causato.
+     */
+    private static final int DESCRIZIONE_STATO_MAX_LENGTH = 255;
+
     private void applicaDescrizione(it.govpay.pendenze.entity.PosizioneDebitoria posizione, PatchOp operazione) {
         if (operazione.getOp() == PatchOp.OpEnum.REMOVE) {
             throw new ValidazioneNonSuperataException(
@@ -650,6 +659,95 @@ public class PosizioneDebitoriaMapper {
                     + "questo endpoint: l'attivazione avviene a seguito di un pagamento, non di un PATCH del "
                     + "chiamante");
         }
+    }
+
+    /**
+     * Valida il body di {@code PATCH .../pendenze/{idA2A}/{idPendenza}}: due path supportati,
+     * indipendenti tra loro, ciascuno al massimo una volta nella stessa patch — {@code /stato}
+     * e {@code /descrizioneStato}. Almeno uno dei due deve essere presente.
+     *
+     * <p><b>{@code /stato}</b> ({@code [{"op": "replace"|"add", "path": "/stato", "value":
+     * "ANNULLATO"|"NON_ESEGUITO"}]}) — mirror del legacy ({@code PendenzeDAO.patchStato},
+     * {@code jars/core/.../dao/pagamenti/PendenzeDAO.java:666-707}), con una deviazione
+     * deliberata: il legacy rifiuta {@code NON_ESEGUITO} quando lo stato attuale e' GIA'
+     * {@code NON_ESEGUITO} (asimmetria rispetto al caso {@code ANNULLATO}, che e' idempotente
+     * — sembra un difetto del legacy, non una regola voluta); qui entrambe le direzioni sono
+     * idempotenti, scelta esplicita per la v3 — vedi Javadoc di
+     * {@code PosizioneDebitoriaService#annullaPendenza}/{@code #ripristinaPendenza}, dove la
+     * transizione effettiva (e il controllo sullo stato ATTUALE) e' interamente a carico.
+     * Nessun altro valore e' raggiungibile da qui (es. ESEGUITO, ANOMALO: transizioni
+     * riservate al motore di pagamento reale, mai a un PATCH del chiamante).</p>
+     *
+     * <p><b>{@code /descrizioneStato}</b> ({@code [{"op": "replace", "path":
+     * "/descrizioneStato", "value": "..."}]}) — mirror del legacy
+     * ({@code PendenzeDAO.patchDescrizioneStato},
+     * {@code jars/core/.../dao/pagamenti/PendenzeDAO.java:653-664}): solo {@code replace},
+     * valore stringa non vuota (vuoto/{@code null}/{@code remove} rifiutati, stesso vincolo
+     * del legacy — nessun modo di azzerarlo una volta impostato). {@code ack}/{@code nota} del
+     * legacy non hanno ancora un corrispettivo nello schema v3 (fuori scope per questo PATCH).</p>
+     *
+     * @return i valori richiesti ({@code null} per il campo la cui operazione non era presente)
+     * @throws ValidazioneNonSuperataException se il body e' nullo/vuoto, un path e' duplicato
+     *                                          o non supportato, o un valore non e' tra quelli
+     *                                          ammessi per il suo path
+     */
+    public EsitoPatchPendenza validaPatchPendenza(List<PatchOp> operazioni) {
+        if (operazioni == null || operazioni.isEmpty()) {
+            throw new ValidazioneNonSuperataException("body della richiesta mancante");
+        }
+        it.govpay.pendenze.model.StatoPendenza nuovoStato = null;
+        String descrizioneStato = null;
+        boolean statoVisto = false;
+        boolean descrizioneStatoVisto = false;
+        for (PatchOp operazione : operazioni) {
+            if (operazione == null) {
+                throw new ValidazioneNonSuperataException(
+                        "operazione di patch nulla non ammessa: deve essere un oggetto {op, path, value}");
+            }
+            if ("/stato".equals(operazione.getPath())) {
+                if (statoVisto) {
+                    throw new ValidazioneNonSuperataException(
+                            "'stato' specificato piu' di una volta nella stessa patch");
+                }
+                statoVisto = true;
+                nuovoStato = validaOperazioneStatoPendenza(operazione);
+            } else if ("/descrizioneStato".equals(operazione.getPath())) {
+                if (descrizioneStatoVisto) {
+                    throw new ValidazioneNonSuperataException(
+                            "'descrizioneStato' specificato piu' di una volta nella stessa patch");
+                }
+                descrizioneStatoVisto = true;
+                descrizioneStato = validaOperazioneDescrizioneStato(operazione);
+            } else {
+                throw new ValidazioneNonSuperataException("path [" + operazione.getPath() + "] non supportato per "
+                        + "questa risorsa: solo /stato o /descrizioneStato");
+            }
+        }
+        return new EsitoPatchPendenza(nuovoStato, descrizioneStato);
+    }
+
+    private it.govpay.pendenze.model.StatoPendenza validaOperazioneStatoPendenza(PatchOp operazione) {
+        if (operazione.getOp() == PatchOp.OpEnum.REMOVE) {
+            throw new ValidazioneNonSuperataException("'stato' e' obbligatorio: non puo' essere rimosso con 'remove'");
+        }
+        String valore = valoreStringa(operazione, "stato");
+        if (!"ANNULLATO".equals(valore) && !"NON_ESEGUITO".equals(valore)) {
+            throw new ValidazioneNonSuperataException(
+                    "'stato' puo' essere impostato solo a 'ANNULLATO' o 'NON_ESEGUITO' tramite questo endpoint");
+        }
+        return it.govpay.pendenze.model.StatoPendenza.valueOf(valore);
+    }
+
+    private String validaOperazioneDescrizioneStato(PatchOp operazione) {
+        if (operazione.getOp() != PatchOp.OpEnum.REPLACE) {
+            throw new ValidazioneNonSuperataException("'descrizioneStato' supporta solo l'operazione 'replace'");
+        }
+        String descrizioneStato = valoreStringa(operazione, "descrizioneStato");
+        if (descrizioneStato.length() > DESCRIZIONE_STATO_MAX_LENGTH) {
+            throw new ValidazioneNonSuperataException("'descrizioneStato' non puo' superare "
+                    + DESCRIZIONE_STATO_MAX_LENGTH + " caratteri (" + descrizioneStato.length() + " forniti)");
+        }
+        return descrizioneStato;
     }
 
     private it.govpay.pendenze.entity.OpzionePagamento toOpzionePagamento(NuovaOpzionePagamento dto,
@@ -1059,6 +1157,7 @@ public class PosizioneDebitoriaMapper {
         dto.setIdTipoPendenza(risolviCodTipoVersamento(entity.getIdTipoPendenza()));
         dto.setIdDominio(risolviCodDominio(entity.getIdDominio()));
         dto.setStato(StatoPendenza.valueOf(entity.getStato().name()));
+        dto.setDescrizioneStato(entity.getDescrizioneStato());
         dto.setIuv(entity.getIuv());
         dto.setDataPagamento(entity.getDataPagamento() == null ? null : entity.getDataPagamento().toLocalDate());
         dto.setOpzionePagamento(toOpzionePagamentoIndexDto(entity.getOpzionePagamento()));
@@ -1101,6 +1200,7 @@ public class PosizioneDebitoriaMapper {
         dto.setIdTipoPendenza(risolviCodTipoVersamento(entity.getIdTipoPendenza()));
         dto.setIdDominio(risolviCodDominio(entity.getIdDominio()));
         dto.setStato(StatoPendenza.valueOf(entity.getStato().name()));
+        dto.setDescrizioneStato(entity.getDescrizioneStato());
         dto.setIuv(entity.getIuv());
         dto.setDataPagamento(entity.getDataPagamento() == null ? null : entity.getDataPagamento().toLocalDate());
         dto.setOpzionePagamento(toOpzionePagamentoIndexDto(entity.getOpzionePagamento()));
@@ -1137,6 +1237,7 @@ public class PosizioneDebitoriaMapper {
         dto.setIdTipoPendenza(risolviCodTipoVersamento(entity.getIdTipoPendenza()));
         dto.setIdDominio(risolviCodDominio(entity.getIdDominio()));
         dto.setStato(StatoPendenza.valueOf(entity.getStato().name()));
+        dto.setDescrizioneStato(entity.getDescrizioneStato());
         dto.setIuv(entity.getIuv());
         dto.setDataPagamento(entity.getDataPagamento() == null ? null : entity.getDataPagamento().toLocalDate());
         dto.setOpzionePagamento(toOpzionePagamentoIndexDto(entity.getOpzionePagamento()));
