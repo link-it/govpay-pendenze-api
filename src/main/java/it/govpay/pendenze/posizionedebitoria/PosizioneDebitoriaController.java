@@ -166,12 +166,16 @@ public class PosizioneDebitoriaController implements PosizioniDebitorieApi {
     }
 
     /**
-     * Annulla un'opzione di pagamento — l'unica transizione raggiungibile da questo endpoint
-     * (vedi Javadoc di {@link PosizioneDebitoriaMapper#validaPatchAnnullamento}: l'attivazione
-     * e' innescata da un pagamento reale, mai da un PATCH del chiamante). L'appartenenza di
-     * {@code idOpzionePagamento} a QUESTA posizione/applicazione e' verificata dal servizio
-     * (vedi Javadoc di {@code PosizioneDebitoriaService#annulla(String, String, UUID)}), non
-     * qui: {@code idOpzionePagamento} da solo non e' altrimenti legato a nessun controllo di
+     * Annulla o ripristina un'opzione di pagamento — le uniche due transizioni raggiungibili
+     * da questo endpoint (vedi Javadoc di
+     * {@link PosizioneDebitoriaMapper#validaPatchStatoOpzione}: l'attivazione e' innescata da
+     * un pagamento reale, mai da un PATCH del chiamante). Entrambe cascata anche su tutte le
+     * pendenze dell'opzione (vedi Javadoc di {@code PosizioneDebitoriaService#annulla(UUID)}/
+     * {@code #ripristina(UUID)}) — nessuna regola di transizione qui, solo smistamento verso
+     * il metodo giusto in base al valore validato. L'appartenenza di {@code idOpzionePagamento}
+     * a QUESTA posizione/applicazione e' verificata dal servizio (vedi Javadoc di
+     * {@code PosizioneDebitoriaService#annulla(String, String, UUID)}), non qui:
+     * {@code idOpzionePagamento} da solo non e' altrimenti legato a nessun controllo di
      * appartenenza.
      */
     @Override
@@ -180,8 +184,12 @@ public class PosizioneDebitoriaController implements PosizioniDebitorieApi {
             java.util.UUID idOpzionePagamento, List<PatchOp> patchOp) {
         aclAuthorizer.richiedeScrittura();
         currentApplicazioneService.verificaIdA2A(idA2A);
-        mapper.validaPatchAnnullamento(patchOp);
-        posizioneDebitoriaService.annulla(idA2A, idPosizioneDebitoria, idOpzionePagamento);
+        it.govpay.pendenze.model.StatoOpzionePagamento nuovoStato = mapper.validaPatchStatoOpzione(patchOp);
+        if (nuovoStato == it.govpay.pendenze.model.StatoOpzionePagamento.ANNULLATA) {
+            posizioneDebitoriaService.annulla(idA2A, idPosizioneDebitoria, idOpzionePagamento);
+        } else {
+            posizioneDebitoriaService.ripristina(idA2A, idPosizioneDebitoria, idOpzionePagamento);
+        }
         return ResponseEntity.ok().build();
     }
 

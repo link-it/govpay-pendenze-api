@@ -47,6 +47,7 @@ import it.govpay.common.repository.TipoVersamentoDominioRepository;
 import it.govpay.common.repository.TipoVersamentoRepository;
 import it.govpay.common.repository.TributoRepository;
 import it.govpay.common.repository.UnitaOperativaRepository;
+import it.govpay.pendenze.model.StatoPendenza;
 import it.govpay.pendenze.repository.PosizioneDebitoriaRepository;
 import it.govpay.pendenze.security.AclEntity;
 import it.govpay.pendenze.security.AclRepository;
@@ -1936,21 +1937,18 @@ class PosizioneDebitoriaControllerTest {
      * Bug del lead, 2026-09-29: la POST restituiva 201 (opzione DISPONIBILE creata) anche
      * quando la posizione aveva gia' un'opzione ATTIVATA — contraddice la regola dello YAML
      * secondo cui, dopo un pagamento, le alternative non sono piu' applicabili. Nessun
-     * endpoint REST attiva ancora un'opzione ({@code PATCH .../opzioni-pagamento/{id}} resta
-     * 501): l'attivazione e' simulata qui chiamando direttamente
-     * {@code PosizioneDebitoriaService#attiva}, come farebbe quell'endpoint una volta
-     * implementato.
+     * endpoint REST attiva ancora un'opzione direttamente: l'attivazione e' sempre un
+     * EFFETTO della registrazione di un pagamento su una pendenza, mai un'azione
+     * indipendente (vedi Javadoc di {@code PosizioneDebitoriaService#attiva}, privato) —
+     * simulata qui chiamando {@code PosizioneDebitoriaService#registraEsitoPendenza}, come
+     * farebbe il futuro motore di registrazione pagamenti.
      */
     @Test
     @DisplayName("POST .../opzioni-pagamento rifiuta con 409 se la posizione ha gia' un'opzione ATTIVATA")
     void addOpzionePagamentoRifiutaConConflictSeEsisteGiaUnaOpzioneAttivata() throws Exception {
         creaPosizioneMinimaConDebitore("pos-opz-attivata", "FRRPLA90C41H501Y");
-
-        String risposta = mockMvc
-                .perform(get("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", "pos-opz-attivata"))
-                .andReturn().getResponse().getContentAsString();
-        String idOpzione = JsonPath.read(risposta, "$.opzioniPagamento[0].idOpzionePagamento");
-        posizioneDebitoriaService.attiva(java.util.UUID.fromString(idOpzione));
+        posizioneDebitoriaService.registraEsitoPendenza("A2A-TEST", "pendenza-pos-opz-attivata",
+                StatoPendenza.ESEGUITO);
 
         String body = """
                 {
@@ -2063,7 +2061,100 @@ class PosizioneDebitoriaControllerTest {
                 .andExpect(status().isOk());
 
         mockMvc.perform(get("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", "pos-annulla-opz"))
-                .andExpect(jsonPath("$.opzioniPagamento[0].stato").value("ANNULLATA"));
+                .andExpect(jsonPath("$.opzioniPagamento[0].stato").value("ANNULLATA"))
+                .andExpect(jsonPath("$.opzioniPagamento[0].pendenze[0].stato").value("ANNULLATO"));
+    }
+
+    @Test
+    @DisplayName("PATCH .../opzioni-pagamento/{id} ripristina l'opzione annullata, con cascata NON_ESEGUITO "
+            + "sulle sue pendenze")
+    void updateOpzionePagamentoRipristinaConSuccesso() throws Exception {
+        creaPosizioneMinimaConDebitore("pos-ripristina-opz", "FRRPLA90C41H501Y");
+        String idOpzione = idOpzioneDi("pos-ripristina-opz");
+        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}",
+                        "A2A-TEST", "pos-ripristina-opz", idOpzione)
+                        .contentType(PATCH_MEDIA_TYPE)
+                        .content("""
+                                [ { "op": "replace", "path": "/stato", "value": "ANNULLATA" } ]
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}",
+                        "A2A-TEST", "pos-ripristina-opz", idOpzione)
+                        .contentType(PATCH_MEDIA_TYPE)
+                        .content("""
+                                [ { "op": "replace", "path": "/stato", "value": "DISPONIBILE" } ]
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", "pos-ripristina-opz"))
+                .andExpect(jsonPath("$.opzioniPagamento[0].stato").value("DISPONIBILE"))
+                .andExpect(jsonPath("$.opzioniPagamento[0].pendenze[0].stato").value("NON_ESEGUITO"));
+    }
+
+    @Test
+    @DisplayName("PATCH .../opzioni-pagamento/{id} restituisce 409 se si tenta di ripristinare un'opzione gia' ATTIVATA")
+    void updateOpzionePagamentoRipristinaRestituisceConflictSeGiaAttivata() throws Exception {
+        creaPosizioneMinimaConDebitore("pos-ripristina-attivata", "FRRPLA90C41H501Y");
+        String idOpzione = idOpzioneDi("pos-ripristina-attivata");
+        posizioneDebitoriaService.registraEsitoPendenza("A2A-TEST", "pendenza-pos-ripristina-attivata",
+                StatoPendenza.ESEGUITO);
+
+        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}",
+                        "A2A-TEST", "pos-ripristina-attivata", idOpzione)
+                        .contentType(PATCH_MEDIA_TYPE)
+                        .content("""
+                                [ { "op": "replace", "path": "/stato", "value": "DISPONIBILE" } ]
+                                """))
+                .andExpect(status().isConflict())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(409));
+    }
+
+    /**
+     * Bug riprodotto in revisione: attiva(A) annulla automaticamente B (ancora DISPONIBILE) e
+     * le sue pendenze; senza il controllo sull'assenza di un'altra opzione ATTIVATA,
+     * ripristina(B) la riportava DISPONIBILE anche con A ancora ATTIVATA, vanificando
+     * l'esclusione reciproca (vedi Javadoc di {@code PosizioneDebitoriaService#ripristina}).
+     */
+    @Test
+    @DisplayName("PATCH .../opzioni-pagamento/{id} restituisce 409 se si tenta di ripristinare un'alternativa "
+            + "gia' esclusa da un'altra opzione ormai ATTIVATA")
+    void updateOpzionePagamentoRipristinaRestituisceConflictSeAltraOpzioneAttivata() throws Exception {
+        creaPosizioneMinimaConDebitore("pos-rip-altb", "FRRPLA90C41H501Y");
+
+        String bodyB = """
+                {
+                  "tipologia": "SOLUZIONE_UNICA",
+                  "pendenze": [ {
+                    "idPendenza": "pos-rip-altb-b",
+                    "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                    "importo": 16.00,
+                    "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-b", "importo": 16.00,
+                                "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
+                  } ]
+                }
+                """;
+        String rispostaB = mockMvc.perform(post("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento",
+                        "A2A-TEST", "pos-rip-altb")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(bodyB))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String idB = JsonPath.read(rispostaB, "$.idOpzionePagamento");
+
+        // cascata: B -> ANNULLATA
+        posizioneDebitoriaService.registraEsitoPendenza("A2A-TEST", "pendenza-pos-rip-altb", StatoPendenza.ESEGUITO);
+
+        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}",
+                        "A2A-TEST", "pos-rip-altb", idB)
+                        .contentType(PATCH_MEDIA_TYPE)
+                        .content("""
+                                [ { "op": "replace", "path": "/stato", "value": "DISPONIBILE" } ]
+                                """))
+                .andExpect(status().isConflict())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(409));
     }
 
     @Test
@@ -2085,7 +2176,7 @@ class PosizioneDebitoriaControllerTest {
 
     /**
      * L'attivazione e' innescata da un pagamento reale, mai da un PATCH del chiamante (vedi
-     * Javadoc di {@code PosizioneDebitoriaMapper#validaPatchAnnullamento}): rifiutata con lo
+     * Javadoc di {@code PosizioneDebitoriaMapper#validaPatchStatoOpzione}): rifiutata con lo
      * stesso 400 di qualunque altro valore non supportato.
      */
     @Test
@@ -2163,7 +2254,8 @@ class PosizioneDebitoriaControllerTest {
     void updateOpzionePagamentoRestituisceConflictSeGiaAttivata() throws Exception {
         creaPosizioneMinimaConDebitore("pos-opz-gia-attivata", "FRRPLA90C41H501Y");
         String idOpzione = idOpzioneDi("pos-opz-gia-attivata");
-        posizioneDebitoriaService.attiva(java.util.UUID.fromString(idOpzione));
+        posizioneDebitoriaService.registraEsitoPendenza("A2A-TEST", "pendenza-pos-opz-gia-attivata",
+                StatoPendenza.ESEGUITO);
 
         mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}",
                         "A2A-TEST", "pos-opz-gia-attivata", idOpzione)
