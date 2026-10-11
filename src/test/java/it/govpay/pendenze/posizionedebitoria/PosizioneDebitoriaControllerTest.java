@@ -459,6 +459,41 @@ class PosizioneDebitoriaControllerTest {
         unitaOperativaRepository.save(unitaOperativa);
     }
 
+    /**
+     * Bug riscontrato: un elemento {@code null} nell'array {@code voci} superava la bean
+     * validation (che cascata solo sugli elementi non null) e falliva con un 500 non gestito
+     * dentro {@code PosizioneDebitoriaMapper#toVocePendenza} — condiviso dal path di
+     * creazione e da quello di aggiornamento ({@code PUT .../pendenze/{idA2A}/{idPendenza}}).
+     */
+    @Test
+    @DisplayName("rifiuta con 400 (non 500) un elemento null in 'voci' anche in creazione")
+    void rifiutaConBadRequestSeVoceNulla() throws Exception {
+        String body = """
+                {
+                  "idPosizioneDebitoria": "pos-voce-null",
+                  "idDominio": "12345678901",
+                  "descrizione": "test",
+                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
+                  "opzioniPagamento": [ {
+                    "tipologia": "SOLUZIONE_UNICA",
+                    "pendenze": [ {
+                      "idPendenza": "pendenza-1",
+                      "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                      "importo": 16.00,
+                      "voci": [ null ]
+                    } ]
+                  } ]
+                }
+                """;
+
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}", "A2A-TEST")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
     @Test
     @DisplayName("rifiuta con 400 (non 201) un tributo disabilitato per il dominio (bug del lead, "
             + "2026-09-29: il mapper verificava solo che il tributo fosse censito, non abilitato — "
@@ -2044,6 +2079,176 @@ class PosizioneDebitoriaControllerTest {
                 .perform(get("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", idPosizioneDebitoria))
                 .andReturn().getResponse().getContentAsString();
         return JsonPath.read(risposta, "$.opzioniPagamento[0].idOpzionePagamento");
+    }
+
+    @Test
+    @DisplayName("POST .../opzioni-pagamento/{id}/pendenze aggiunge una pendenza a un'opzione "
+            + "SOLUZIONE_UNICA esistente, leggibile dalla GET successiva")
+    void addPendenzaAggiungeAOpzioneSoluzioneUnicaEsistente() throws Exception {
+        creaPosizioneMinimaConDebitore("pos-add-pendenza", "FRRPLA90C41H501Y");
+        String idOpzione = idOpzioneDi("pos-add-pendenza");
+
+        String body = """
+                { "idPendenza": "pos-add-pendenza-seconda", "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                  "importo": 16.00,
+                  "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-seconda-add",
+                              "importo": 16.00, "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ] }
+                """;
+
+        mockMvc.perform(post(
+                        "/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}/pendenze",
+                        "A2A-TEST", "pos-add-pendenza", idOpzione)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isCreated())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.idPendenza").value("pos-add-pendenza-seconda"))
+                .andExpect(jsonPath("$.numeroAvviso").value(notNullValue()))
+                .andExpect(jsonPath("$.iuv").value(notNullValue()));
+
+        mockMvc.perform(get("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", "pos-add-pendenza"))
+                .andExpect(jsonPath("$.opzioniPagamento[0].pendenze.length()").value(2))
+                .andExpect(jsonPath("$.opzioniPagamento[0].pendenze[1].idPendenza")
+                        .value("pos-add-pendenza-seconda"));
+    }
+
+    @Test
+    @DisplayName("POST .../opzioni-pagamento/{id}/pendenze restituisce 404 se l'opzione non esiste")
+    void addPendenzaRestituisce404SeOpzioneNonEsiste() throws Exception {
+        creaPosizioneMinimaConDebitore("pos-add-pendenza-404", "FRRPLA90C41H501Y");
+
+        String body = """
+                { "idPendenza": "pos-add-pendenza-404-x", "idTipoPendenza": "DIRITTI_SEGRETERIA", "importo": 16.00,
+                  "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-x", "importo": 16.00,
+                              "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ] }
+                """;
+
+        mockMvc.perform(post(
+                        "/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}/pendenze",
+                        "A2A-TEST", "pos-add-pendenza-404", java.util.UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(404));
+    }
+
+    @Test
+    @DisplayName("POST .../opzioni-pagamento/{id}/pendenze rifiuta con 400 un body assente")
+    void addPendenzaRifiutaConBadRequestSeBodyAssente() throws Exception {
+        creaPosizioneMinimaConDebitore("pos-add-pend-body", "FRRPLA90C41H501Y");
+        String idOpzione = idOpzioneDi("pos-add-pend-body");
+
+        mockMvc.perform(post(
+                        "/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}/pendenze",
+                        "A2A-TEST", "pos-add-pend-body", idOpzione)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("null"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    @DisplayName("POST .../opzioni-pagamento/{id}/pendenze restituisce 409 se l'opzione non e' DISPONIBILE")
+    void addPendenzaRestituisce409SeOpzioneNonDisponibile() throws Exception {
+        creaPosizioneMinimaConDebitore("pos-add-pendenza-non-disp", "FRRPLA90C41H501Y");
+        String idOpzione = idOpzioneDi("pos-add-pendenza-non-disp");
+        mockMvc.perform(patch(
+                        "/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}",
+                        "A2A-TEST", "pos-add-pendenza-non-disp", idOpzione)
+                        .contentType(PATCH_MEDIA_TYPE)
+                        .content("""
+                                [ { "op": "replace", "path": "/stato", "value": "ANNULLATA" } ]
+                                """))
+                .andExpect(status().isOk());
+
+        String body = """
+                { "idPendenza": "pos-add-pendenza-non-disp-x", "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                  "importo": 16.00,
+                  "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-x", "importo": 16.00,
+                              "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ] }
+                """;
+
+        mockMvc.perform(post(
+                        "/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}/pendenze",
+                        "A2A-TEST", "pos-add-pendenza-non-disp", idOpzione)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isConflict())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(409));
+    }
+
+    @Test
+    @DisplayName("POST .../opzioni-pagamento/{id}/pendenze rifiuta con 400 su un'opzione "
+            + "SOLUZIONE_UNICA_ENTRO: ammette al massimo una pendenza (cardinalita' verificata "
+            + "dal validatore di libreria, non da un controllo duplicato nel controller)")
+    void addPendenzaRifiutaConBadRequestSeSuperaLaCardinalitaMassima() throws Exception {
+        String body = """
+                {
+                  "idPosizioneDebitoria": "pos-add-pend-card",
+                  "idDominio": "12345678901",
+                  "descrizione": "test",
+                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
+                  "opzioniPagamento": [ {
+                    "tipologia": "SOLUZIONE_UNICA_ENTRO",
+                    "giorni": 30,
+                    "pendenze": [ {
+                      "idPendenza": "pendenza-card-1",
+                      "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                      "importo": 16.00,
+                      "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-1",
+                                  "importo": 16.00, "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
+                    } ]
+                  } ]
+                }
+                """;
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}", "A2A-TEST")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isCreated());
+        String idOpzione = idOpzioneDi("pos-add-pend-card");
+
+        String bodyNuovaPendenza = """
+                { "idPendenza": "pendenza-card-2", "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                  "importo": 16.00,
+                  "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-2", "importo": 16.00,
+                              "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ] }
+                """;
+
+        mockMvc.perform(post(
+                        "/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}/pendenze",
+                        "A2A-TEST", "pos-add-pend-card", idOpzione)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(bodyNuovaPendenza))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    @DisplayName("POST .../opzioni-pagamento/{id}/pendenze rifiuta con 409 (non 500) un idPendenza "
+            + "gia' usato dalla stessa applicazione")
+    void addPendenzaRifiutaConConflictSeIdPendenzaGiaUsato() throws Exception {
+        creaPosizioneMinimaConDebitore("pos-add-pendenza-id-dup", "FRRPLA90C41H501Y");
+        String idOpzione = idOpzioneDi("pos-add-pendenza-id-dup");
+
+        String body = """
+                { "idPendenza": "pendenza-pos-add-pendenza-id-dup", "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                  "importo": 16.00,
+                  "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-x", "importo": 16.00,
+                              "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ] }
+                """;
+
+        mockMvc.perform(post(
+                        "/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}/pendenze",
+                        "A2A-TEST", "pos-add-pendenza-id-dup", idOpzione)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isConflict())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(409));
     }
 
     @Test

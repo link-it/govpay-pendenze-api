@@ -744,17 +744,21 @@ class PendenzaControllerTest {
     }
 
     @Test
-    @DisplayName("PATCH /pendenze/{idA2A}/{idPendenza} aggiorna dataScadenzaAvviso/dataValidita, "
-            + "leggibili dalla GET successiva; remove le azzera")
+    @DisplayName("PUT /pendenze/{idA2A}/{idPendenza} aggiorna dataScadenzaAvviso/dataValidita, "
+            + "leggibili dalla GET successiva; omesse nel body le azzera (sostituzione integrale)")
     void updatePendenzaAggiornaDateConSuccesso() throws Exception {
         creaPosizioneConPendenza("pos-patch-pendenza-date", "12345678901", "pendenza-patch-date");
 
-        mockMvc.perform(MockMvcRequestBuilders.patch("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+        mockMvc.perform(MockMvcRequestBuilders.put("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
                         "pendenza-patch-date")
-                        .contentType("application/json-patch+json")
+                        .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                [ { "op": "replace", "path": "/dataScadenzaAvviso", "value": "2027-01-15" },
-                                  { "op": "replace", "path": "/dataValidita", "value": "2027-01-10" } ]
+                                { "idPendenza": "pendenza-patch-date", "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                                  "importo": 16.00, "dataScadenzaAvviso": "2027-01-15",
+                                  "dataValidita": "2027-01-10",
+                                  "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA",
+                                              "idVocePendenza": "voce-pendenza-patch-date", "importo": 16.00,
+                                              "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ] }
                                 """))
                 .andExpect(status().isOk());
 
@@ -762,37 +766,43 @@ class PendenzaControllerTest {
                 .andExpect(jsonPath("$.dataScadenzaAvviso").value("2027-01-15"))
                 .andExpect(jsonPath("$.dataValidita").value("2027-01-10"));
 
-        mockMvc.perform(MockMvcRequestBuilders.patch("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+        mockMvc.perform(MockMvcRequestBuilders.put("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
                         "pendenza-patch-date")
-                        .contentType("application/json-patch+json")
+                        .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                [ { "op": "remove", "path": "/dataScadenzaAvviso" } ]
+                                { "idPendenza": "pendenza-patch-date", "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                                  "importo": 16.00,
+                                  "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA",
+                                              "idVocePendenza": "voce-pendenza-patch-date", "importo": 16.00,
+                                              "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ] }
                                 """))
                 .andExpect(status().isOk());
 
         mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST", "pendenza-patch-date"))
-                .andExpect(jsonPath("$.dataScadenzaAvviso").doesNotExist());
+                .andExpect(jsonPath("$.dataScadenzaAvviso").doesNotExist())
+                .andExpect(jsonPath("$.dataValidita").doesNotExist());
     }
 
     @Test
-    @DisplayName("PATCH /pendenze/{idA2A}/{idPendenza} aggiorna importo e voci: upsert, non sostituzione "
-            + "distruttiva — la voce esistente viene aggiornata, una nuova viene aggiunta")
+    @DisplayName("PUT /pendenze/{idA2A}/{idPendenza} aggiorna importo e voci: la voce esistente viene "
+            + "aggiornata (matchata per idVocePendenza), una nuova viene aggiunta")
     void updatePendenzaAggiornaImportoEVociConSuccesso() throws Exception {
         creaPosizioneConPendenza("pos-patch-pendenza-voci", "12345678901", "pendenza-patch-voci");
 
-        mockMvc.perform(MockMvcRequestBuilders.patch("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+        mockMvc.perform(MockMvcRequestBuilders.put("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
                         "pendenza-patch-voci")
-                        .contentType("application/json-patch+json")
+                        .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                [ { "op": "replace", "path": "/importo", "value": 30.00 },
-                                  { "op": "replace", "path": "/voci", "value": [
+                                { "idPendenza": "pendenza-patch-voci", "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                                  "importo": 30.00,
+                                  "voci": [
                                       { "tipoRiferimento": "RIFERIMENTO_ENTRATA",
                                         "idVocePendenza": "voce-pendenza-patch-voci", "importo": 16.00,
                                         "descrizione": "aggiornata", "codEntrata": "DIRITTI_SEGRETERIA" },
                                       { "tipoRiferimento": "RIFERIMENTO_ENTRATA",
                                         "idVocePendenza": "voce-nuova-patch-voci", "importo": 14.00,
                                         "descrizione": "nuova", "codEntrata": "DIRITTI_SEGRETERIA" }
-                                  ] } ]
+                                  ] }
                                 """))
                 .andExpect(status().isOk());
 
@@ -803,28 +813,324 @@ class PendenzaControllerTest {
                 .andExpect(jsonPath("$.voci[0].descrizione").value("aggiornata"))
                 // idDominio non indicato nella richiesta per nessuna delle due voci: deve
                 // restare (sulla esistente) o essere assegnato (sulla nuova) a quello della
-                // pendenza, non perdersi — bug riscontrato: tornava assente su entrambe.
+                // pendenza, non perdersi.
                 .andExpect(jsonPath("$.voci[0].idDominio").value("12345678901"))
                 .andExpect(jsonPath("$.voci[1].idVocePendenza").value("voce-nuova-patch-voci"))
                 .andExpect(jsonPath("$.voci[1].idDominio").value("12345678901"));
     }
 
     @Test
-    @DisplayName("PATCH /pendenze/{idA2A}/{idPendenza} rifiuta con 400 un /importo negativo, anche con "
-            + "somma voci coerente (bug: accettato con 200)")
+    @DisplayName("PUT /pendenze/{idA2A}/{idPendenza} permette la rimozione di una voce esistente, purche' "
+            + "ne resti almeno una — a differenza della precedente semantica di upsert")
+    void updatePendenzaPermetteRimozioneVoceEsistente() throws Exception {
+        creaPosizioneConPendenza("pos-patch-pendenza-voce-rimossa", "12345678901", "pendenza-patch-voce-rimossa");
+
+        mockMvc.perform(MockMvcRequestBuilders.put("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+                        "pendenza-patch-voce-rimossa")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "idPendenza": "pendenza-patch-voce-rimossa",
+                                  "idTipoPendenza": "DIRITTI_SEGRETERIA", "importo": 16.00,
+                                  "voci": [
+                                      { "tipoRiferimento": "RIFERIMENTO_ENTRATA",
+                                        "idVocePendenza": "voce-pendenza-patch-voce-rimossa", "importo": 10.00,
+                                        "descrizione": "originale", "codEntrata": "DIRITTI_SEGRETERIA" },
+                                      { "tipoRiferimento": "RIFERIMENTO_ENTRATA",
+                                        "idVocePendenza": "voce-sostituta", "importo": 6.00,
+                                        "descrizione": "sostituta", "codEntrata": "DIRITTI_SEGRETERIA" }
+                                  ] }
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(MockMvcRequestBuilders.put("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+                        "pendenza-patch-voce-rimossa")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "idPendenza": "pendenza-patch-voce-rimossa",
+                                  "idTipoPendenza": "DIRITTI_SEGRETERIA", "importo": 6.00,
+                                  "voci": [
+                                      { "tipoRiferimento": "RIFERIMENTO_ENTRATA",
+                                        "idVocePendenza": "voce-sostituta", "importo": 6.00,
+                                        "descrizione": "sostituta", "codEntrata": "DIRITTI_SEGRETERIA" }
+                                  ] }
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST", "pendenza-patch-voce-rimossa"))
+                .andExpect(jsonPath("$.voci.length()").value(1))
+                .andExpect(jsonPath("$.voci[0].idVocePendenza").value("voce-sostituta"));
+    }
+
+    /**
+     * Bug riscontrato: l'indice per le voci nuove veniva assegnato come "massimo indice
+     * esistente + 1", che cresce senza limite a ogni ciclo rimozione+aggiunta anche restando
+     * sempre a una sola voce — dopo 5 sostituzioni l'indice superava 5 (il {@code maximum}
+     * dello schema di {@code VocePendenza.indice}). {@code sostituisciVoci} ora riusa la riga
+     * della voce rimossa per quella nuova (stesso indice, un {@code UPDATE} non un
+     * {@code DELETE}+{@code INSERT}): qui ogni sostituzione rimpiazza l'unica voce presente
+     * con una nuova, quindi l'indice resta sempre 1.
+     */
+    @Test
+    @DisplayName("PUT /pendenze/{idA2A}/{idPendenza} non supera indice 5 dopo ripetute sostituzioni "
+            + "dell'unica voce presente")
+    void updatePendenzaNonSuperaIndiceMassimoDopoRipetuteSostituzioni() throws Exception {
+        creaPosizioneConPendenza("pos-patch-pendenza-indice", "12345678901", "pendenza-patch-indice");
+
+        for (int i = 1; i <= 5; i++) {
+            mockMvc.perform(MockMvcRequestBuilders.put("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+                            "pendenza-patch-indice")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    { "idPendenza": "pendenza-patch-indice",
+                                      "idTipoPendenza": "DIRITTI_SEGRETERIA", "importo": 16.00,
+                                      "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA",
+                                                  "idVocePendenza": "voce-indice-%d", "importo": 16.00,
+                                                  "descrizione": "sostituzione %d",
+                                                  "codEntrata": "DIRITTI_SEGRETERIA" } ] }
+                                    """.formatted(i, i)))
+                    .andExpect(status().isOk());
+        }
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST", "pendenza-patch-indice"))
+                .andExpect(jsonPath("$.voci.length()").value(1))
+                .andExpect(jsonPath("$.voci[0].idVocePendenza").value("voce-indice-5"))
+                .andExpect(jsonPath("$.voci[0].indice").value(1));
+    }
+
+    /**
+     * Caso limite per lo stesso fix: sostituire TUTTE le voci di una pendenza gia' al massimo
+     * (5) in un'unica PUT costringerebbe, con un'allocazione che evita solo gli indici delle
+     * voci matchate, a scegliere un indice {@code >} 5 per la prima voce nuova (nessuna voce
+     * sopravvive, quindi "nessun indice occupato" secondo quella logica, ma le 5 righe
+     * esistenti sono ancora fisicamente presenti quando Hibernate esegue gli insert). Con il
+     * riuso delle righe rimosse, invece, le 5 voci nuove si limitano a sovrascrivere le 5
+     * righe esistenti: nessun insert, nessun delete, nessuna collisione.
+     */
+    @Test
+    @DisplayName("PUT /pendenze/{idA2A}/{idPendenza} sostituisce tutte le 5 voci di una pendenza al "
+            + "massimo della cardinalita' senza superare indice 5 ne' errori di integrita'")
+    void updatePendenzaSostituisceTutteLeCinqueVociSenzaSuperareIndiceMassimo() throws Exception {
+        String body = """
+                {
+                  "idPosizioneDebitoria": "pos-patch-cinque-voci",
+                  "idDominio": "12345678901",
+                  "descrizione": "test cinque voci",
+                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
+                  "opzioniPagamento": [ {
+                    "tipologia": "SOLUZIONE_UNICA",
+                    "pendenze": [ {
+                      "idPendenza": "pendenza-cinque-voci",
+                      "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                      "importo": 50.00,
+                      "voci": [
+                          { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-a", "importo": 10.00,
+                            "descrizione": "a", "codEntrata": "DIRITTI_SEGRETERIA" },
+                          { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-b", "importo": 10.00,
+                            "descrizione": "b", "codEntrata": "DIRITTI_SEGRETERIA" },
+                          { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-c", "importo": 10.00,
+                            "descrizione": "c", "codEntrata": "DIRITTI_SEGRETERIA" },
+                          { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-d", "importo": 10.00,
+                            "descrizione": "d", "codEntrata": "DIRITTI_SEGRETERIA" },
+                          { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-e", "importo": 10.00,
+                            "descrizione": "e", "codEntrata": "DIRITTI_SEGRETERIA" }
+                      ]
+                    } ]
+                  } ]
+                }
+                """;
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}", "A2A-TEST")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(MockMvcRequestBuilders.put("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+                        "pendenza-cinque-voci")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "idPendenza": "pendenza-cinque-voci",
+                                  "idTipoPendenza": "DIRITTI_SEGRETERIA", "importo": 50.00,
+                                  "voci": [
+                                      { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-f",
+                                        "importo": 10.00, "descrizione": "f", "codEntrata": "DIRITTI_SEGRETERIA" },
+                                      { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-g",
+                                        "importo": 10.00, "descrizione": "g", "codEntrata": "DIRITTI_SEGRETERIA" },
+                                      { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-h",
+                                        "importo": 10.00, "descrizione": "h", "codEntrata": "DIRITTI_SEGRETERIA" },
+                                      { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-i",
+                                        "importo": 10.00, "descrizione": "i", "codEntrata": "DIRITTI_SEGRETERIA" },
+                                      { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-j",
+                                        "importo": 10.00, "descrizione": "j", "codEntrata": "DIRITTI_SEGRETERIA" }
+                                  ] }
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST", "pendenza-cinque-voci"))
+                .andExpect(jsonPath("$.voci.length()").value(5))
+                .andExpect(jsonPath("$.voci[0].indice").value(1))
+                .andExpect(jsonPath("$.voci[1].indice").value(2))
+                .andExpect(jsonPath("$.voci[2].indice").value(3))
+                .andExpect(jsonPath("$.voci[3].indice").value(4))
+                .andExpect(jsonPath("$.voci[4].indice").value(5))
+                .andExpect(jsonPath("$.voci[4].idVocePendenza").value("voce-j"));
+    }
+
+    /**
+     * Il riuso della riga (vedi test precedenti) sovrascrive anche {@code idTributo}: deve
+     * restare permesso quando la voce che la riusa e' genuinamente nuova (idVocePendenza
+     * diverso), non trattato come un cambio di riferimento sulla voce rimossa — altrimenti il
+     * controllo prima/dopo di {@code PosizioneDebitoriaService#aggiornaPendenza} (indicizzato
+     * per idVocePendenza, non per id di database — vedi suo Javadoc) tornerebbe erroneamente
+     * un 409.
+     */
+    @Test
+    @DisplayName("PUT /pendenze/{idA2A}/{idPendenza} permette di sostituire una voce con una nuova che ha "
+            + "un tributo diverso (non e' un cambio di riferimento sulla stessa voce)")
+    void updatePendenzaPermetteSostituzioneConTributoDiverso() throws Exception {
+        creaPosizioneConPendenza("pos-patch-pendenza-voce-nuovo-trib", "12345678901",
+                "pendenza-patch-voce-nuovo-trib");
+        aggiungiTributo("ALTRO_TRIBUTO_2", "Altro tributo 2");
+
+        mockMvc.perform(MockMvcRequestBuilders.put("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+                        "pendenza-patch-voce-nuovo-trib")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "idPendenza": "pendenza-patch-voce-nuovo-trib",
+                                  "idTipoPendenza": "DIRITTI_SEGRETERIA", "importo": 16.00,
+                                  "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA",
+                                              "idVocePendenza": "voce-altro-tributo", "importo": 16.00,
+                                              "descrizione": "nuova con altro tributo",
+                                              "codEntrata": "ALTRO_TRIBUTO_2" } ] }
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST", "pendenza-patch-voce-nuovo-trib"))
+                .andExpect(jsonPath("$.voci.length()").value(1))
+                .andExpect(jsonPath("$.voci[0].idVocePendenza").value("voce-altro-tributo"))
+                .andExpect(jsonPath("$.voci[0].codEntrata").value("ALTRO_TRIBUTO_2"));
+    }
+
+    @Test
+    @DisplayName("PUT /pendenze/{idA2A}/{idPendenza} rifiuta con 400 'voci' vuoto: deve restare almeno "
+            + "una voce (vincolo di schema, minItems: 1)")
+    void updatePendenzaRifiutaConBadRequestSeVociVuoto() throws Exception {
+        creaPosizioneConPendenza("pos-patch-pendenza-voci-vuoto", "12345678901", "pendenza-patch-voci-vuoto");
+
+        mockMvc.perform(MockMvcRequestBuilders.put("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+                        "pendenza-patch-voci-vuoto")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "idPendenza": "pendenza-patch-voci-vuoto",
+                                  "idTipoPendenza": "DIRITTI_SEGRETERIA", "importo": 0.00, "voci": [] }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    /**
+     * Bug riscontrato: due voci nuove con lo stesso {@code idVocePendenza} (importi diversi,
+     * totale coerente) venivano accettate ed entrambe salvate — un aggiornamento successivo
+     * della stessa pendenza avrebbe poi fallito nel matching per identificativo. Rifiutato da
+     * {@code ValidatorePosizioneDebitoria#validaPendenza} in govpay-common-pendenze.
+     */
+    @Test
+    @DisplayName("PUT /pendenze/{idA2A}/{idPendenza} rifiuta con 400 due voci con lo stesso idVocePendenza, "
+            + "anche con importi diversi e totale coerente")
+    void updatePendenzaRifiutaConBadRequestSeDueVociConLoStessoId() throws Exception {
+        creaPosizioneConPendenza("pos-patch-pendenza-voce-dup", "12345678901", "pendenza-patch-voce-dup");
+
+        mockMvc.perform(MockMvcRequestBuilders.put("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+                        "pendenza-patch-voce-dup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "idPendenza": "pendenza-patch-voce-dup", "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                                  "importo": 16.00,
+                                  "voci": [
+                                      { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-dup",
+                                        "importo": 10.00, "descrizione": "prima", "codEntrata": "DIRITTI_SEGRETERIA" },
+                                      { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-dup",
+                                        "importo": 6.00, "descrizione": "seconda", "codEntrata": "DIRITTI_SEGRETERIA" }
+                                  ] }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    /**
+     * Bug riscontrato: a differenza del caso sopra (due voci NUOVE con lo stesso id, che
+     * sopravvivono entrambe nell'aggregato e sono intercettate a valle da
+     * {@code ValidatorePosizioneDebitoria}), due occorrenze che puntano a una voce ESISTENTE
+     * matchano la STESSA entity: nessun duplicato arriva mai all'aggregato finale da
+     * controllare, e la richiesta veniva accettata con 200, con l'ultima occorrenza che
+     * sovrascriveva silenziosamente la prima.
+     */
+    @Test
+    @DisplayName("PUT /pendenze/{idA2A}/{idPendenza} rifiuta con 400 due occorrenze della stessa voce "
+            + "ESISTENTE, non solo due voci nuove duplicate")
+    void updatePendenzaRifiutaConBadRequestSeVoceEsistenteDuplicataNellaRichiesta() throws Exception {
+        creaPosizioneConPendenza("pos-patch-pendenza-voce-esis-dup", "12345678901",
+                "pendenza-patch-voce-esis-dup");
+
+        mockMvc.perform(MockMvcRequestBuilders.put("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+                        "pendenza-patch-voce-esis-dup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "idPendenza": "pendenza-patch-voce-esis-dup",
+                                  "idTipoPendenza": "DIRITTI_SEGRETERIA", "importo": 16.00,
+                                  "voci": [
+                                      { "tipoRiferimento": "RIFERIMENTO_ENTRATA",
+                                        "idVocePendenza": "voce-pendenza-patch-voce-esis-dup", "importo": 10.00,
+                                        "descrizione": "prima", "codEntrata": "DIRITTI_SEGRETERIA" },
+                                      { "tipoRiferimento": "RIFERIMENTO_ENTRATA",
+                                        "idVocePendenza": "voce-pendenza-patch-voce-esis-dup", "importo": 6.00,
+                                        "descrizione": "seconda", "codEntrata": "DIRITTI_SEGRETERIA" }
+                                  ] }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    /**
+     * Bug riscontrato: un elemento {@code null} nell'array {@code voci} superava la bean
+     * validation (che cascata solo sugli elementi non null) e falliva poi con un 500 non
+     * gestito dentro {@code PosizioneDebitoriaMapper#toVocePendenza}.
+     */
+    @Test
+    @DisplayName("PUT /pendenze/{idA2A}/{idPendenza} rifiuta con 400 un elemento null in 'voci', non 500")
+    void updatePendenzaRifiutaConBadRequestSeVoceNulla() throws Exception {
+        creaPosizioneConPendenza("pos-patch-pendenza-voce-null", "12345678901", "pendenza-patch-voce-null");
+
+        mockMvc.perform(MockMvcRequestBuilders.put("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+                        "pendenza-patch-voce-null")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "idPendenza": "pendenza-patch-voce-null",
+                                  "idTipoPendenza": "DIRITTI_SEGRETERIA", "importo": 16.00,
+                                  "voci": [ null ] }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    @DisplayName("PUT /pendenze/{idA2A}/{idPendenza} rifiuta con 400 un importo negativo, anche con "
+            + "somma voci coerente")
     void updatePendenzaRifiutaConBadRequestSeImportoNegativo() throws Exception {
         creaPosizioneConPendenza("pos-patch-pendenza-importo-neg", "12345678901", "pendenza-patch-importo-neg");
 
-        mockMvc.perform(MockMvcRequestBuilders.patch("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+        mockMvc.perform(MockMvcRequestBuilders.put("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
                         "pendenza-patch-importo-neg")
-                        .contentType("application/json-patch+json")
+                        .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                [ { "op": "replace", "path": "/importo", "value": -16.00 },
-                                  { "op": "replace", "path": "/voci", "value": [
-                                      { "tipoRiferimento": "RIFERIMENTO_ENTRATA",
-                                        "idVocePendenza": "voce-pendenza-patch-importo-neg", "importo": -16.00,
-                                        "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" }
-                                  ] } ]
+                                { "idPendenza": "pendenza-patch-importo-neg",
+                                  "idTipoPendenza": "DIRITTI_SEGRETERIA", "importo": -16.00,
+                                  "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA",
+                                              "idVocePendenza": "voce-pendenza-patch-importo-neg",
+                                              "importo": -16.00, "descrizione": "test",
+                                              "codEntrata": "DIRITTI_SEGRETERIA" } ] }
                                 """))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
@@ -832,19 +1138,19 @@ class PendenzaControllerTest {
     }
 
     @Test
-    @DisplayName("PATCH /pendenze/{idA2A}/{idPendenza} rifiuta con 400 (non 500) una voce senza importo")
+    @DisplayName("PUT /pendenze/{idA2A}/{idPendenza} rifiuta con 400 (non 500) una voce senza importo")
     void updatePendenzaRifiutaConBadRequestSeVoceSenzaImporto() throws Exception {
         creaPosizioneConPendenza("pos-patch-pendenza-voce-no-imp", "12345678901", "pendenza-patch-voce-no-imp");
 
-        mockMvc.perform(MockMvcRequestBuilders.patch("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+        mockMvc.perform(MockMvcRequestBuilders.put("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
                         "pendenza-patch-voce-no-imp")
-                        .contentType("application/json-patch+json")
+                        .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                [ { "op": "replace", "path": "/voci", "value": [
-                                      { "tipoRiferimento": "RIFERIMENTO_ENTRATA",
-                                        "idVocePendenza": "voce-pendenza-patch-voce-no-imp",
-                                        "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" }
-                                  ] } ]
+                                { "idPendenza": "pendenza-patch-voce-no-imp",
+                                  "idTipoPendenza": "DIRITTI_SEGRETERIA", "importo": 16.00,
+                                  "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA",
+                                              "idVocePendenza": "voce-pendenza-patch-voce-no-imp",
+                                              "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ] }
                                 """))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
@@ -852,42 +1158,21 @@ class PendenzaControllerTest {
     }
 
     @Test
-    @DisplayName("PATCH /pendenze/{idA2A}/{idPendenza} restituisce 409 se /voci omette una voce esistente "
-            + "(le voci esistenti non possono essere rimosse)")
-    void updatePendenzaRestituisce409SeVoceRimossa() throws Exception {
-        creaPosizioneConPendenza("pos-patch-pendenza-voce-rimossa", "12345678901", "pendenza-patch-voce-rimossa");
-
-        mockMvc.perform(MockMvcRequestBuilders.patch("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
-                        "pendenza-patch-voce-rimossa")
-                        .contentType("application/json-patch+json")
-                        .content("""
-                                [ { "op": "replace", "path": "/voci", "value": [
-                                      { "tipoRiferimento": "RIFERIMENTO_ENTRATA",
-                                        "idVocePendenza": "voce-sostituta", "importo": 16.00,
-                                        "descrizione": "sostituta", "codEntrata": "DIRITTI_SEGRETERIA" }
-                                  ] } ]
-                                """))
-                .andExpect(status().isConflict())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
-                .andExpect(jsonPath("$.status").value(409));
-    }
-
-    @Test
-    @DisplayName("PATCH /pendenze/{idA2A}/{idPendenza} restituisce 409 se /voci cambia il tributo di "
+    @DisplayName("PUT /pendenze/{idA2A}/{idPendenza} restituisce 409 se 'voci' cambia il tributo di "
             + "riferimento di una voce esistente")
     void updatePendenzaRestituisce409SeRiferimentoVoceModificato() throws Exception {
         creaPosizioneConPendenza("pos-patch-pendenza-voce-rif", "12345678901", "pendenza-patch-voce-rif");
         aggiungiTributo("ALTRO_TRIBUTO", "Altro tributo");
 
-        mockMvc.perform(MockMvcRequestBuilders.patch("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+        mockMvc.perform(MockMvcRequestBuilders.put("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
                         "pendenza-patch-voce-rif")
-                        .contentType("application/json-patch+json")
+                        .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                [ { "op": "replace", "path": "/voci", "value": [
-                                      { "tipoRiferimento": "RIFERIMENTO_ENTRATA",
-                                        "idVocePendenza": "voce-pendenza-patch-voce-rif", "importo": 16.00,
-                                        "descrizione": "test", "codEntrata": "ALTRO_TRIBUTO" }
-                                  ] } ]
+                                { "idPendenza": "pendenza-patch-voce-rif",
+                                  "idTipoPendenza": "DIRITTI_SEGRETERIA", "importo": 16.00,
+                                  "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA",
+                                              "idVocePendenza": "voce-pendenza-patch-voce-rif", "importo": 16.00,
+                                              "descrizione": "test", "codEntrata": "ALTRO_TRIBUTO" } ] }
                                 """))
                 .andExpect(status().isConflict())
                 .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
@@ -895,16 +1180,44 @@ class PendenzaControllerTest {
     }
 
     @Test
-    @DisplayName("PATCH /pendenze/{idA2A}/{idPendenza} rifiuta con 400 un path non supportato (es. /stato, "
-            + "rimosso: l'annullamento/ripristino si fa sull'opzione di pagamento)")
-    void updatePendenzaRifiutaConBadRequestSePathNonSupportato() throws Exception {
-        creaPosizioneConPendenza("pos-patch-pendenza-path", "12345678901", "pendenza-patch-path");
+    @DisplayName("PUT /pendenze/{idA2A}/{idPendenza} rifiuta con 400 se 'idPendenza' nel body non "
+            + "coincide con quello del path")
+    void updatePendenzaRifiutaConBadRequestSeIdPendenzaBodyDiverso() throws Exception {
+        creaPosizioneConPendenza("pos-patch-pendenza-id-diverso", "12345678901", "pendenza-patch-id-diverso");
 
-        mockMvc.perform(MockMvcRequestBuilders.patch("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
-                        "pendenza-patch-path")
-                        .contentType("application/json-patch+json")
+        mockMvc.perform(MockMvcRequestBuilders.put("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+                        "pendenza-patch-id-diverso")
+                        .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                [ { "op": "replace", "path": "/stato", "value": "ANNULLATO" } ]
+                                { "idPendenza": "un-altro-id", "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                                  "importo": 16.00,
+                                  "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA",
+                                              "idVocePendenza": "voce-pendenza-patch-id-diverso", "importo": 16.00,
+                                              "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ] }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    /**
+     * {@code idPendenza} e' {@code @NotNull} su {@code NuovaPendenza} (stesso schema della
+     * creazione): un body senza {@code idPendenza} e' rifiutato dalla bean validation prima
+     * ancora di arrivare al mapper, non e' un caso ammesso.
+     */
+    @Test
+    @DisplayName("PUT /pendenze/{idA2A}/{idPendenza} rifiuta con 400 un body senza 'idPendenza'")
+    void updatePendenzaRifiutaConBadRequestSeIdPendenzaAssente() throws Exception {
+        creaPosizioneConPendenza("pos-patch-pendenza-id-assente", "12345678901", "pendenza-patch-id-assente");
+
+        mockMvc.perform(MockMvcRequestBuilders.put("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+                        "pendenza-patch-id-assente")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "idTipoPendenza": "DIRITTI_SEGRETERIA", "importo": 16.00,
+                                  "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA",
+                                              "idVocePendenza": "voce-pendenza-patch-id-assente", "importo": 16.00,
+                                              "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ] }
                                 """))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
@@ -912,15 +1225,19 @@ class PendenzaControllerTest {
     }
 
     @Test
-    @DisplayName("PATCH /pendenze/{idA2A}/{idPendenza} rifiuta con 400 un /importo non numerico")
+    @DisplayName("PUT /pendenze/{idA2A}/{idPendenza} rifiuta con 400 un importo non numerico")
     void updatePendenzaRifiutaConBadRequestSeImportoNonNumerico() throws Exception {
         creaPosizioneConPendenza("pos-patch-pendenza-importo-nan", "12345678901", "pendenza-patch-importo-nan");
 
-        mockMvc.perform(MockMvcRequestBuilders.patch("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+        mockMvc.perform(MockMvcRequestBuilders.put("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
                         "pendenza-patch-importo-nan")
-                        .contentType("application/json-patch+json")
+                        .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                [ { "op": "replace", "path": "/importo", "value": "non-un-numero" } ]
+                                { "idPendenza": "pendenza-patch-importo-nan",
+                                  "idTipoPendenza": "DIRITTI_SEGRETERIA", "importo": "non-un-numero",
+                                  "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA",
+                                              "idVocePendenza": "voce-pendenza-patch-importo-nan", "importo": 16.00,
+                                              "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ] }
                                 """))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
@@ -928,13 +1245,17 @@ class PendenzaControllerTest {
     }
 
     @Test
-    @DisplayName("PATCH /pendenze/{idA2A}/{idPendenza} restituisce 404 se la pendenza non esiste")
+    @DisplayName("PUT /pendenze/{idA2A}/{idPendenza} restituisce 404 se la pendenza non esiste")
     void updatePendenzaRestituisce404SeNonEsiste() throws Exception {
-        mockMvc.perform(MockMvcRequestBuilders.patch("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+        mockMvc.perform(MockMvcRequestBuilders.put("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
                         "pendenza-inesistente")
-                        .contentType("application/json-patch+json")
+                        .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                [ { "op": "replace", "path": "/dataValidita", "value": "2027-01-01" } ]
+                                { "idPendenza": "pendenza-inesistente", "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                                  "importo": 16.00,
+                                  "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA",
+                                              "idVocePendenza": "voce-1", "importo": 16.00,
+                                              "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ] }
                                 """))
                 .andExpect(status().isNotFound())
                 .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
@@ -942,17 +1263,21 @@ class PendenzaControllerTest {
     }
 
     @Test
-    @DisplayName("PATCH /pendenze/{idA2A}/{idPendenza} restituisce 409 se la pendenza e' ESEGUITA: "
+    @DisplayName("PUT /pendenze/{idA2A}/{idPendenza} restituisce 409 se la pendenza e' ESEGUITA: "
             + "i metadati si possono aggiornare solo se NON_ESEGUITO o ANNULLATO")
     void updatePendenzaRestituisce409SePendenzaEseguita() throws Exception {
         creaPosizioneConPendenza("pos-patch-pendenza-409", "12345678901", "pendenza-patch-409");
         forzaStato("pendenza-patch-409", StatoPendenza.ESEGUITO);
 
-        mockMvc.perform(MockMvcRequestBuilders.patch("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+        mockMvc.perform(MockMvcRequestBuilders.put("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
                         "pendenza-patch-409")
-                        .contentType("application/json-patch+json")
+                        .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                [ { "op": "replace", "path": "/dataValidita", "value": "2027-01-01" } ]
+                                { "idPendenza": "pendenza-patch-409", "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                                  "importo": 16.00,
+                                  "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA",
+                                              "idVocePendenza": "voce-pendenza-patch-409", "importo": 16.00,
+                                              "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ] }
                                 """))
                 .andExpect(status().isConflict())
                 .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
@@ -1049,99 +1374,6 @@ class PendenzaControllerTest {
         pendenzaRepository.save(pendenza);
     }
 
-    private void forzaStatoEScadenzaPassata(String idPendenza, StatoPendenza stato) {
-        Pendenza pendenza = pendenzaRepository.findAll().stream()
-                .filter(p -> idPendenza.equals(p.getIdPendenza()))
-                .findFirst().orElseThrow();
-        pendenza.setStato(stato);
-        pendenza.setDataScadenzaAvviso(OffsetDateTime.now().minusDays(1));
-        pendenzaRepository.save(pendenza);
-    }
-
-    @Test
-    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/stampa restituisce l'avviso in JSON, con qrcode/barcode")
-    void getStampaPendenzaRestituisceAvvisoJson() throws Exception {
-        String numeroAvviso = creaPosizioneConPendenza("pos-stampa-1", "12345678901", "pendenza-stampa-1");
-
-        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/stampa", "A2A-TEST", "pendenza-stampa-1"))
-                .andExpect(status().isOk())
-                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-                .andExpect(jsonPath("$.stato").value("NON_ESEGUITA"))
-                .andExpect(jsonPath("$.importo").value(16.00))
-                .andExpect(jsonPath("$.idDominio").value("12345678901"))
-                .andExpect(jsonPath("$.numeroAvviso").value(numeroAvviso))
-                .andExpect(jsonPath("$.descrizione").value("test ricerca pendenze"))
-                .andExpect(jsonPath("$.qrcode").value(notNullValue()))
-                .andExpect(jsonPath("$.barcode").value(notNullValue()));
-    }
-
-    @Test
-    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/stampa mappa ESEGUITO su stato DUPLICATA")
-    void getStampaPendenzaMappaEseguitoSuDuplicata() throws Exception {
-        creaPosizioneConPendenza("pos-stampa-eseguito", "12345678901", "pendenza-stampa-eseguito");
-        forzaStato("pendenza-stampa-eseguito", StatoPendenza.ESEGUITO);
-
-        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/stampa", "A2A-TEST", "pendenza-stampa-eseguito"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.stato").value("DUPLICATA"));
-    }
-
-    @Test
-    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/stampa mappa NON_ESEGUITO con scadenza passata su stato SCADUTA")
-    void getStampaPendenzaMappaNonEseguitoConScadenzaPassataSuScaduta() throws Exception {
-        creaPosizioneConPendenza("pos-stampa-scaduta", "12345678901", "pendenza-stampa-scaduta");
-        forzaStatoEScadenzaPassata("pendenza-stampa-scaduta", StatoPendenza.NON_ESEGUITO);
-
-        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/stampa", "A2A-TEST", "pendenza-stampa-scaduta"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.stato").value("SCADUTA"));
-    }
-
-    @Test
-    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/stampa mappa uno stato ambiguo (ANOMALO/ESEGUITO_SENZA_RPT/"
-            + "INCASSATO) su stato SCONOSCIUTA, come fa govpay-portal-api per lo stesso caso")
-    void getStampaPendenzaMappaStatoAmbiguoSuSconosciuta() throws Exception {
-        creaPosizioneConPendenza("pos-stampa-anomalo", "12345678901", "pendenza-stampa-anomalo");
-        forzaStato("pendenza-stampa-anomalo", StatoPendenza.ANOMALO);
-
-        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/stampa", "A2A-TEST", "pendenza-stampa-anomalo"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.stato").value("SCONOSCIUTA"));
-    }
-
-    private String idOpzioneDi(String idPosizioneDebitoria) throws Exception {
-        String risposta = mockMvc
-                .perform(get("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", idPosizioneDebitoria))
-                .andReturn().getResponse().getContentAsString();
-        return JsonPath.read(risposta, "$.opzioniPagamento[0].idOpzionePagamento");
-    }
-
-    /**
-     * {@code PosizioneDebitoriaService#annulla} tocca solo {@code StatoOpzionePagamento}, mai
-     * {@code StatoPendenza} (vedi Javadoc di {@code AvvisoMapper#mapStato}): la pendenza resta
-     * {@code NON_ESEGUITO} per sempre, ma l'avviso deve riflettere comunque l'annullamento.
-     */
-    @Test
-    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/stampa mappa su ANNULLATA quando l'opzione di pagamento e' "
-            + "stata annullata via PATCH, anche se lo stato della pendenza resta NON_ESEGUITO")
-    void getStampaPendenzaMappaSuAnnullataSeOpzioneAnnullata() throws Exception {
-        creaPosizioneConPendenza("pos-stampa-opz-annullata", "12345678901", "pendenza-stampa-opz-annullata");
-        String idOpzione = idOpzioneDi("pos-stampa-opz-annullata");
-
-        mockMvc.perform(MockMvcRequestBuilders.patch(
-                        "/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}",
-                        "A2A-TEST", "pos-stampa-opz-annullata", idOpzione)
-                        .contentType("application/json-patch+json")
-                        .content("""
-                                [ { "op": "replace", "path": "/stato", "value": "ANNULLATA" } ]
-                                """))
-                .andExpect(status().isOk());
-
-        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/stampa", "A2A-TEST", "pendenza-stampa-opz-annullata"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.stato").value("ANNULLATA"));
-    }
-
     @Test
     @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/stampa restituisce 404 se la pendenza non esiste")
     void getStampaPendenzaRestituisce404SeNonEsiste() throws Exception {
@@ -1153,7 +1385,7 @@ class PendenzaControllerTest {
 
     @Test
     @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/stampa restituisce 406 per un Accept non compatibile "
-            + "ne' con JSON ne' con PDF")
+            + "con PDF")
     void getStampaPendenzaRestituisce406PerAcceptNonSupportato() throws Exception {
         creaPosizioneConPendenza("pos-stampa-406", "12345678901", "pendenza-stampa-406");
 
@@ -1164,65 +1396,21 @@ class PendenzaControllerTest {
     }
 
     /**
-     * {@code application/json;q=0} esclude esplicitamente JSON (non e' solo "meno preferito"):
-     * con {@code informativaImporto} valorizzato (400 sul ramo JSON, nessun campo corrispondente
-     * in {@link it.govpay.pendenze.api.model.Avviso}), il 503 (non il 400) conferma che e' stato
-     * scelto il ramo PDF nonostante JSON sia elencato per primo nell'Accept.
+     * {@code application/pdf;q=0} esclude esplicitamente il PDF (non e' solo "meno preferito"),
+     * l'unico content-type prodotto da questo endpoint: il wildcard generico, meno specifico,
+     * non deve "resuscitarlo" solo perche' ha una qualita' maggiore (vedi Javadoc di
+     * {@code PendenzaController#qualitaPiuSpecifica}).
      */
     @Test
-    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/stampa rispetta q=0: Accept 'application/json;q=0, "
-            + "application/pdf' sceglie il PDF anche se JSON e' elencato per primo")
-    void getStampaPendenzaRispettaQualityZeroEscludendoJson() throws Exception {
+    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/stampa restituisce 406 se l'Accept esclude esplicitamente "
+            + "application/pdf (q=0), anche con un wildcard generico di qualita' maggiore")
+    void getStampaPendenzaRestituisce406SeAcceptEsclude406Pdf() throws Exception {
         creaPosizioneConPendenza("pos-stampa-q0", "12345678901", "pendenza-stampa-q0");
 
         mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/stampa", "A2A-TEST", "pendenza-stampa-q0")
-                        .header("Accept", "application/json;q=0, application/pdf")
-                        .param("informativaImporto", "Testo personalizzato"))
-                .andExpect(status().isServiceUnavailable())
-                .andExpect(jsonPath("$.status").value(503));
-    }
-
-    /**
-     * Il wildcard generico non deve "resuscitare" un'esclusione specifica: la qualita' di JSON
-     * va presa dal match piu' specifico ({@code application/json;q=0}), non dal wildcard
-     * ({@code *}/{@code *};q=1) solo perche' quest'ultimo ha una qualita' maggiore.
-     */
-    @Test
-    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/stampa rispetta q=0 anche se un wildcard generico con "
-            + "qualita' maggiore e' presente: Accept 'application/json;q=0, */*;q=1' non riabilita JSON")
-    void getStampaPendenzaIlWildcardNonResuscitaUnFormatoEscluso() throws Exception {
-        creaPosizioneConPendenza("pos-stampa-wild", "12345678901", "pendenza-stampa-wild");
-
-        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/stampa", "A2A-TEST", "pendenza-stampa-wild")
-                        .header("Accept", "application/json;q=0, */*;q=1")
-                        .param("informativaImporto", "Testo personalizzato"))
-                .andExpect(status().isServiceUnavailable())
-                .andExpect(jsonPath("$.status").value(503));
-    }
-
-    @Test
-    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/stampa rispetta la priorita' per qualita': Accept "
-            + "'application/pdf;q=0.5, application/json' sceglie JSON (qualita' maggiore) anche se PDF e' "
-            + "elencato per primo")
-    void getStampaPendenzaRispettaPrioritaPerQualita() throws Exception {
-        creaPosizioneConPendenza("pos-stampa-prio", "12345678901", "pendenza-stampa-prio");
-
-        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/stampa", "A2A-TEST", "pendenza-stampa-prio")
-                        .header("Accept", "application/pdf;q=0.5, application/json"))
-                .andExpect(status().isOk())
-                .andExpect(content().contentType(MediaType.APPLICATION_JSON));
-    }
-
-    @Test
-    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/stampa restituisce 400 se causaleTradotta e' valorizzato "
-            + "sulla variante application/json: non ha alcun effetto li', si applica solo al PDF")
-    void getStampaPendenzaJsonRestituisce400SeCausaleTradottaValorizzata() throws Exception {
-        creaPosizioneConPendenza("pos-stampa-causale", "12345678901", "pendenza-stampa-causale");
-
-        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/stampa", "A2A-TEST", "pendenza-stampa-causale")
-                        .param("causaleTradotta", "Payment notice"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.status").value(400));
+                        .header("Accept", "application/pdf;q=0, */*;q=1"))
+                .andExpect(status().isNotAcceptable())
+                .andExpect(jsonPath("$.status").value(406));
     }
 
     /**
@@ -1241,18 +1429,6 @@ class PendenzaControllerTest {
                         .param("causaleTradotta", "Payment notice"))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.status").value(503));
-    }
-
-    @Test
-    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/stampa restituisce 400 se informativaImportoTradotta e' "
-            + "valorizzato sulla variante application/json: non ha alcun effetto li', si applica solo al PDF")
-    void getStampaPendenzaJsonRestituisce400SeInformativaImportoTradottaValorizzata() throws Exception {
-        creaPosizioneConPendenza("pos-stampa-info-tradotta", "12345678901", "pendenza-stampa-info-tradotta");
-
-        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/stampa", "A2A-TEST", "pendenza-stampa-info-tradotta")
-                        .param("informativaImportoTradotta", "Testo tradotto"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.status").value(400));
     }
 
     /**
@@ -1300,18 +1476,6 @@ class PendenzaControllerTest {
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
                 .andExpect(jsonPath("$.status").value(503));
-    }
-
-    @Test
-    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/stampa restituisce 400 se informativaImporto e' valorizzato "
-            + "sulla variante application/json: non ha alcun effetto li', si applica solo al PDF")
-    void getStampaPendenzaJsonRestituisce400SeInformativaImportoValorizzata() throws Exception {
-        creaPosizioneConPendenza("pos-stampa-info-json", "12345678901", "pendenza-stampa-info-json");
-
-        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/stampa", "A2A-TEST", "pendenza-stampa-info-json")
-                        .param("informativaImporto", "Testo personalizzato"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.status").value(400));
     }
 
     /**

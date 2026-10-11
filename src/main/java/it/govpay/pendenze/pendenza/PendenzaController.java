@@ -6,6 +6,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 
+import org.springframework.core.io.Resource;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpHeaders;
@@ -15,10 +16,9 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.RestController;
 
 import it.govpay.common.metrics.ExternalCallMetricsRecorder;
-import it.govpay.pendenze.api.model.Avviso;
 import it.govpay.pendenze.api.model.LinguaSecondaria;
+import it.govpay.pendenze.api.model.NuovaPendenza;
 import it.govpay.pendenze.api.model.Pagination;
-import it.govpay.pendenze.api.model.PatchOp;
 import it.govpay.pendenze.api.model.PendenzaIndex;
 import it.govpay.pendenze.api.model.Pendenze;
 import it.govpay.pendenze.api.model.Rendicontazione;
@@ -28,7 +28,6 @@ import it.govpay.pendenze.api.model.RicevutaIndex;
 import it.govpay.pendenze.api.model.Ricevute;
 import it.govpay.pendenze.api.rest.PendenzeApi;
 import it.govpay.pendenze.avviso.AvvisoAnagraficaAssenteException;
-import it.govpay.pendenze.avviso.AvvisoMapper;
 import it.govpay.pendenze.avviso.AvvisoMbtException;
 import it.govpay.pendenze.avviso.AvvisoPdfPayloadMapper;
 import it.govpay.pendenze.avviso.StampeClient;
@@ -69,7 +68,6 @@ public class PendenzaController implements PendenzeApi {
     static final String ORDINAMENTO_FISSO_CURSORE = "dataCreazione desc, id desc";
 
     private final PosizioneDebitoriaMapper mapper;
-    private final AvvisoMapper avvisoMapper;
     private final AvvisoPdfPayloadMapper avvisoPdfPayloadMapper;
     private final StampeClient stampeClient;
     private final ExternalCallMetricsRecorder externalCallMetricsRecorder;
@@ -83,7 +81,7 @@ public class PendenzaController implements PendenzeApi {
     private final CurrentApplicazioneService currentApplicazioneService;
     private final AclAuthorizer aclAuthorizer;
 
-    public PendenzaController(PosizioneDebitoriaMapper mapper, AvvisoMapper avvisoMapper,
+    public PendenzaController(PosizioneDebitoriaMapper mapper,
             AvvisoPdfPayloadMapper avvisoPdfPayloadMapper, StampeClient stampeClient,
             ExternalCallMetricsRecorder externalCallMetricsRecorder,
             PosizioneDebitoriaService posizioneDebitoriaService,
@@ -92,7 +90,6 @@ public class PendenzaController implements PendenzeApi {
             HttpServletRequest currentRequest, HttpServletResponse currentResponse,
             CurrentApplicazioneService currentApplicazioneService, AclAuthorizer aclAuthorizer) {
         this.mapper = mapper;
-        this.avvisoMapper = avvisoMapper;
         this.avvisoPdfPayloadMapper = avvisoPdfPayloadMapper;
         this.stampeClient = stampeClient;
         this.externalCallMetricsRecorder = externalCallMetricsRecorder;
@@ -108,20 +105,23 @@ public class PendenzaController implements PendenzeApi {
     }
 
     /**
-     * {@code PATCH .../pendenze/{idA2A}/{idPendenza}}: aggiorna i metadati della singola
-     * pendenza (vedi Javadoc di {@link PosizioneDebitoriaMapper#applicaPatchPendenza} per la
-     * superficie esatta — {@code /dataScadenzaAvviso}, {@code /dataValidita}, {@code /importo},
-     * {@code /voci}). Non annulla/ripristina piu' la pendenza: quell'operazione e' sull'opzione
-     * di pagamento ({@code PATCH .../opzioni-pagamento/{id}}, {@code PosizioneDebitoriaController}) —
-     * vedi Javadoc di classe di {@code PosizioneDebitoriaService}.
+     * {@code PUT .../pendenze/{idA2A}/{idPendenza}}: sostituisce i dati della singola pendenza
+     * (vedi Javadoc di {@link PosizioneDebitoriaMapper#applicaPutPendenza} per la superficie
+     * esatta e i campi non editabili). Non annulla/ripristina piu' la pendenza: quell'operazione
+     * e' sull'opzione di pagamento ({@code PATCH .../opzioni-pagamento/{id}},
+     * {@code PosizioneDebitoriaController}) — vedi Javadoc di classe di
+     * {@code PosizioneDebitoriaService}.
      */
     @Override
     @Transactional
-    public ResponseEntity<Void> updatePendenza(String idA2A, String idPendenza, List<PatchOp> patchOp) {
+    public ResponseEntity<Void> updatePendenza(String idA2A, String idPendenza, NuovaPendenza nuovaPendenza) {
         aclAuthorizer.richiedeScrittura();
         currentApplicazioneService.verificaIdA2A(idA2A);
+        if (nuovaPendenza == null) {
+            throw new ValidazioneNonSuperataException("body della richiesta mancante");
+        }
         posizioneDebitoriaService.aggiornaPendenza(idA2A, idPendenza,
-                pendenza -> mapper.applicaPatchPendenza(pendenza, patchOp));
+                pendenza -> mapper.applicaPutPendenza(idA2A, pendenza, nuovaPendenza));
         return ResponseEntity.ok().build();
     }
 
@@ -144,53 +144,45 @@ public class PendenzaController implements PendenzeApi {
     }
 
     /**
-     * Negoziazione del content-type fatta a mano (non tramite il meccanismo automatico di
-     * Spring MVC, dichiarato solo a fini documentali dal {@code produces} generato): questo
-     * endpoint alterna JSON e PDF sullo stesso path, cosa che un {@code ResponseEntity<Avviso>}
-     * a tipizzazione fissa non potrebbe esprimere per il ramo PDF (streaming di byte grezzi) —
-     * stesso pattern di {@code AvvisiController}/{@code AvvisoService.chooseContentType} in v2
-     * e govpay-console-api. {@code 406} per un Accept che non e' compatibile ne' con JSON ne'
-     * con PDF.
+     * Unico content-type prodotto: {@code application/pdf}. Risposta gestita a mano (non
+     * tramite il meccanismo automatico di Spring MVC, dichiarato solo a fini documentali dal
+     * {@code produces} generato): e' streaming diretto di byte grezzi sulla
+     * {@link HttpServletResponse}, che un {@code ResponseEntity} a corpo tipizzato non potrebbe
+     * esprimere — stesso pattern di {@code AvvisiController}/{@code AvvisoService} in v2 e
+     * govpay-console-api. {@code 406} se l'Accept richiesto esclude esplicitamente
+     * {@code application/pdf} (vedi Javadoc di {@link #verificaAcceptCompatibileConPdf}).
      *
-     * <p>Ramo PDF: {@code isPendenzaMbt} blocca con 422 le pendenze con Marca da Bollo
-     * Telematica (l'avviso PDF non le si applica, vedi Javadoc di
-     * {@link AvvisoPdfPayloadMapper#isPendenzaMbt}); stesso 422 se il debitore non ha
-     * anagrafica (vedi Javadoc di {@link AvvisoPdfPayloadMapper#isAnagraficaDebitoreAssente});
-     * altrimenti costruisce il payload e fa
-     * streaming diretto della risposta di govpay-stampe sulla {@link HttpServletResponse},
-     * senza passare per gli {@code HttpMessageConverter} (che non saprebbero gestire un body
-     * PDF qui) — la {@code return null} segnala al chiamante ({@code getStampaPendenza} stesso)
-     * che risposta e header sono gia' stati scritti.</p>
+     * <p>{@code isPendenzaMbt} blocca con 422 le pendenze con Marca da Bollo Telematica
+     * (l'avviso PDF non le si applica, vedi Javadoc di
+     * {@link AvvisoPdfPayloadMapper#isPendenzaMbt}); stesso 422 se il debitore non ha anagrafica
+     * (vedi Javadoc di {@link AvvisoPdfPayloadMapper#isAnagraficaDebitoreAssente}); altrimenti
+     * costruisce il payload e fa streaming diretto della risposta di govpay-stampe, senza
+     * passare per gli {@code HttpMessageConverter} (che non saprebbero gestire un body PDF
+     * qui).</p>
      *
      * <p>{@code causaleTradotta} va in {@code second_language.title} dello schema di
      * govpay-stampe-api (quel campo e' l'oggetto del pagamento, non un'etichetta fissa del
      * documento — vedi Javadoc di {@code AvvisoPdfPayloadMapper.buildSecondLanguage}),
      * {@code informativaImporto} nel campo {@code informativa_importo} su
      * {@code PaymentNotice}, {@code informativaImportoTradotta} in
-     * {@code second_language.informativa_importo}: tutti e tre hanno effetto solo sul PDF, sul
-     * ramo JSON non esiste un campo corrispondente in {@link Avviso}, quindi restano rifiutati
-     * solo li'.</p>
+     * {@code second_language.informativa_importo}.</p>
      *
-     * <p>{@code causaleTradotta} e' invece obbligatorio (400, non piu' un 502 dovuto al rifiuto
-     * di govpay-stampe) quando {@code linguaSecondaria} e' specificato: {@code second_language}
-     * e' {@code bilinguism}/{@code language}/{@code title} richiesti nello schema di
-     * govpay-stampe — un avviso bilingue senza causale tradotta sarebbe un documento bilingue
-     * incompleto (l'oggetto del pagamento resterebbe non tradotto), non un caso da accettare
+     * <p>{@code causaleTradotta} e' obbligatorio (400, non un 502 dovuto al rifiuto di
+     * govpay-stampe) quando {@code linguaSecondaria} e' specificato: {@code second_language} e'
+     * {@code bilinguism}/{@code language}/{@code title} richiesti nello schema di govpay-stampe
+     * — un avviso bilingue senza causale tradotta sarebbe un documento bilingue incompleto
+     * (l'oggetto del pagamento resterebbe non tradotto), non un caso da accettare
      * silenziosamente.</p>
      */
     @Override
     @Transactional(readOnly = true)
-    public ResponseEntity<Avviso> getStampaPendenza(String idA2A, String idPendenza,
+    public ResponseEntity<Resource> getStampaPendenza(String idA2A, String idPendenza,
             LinguaSecondaria linguaSecondaria, String causaleTradotta, String informativaImporto,
             String informativaImportoTradotta) {
         aclAuthorizer.richiedeLettura();
         currentApplicazioneService.verificaIdA2A(idA2A);
+        verificaAcceptCompatibileConPdf();
 
-        if (MediaType.APPLICATION_JSON.equals(risolviContentType())) {
-            rifiutaPersonalizzazioniPdfSuJson(causaleTradotta, informativaImporto, informativaImportoTradotta);
-            Pendenza pendenza = trovaPendenza(idA2A, idPendenza);
-            return ResponseEntity.ok(avvisoMapper.toAvviso(pendenza));
-        }
         Pendenza pendenza = trovaPendenza(idA2A, idPendenza);
         streamAvvisoPdf(pendenza, linguaSecondaria, causaleTradotta, informativaImporto, informativaImportoTradotta);
         return ResponseEntity.ok().build();
@@ -228,37 +220,25 @@ public class PendenzaController implements PendenzeApi {
         }
     }
 
-    private static final List<MediaType> TIPI_SUPPORTATI = List.of(MediaType.APPLICATION_JSON,
-            MediaType.APPLICATION_PDF);
-
     /**
-     * Risolve il content-type da produrre rispettando la qualita' (q) dell'Accept (RFC 7231
+     * Verifica che l'Accept richiesto non escluda {@code application/pdf}, l'unico
+     * content-type prodotto da questo endpoint; rispetta la qualita' (q) dell'Accept (RFC 7231
      * §5.3.2). {@code MediaType.isCompatibleWith} da solo confronta solo tipo/sottotipo e
-     * ignora {@code q}: un Accept come {@code "application/pdf, application/json;q=0"}
-     * esplicitamente esclude JSON (q=0, non solo "meno preferito").
-     *
-     * <p>Scartare subito le entry con q=0 non basta: con un Accept come
-     * {@code "application/json;q=0, [wildcard generico];q=1"} un filtro upfront scarterebbe
-     * solo la entry JSON, lasciando il wildcard (q=1) "resuscitare" JSON — esattamente
-     * l'esclusione specifica che si voleva rispettare. Serve invece, per ciascun formato
-     * supportato, la qualita' della corrispondenza PIU' SPECIFICA nell'Accept (un match
-     * esatto, es. {@code application/json}, prevale su un match di sottotipo wildcard, es.
-     * {@code application/*}, che a sua volta prevale sul wildcard generico) — solo dopo si
-     * sceglie il formato con la qualita' cosi' determinata piu' alta tra quelli supportati.
-     * Nessun Accept (assente/vuoto) → JSON, stesso default di prima.</p>
+     * ignora {@code q}: un Accept come {@code "application/pdf;q=0, [wildcard generico];q=1"}
+     * esplicitamente esclude il PDF (q=0, non solo "meno preferito") — il wildcard, meno
+     * specifico, non deve "resuscitarlo" (vedi Javadoc di {@link #qualitaPiuSpecifica}).
+     * Nessun Accept (assente/vuoto) → va bene, stesso default di prima.
      */
-    private MediaType risolviContentType() {
+    private void verificaAcceptCompatibileConPdf() {
         String accept = currentRequest.getHeader("Accept");
         if (accept == null || accept.isBlank()) {
-            return MediaType.APPLICATION_JSON;
+            return;
         }
         List<MediaType> richiesti = MediaType.parseMediaTypes(accept);
-        return TIPI_SUPPORTATI.stream()
-                .filter(tipo -> qualitaPiuSpecifica(tipo, richiesti) > 0)
-                .max(Comparator.comparingDouble(tipo -> qualitaPiuSpecifica(tipo, richiesti)))
-                .orElseThrow(() -> new NotAcceptableMediaTypeException(
-                        "Accept header non compatibile: i content-type supportati da questo endpoint sono "
-                                + "application/json e application/pdf."));
+        if (qualitaPiuSpecifica(MediaType.APPLICATION_PDF, richiesti) <= 0) {
+            throw new NotAcceptableMediaTypeException(
+                    "Accept header non compatibile: questo endpoint produce solo application/pdf.");
+        }
     }
 
     /**
@@ -297,16 +277,6 @@ public class PendenzaController implements PendenzeApi {
             throw new ValidazioneNonSuperataException(
                     "il parametro 'causaleTradotta' e' obbligatorio quando 'linguaSecondaria' e' specificato: "
                             + "un avviso bilingue senza causale tradotta non e' un documento valido.");
-        }
-    }
-
-    private void rifiutaPersonalizzazioniPdfSuJson(String causaleTradotta, String informativaImporto,
-            String informativaImportoTradotta) {
-        if (causaleTradotta != null || informativaImporto != null || informativaImportoTradotta != null) {
-            throw new ValidazioneNonSuperataException(
-                    "i parametri 'causaleTradotta'/'informativaImporto'/'informativaImportoTradotta' non hanno "
-                            + "effetto sulla variante application/json di questo endpoint: si applicano solo al "
-                            + "PDF.");
         }
     }
 

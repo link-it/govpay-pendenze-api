@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import it.govpay.pendenze.api.model.NuovaOpzionePagamento;
+import it.govpay.pendenze.api.model.NuovaPendenza;
 import it.govpay.pendenze.api.model.NuovaPosizioneDebitoria;
 import it.govpay.pendenze.api.model.OpzionePagamento;
 import it.govpay.pendenze.api.model.PatchOp;
@@ -38,7 +39,7 @@ import tools.jackson.databind.ObjectMapper;
 /**
  * Implementa {@link PosizioniDebitorieApi}: per ora {@link #addPosizioneDebitoria},
  * {@link #getPosizioneDebitoria}, {@link #updatePosizioneDebitoria},
- * {@link #findPosizioniDebitorie}, {@link #addOpzionePagamento} e
+ * {@link #findPosizioniDebitorie}, {@link #addOpzionePagamento}, {@link #addPendenza} e
  * {@link #updateOpzionePagamento}, le altre operazioni restano sul default generato (501,
  * vedi Javadoc dell'interfaccia) fino al loro sviluppo.
  */
@@ -163,6 +164,29 @@ public class PosizioneDebitoriaController implements PosizioniDebitorieApi {
                 posizione -> mapper.toOpzionePagamento(idA2A, posizione.getIdDominio(), nuovaOpzionePagamento));
         return ResponseEntity.status(org.springframework.http.HttpStatus.CREATED)
                 .body(mapper.toOpzionePagamentoDto(creata));
+    }
+
+    /**
+     * Aggiunge una pendenza a un'opzione di pagamento ESISTENTE — vedi Javadoc di
+     * {@code PosizioneDebitoriaService#aggiungiPendenza} per i vincoli (opzione
+     * {@code DISPONIBILE}; la cardinalita' massima della tipologia e' verificata dal
+     * validatore di libreria, non qui, perche' e' la stessa fonte unica usata in creazione).
+     * L'appartenenza di {@code idOpzionePagamento} a QUESTA posizione/applicazione e'
+     * verificata dal servizio, non qui — stesso principio di {@link #updateOpzionePagamento}.
+     */
+    @Override
+    @Transactional
+    public ResponseEntity<it.govpay.pendenze.api.model.Pendenza> addPendenza(String idA2A,
+            String idPosizioneDebitoria, java.util.UUID idOpzionePagamento, NuovaPendenza nuovaPendenza) {
+        aclAuthorizer.richiedeScrittura();
+        currentApplicazioneService.verificaIdA2A(idA2A);
+        if (nuovaPendenza == null) {
+            throw new ValidazioneNonSuperataException("body della richiesta mancante");
+        }
+        it.govpay.pendenze.entity.Pendenza creata = posizioneDebitoriaService.aggiungiPendenza(idA2A,
+                idPosizioneDebitoria, idOpzionePagamento,
+                opzione -> mapper.toPendenza(idA2A, opzione.getPosizioneDebitoria().getIdDominio(), nuovaPendenza));
+        return ResponseEntity.status(org.springframework.http.HttpStatus.CREATED).body(mapper.toPendenzaDto(creata));
     }
 
     /**

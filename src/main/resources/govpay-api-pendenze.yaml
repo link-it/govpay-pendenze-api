@@ -33,11 +33,6 @@ tags:
     description: Alimentazione e consultazione delle posizioni debitorie
   - name: Pendenze
     description: Consultazione e aggiornamento puntuale delle singole pendenze (rate)
-  - name: Anagrafiche
-    description: >-
-      Consultazione delle anagrafiche di domini, unità operative, tipi
-      pendenza, IBAN di accredito e tipi entrata. Sono visibili solo le
-      entità per cui l'applicativo chiamante ha autorizzazione.
 security:
   - basicAuth: []
 paths:
@@ -518,8 +513,92 @@ paths:
         '500':
           $ref: '#/components/responses/500ServiceUnavailable'
 
+  '/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}/pendenze':
+    post:
+      tags:
+        - PosizioniDebitorie
+      summary: Aggiunta di una pendenza a un'opzione di pagamento esistente
+      operationId: addPendenza
+      description: >-
+        Aggiunge una nuova pendenza a un'opzione di pagamento già
+        esistente. Permesso solo se l'opzione è ancora DISPONIBILE, e solo
+        per le tipologie che non hanno un limite massimo di pendenze
+        (SOLUZIONE_UNICA, PIANO_RATEALE): per SOLUZIONE_UNICA_ENTRO e
+        SOLUZIONE_UNICA_OLTRE, che ne ammettono già esattamente una,
+        questo endpoint restituisce 400.
+      parameters:
+        - in: path
+          name: idA2A
+          description: Identificativo del gestionale
+          required: true
+          schema:
+            type: string
+            pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
+        - in: path
+          name: idPosizioneDebitoria
+          description: Identificativo della posizione debitoria
+          required: true
+          schema:
+            type: string
+            pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
+        - in: path
+          name: idOpzionePagamento
+          description: Identificativo dell'opzione di pagamento
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NuovaPendenza'
+      responses:
+        '201':
+          description: Pendenza creata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Pendenza'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+        '401':
+          $ref: '#/components/responses/401NotAuthenticated'
+        '403':
+          $ref: '#/components/responses/403NotAuthorized'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+        '409':
+          description: >-
+            L'opzione di pagamento non è DISPONIBILE, oppure la nuova
+            pendenza ha un idPendenza già usato da un'altra pendenza della
+            stessa applicazione
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                nonDisponibile:
+                  summary: L'opzione non è DISPONIBILE
+                  value:
+                    status: 409
+                    title: >-
+                      l'opzione di pagamento [idOpzionePagamento] è
+                      ATTIVATA: si può aggiungere una pendenza solo se
+                      DISPONIBILE
+                idPendenzaDuplicato:
+                  summary: idPendenza già usato da questa applicazione
+                  value:
+                    status: 409
+                    title: >-
+                      la nuova pendenza ha un idPendenza già usato da
+                      un'altra pendenza della stessa applicazione
+        '500':
+          $ref: '#/components/responses/500ServiceUnavailable'
+
   # ============================================================
-  # PENDENZE (solo lettura/aggiornamento puntuale: niente PUT)
+  # PENDENZE (lettura/aggiornamento puntuale; la creazione passa sempre
+  # da un'opzione di pagamento, vedi sopra)
   # ============================================================
 
   '/pendenze/{idA2A}':
@@ -562,25 +641,36 @@ paths:
           $ref: '#/components/responses/500ServiceUnavailable'
 
   '/pendenze/{idA2A}/{idPendenza}':
-    patch:
+    put:
       tags:
         - Pendenze
-      summary: Aggiornamento di uno o più campi di una pendenza
+      summary: Aggiornamento di una pendenza
       operationId: updatePendenza
       description: >-
-        Aggiorna i metadati della pendenza (`dataScadenzaAvviso`,
-        `dataValidita`, `importo`, `voci`). Permesso solo se lo stato
-        attuale della pendenza è NON_ESEGUITO o ANNULLATO: non è possibile
-        aggiornare i metadati di una pendenza già eseguita. `voci`
-        sostituisce l'intero array in un'unica operazione (non è
-        supportato l'indirizzamento per indice): le voci esistenti
-        (identificate da `idVocePendenza`) non possono essere rimosse né
-        cambiare il tributo/IBAN di riferimento, ma possono essere
-        aggiornate negli altri campi (importo, descrizione, ecc.); si
-        possono anche aggiungere voci nuove. L'annullamento/ripristino
-        della pendenza non si effettua più qui: si usa
-        `PATCH .../opzioni-pagamento/{idOpzionePagamento}` sulla sua
-        opzione di pagamento.
+        Sostituisce i dati della pendenza con quelli forniti nel corpo
+        della richiesta — stessa struttura dati della creazione
+        (`NuovaPendenza`). Permesso solo se lo stato attuale della
+        pendenza è NON_ESEGUITO o ANNULLATO: non è possibile aggiornare i
+        metadati di una pendenza già eseguita.
+
+
+        `idPendenza` nel corpo è obbligatorio (stessa struttura dati
+        della creazione) e deve coincidere con quello del path.
+        `idTipoPendenza` è liberamente modificabile.
+        `numeroAvviso`, se già assegnato, non può cambiare (può essere
+        indicato di nuovo con lo stesso valore, o omesso).
+
+
+        `voci` sostituisce l'intero array: le voci esistenti (identificate
+        da `idVocePendenza`) possono essere rimosse, purché ne resti
+        almeno una, oppure aggiornate negli altri campi (importo,
+        descrizione, ecc.); non possono invece cambiare il tributo/IBAN di
+        accredito di riferimento. Si possono anche aggiungere voci nuove.
+
+
+        L'annullamento/ripristino della pendenza non si effettua più qui:
+        si usa `PATCH .../opzioni-pagamento/{idOpzionePagamento}` sulla
+        sua opzione di pagamento.
       parameters:
         - in: path
           name: idA2A
@@ -598,12 +688,9 @@ paths:
             pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
       requestBody:
         content:
-          application/json-patch+json:
+          application/json:
             schema:
-              type: array
-              items:
-                $ref: '#/components/schemas/PatchOp'
-              description: Lista di operazioni JSON Patch (RFC 6902) da applicare
+              $ref: '#/components/schemas/NuovaPendenza'
       responses:
         '200':
           description: Pendenza aggiornata con successo
@@ -618,9 +705,9 @@ paths:
         '409':
           description: >-
             La pendenza non è in uno stato che ammette l'aggiornamento
-            (deve essere NON_ESEGUITO o ANNULLATO), oppure l'aggiornamento
-            di `voci` rimuove una voce esistente o ne cambia il
-            tributo/IBAN di riferimento
+            (deve essere NON_ESEGUITO o ANNULLATO), oppure la richiesta
+            cambia `numeroAvviso` già assegnato o il tributo/IBAN di
+            accredito di riferimento di una voce esistente
           content:
             application/problem+json:
               schema:
@@ -633,21 +720,21 @@ paths:
                     title: >-
                       la pendenza [idPendenza] è ESEGUITO: può essere
                       aggiornata solo se NON_ESEGUITO o ANNULLATO
-                voceRimossa:
-                  summary: Tentativo di rimuovere una voce esistente
+                numeroAvvisoModificato:
+                  summary: Tentativo di cambiare numeroAvviso già assegnato
                   value:
                     status: 409
                     title: >-
-                      la voce [idVocePendenza] non può essere rimossa: le
-                      voci esistenti di una pendenza non possono essere
-                      eliminate, solo aggiornate o affiancate da voci nuove
+                      'numeroAvviso' non può cambiare rispetto
+                      all'originale [numeroAvviso]
                 riferimentoVoceModificato:
-                  summary: Tentativo di cambiare tributo/IBAN di una voce esistente
+                  summary: Tentativo di cambiare tributo/IBAN di accredito di una voce esistente
                   value:
                     status: 409
                     title: >-
                       la voce [idVocePendenza] non può cambiare il
-                      riferimento (tributo/IBAN) rispetto all'originale
+                      riferimento (tributo/IBAN di accredito) rispetto
+                      all'originale
         '500':
           $ref: '#/components/responses/500ServiceUnavailable'
     get:
@@ -697,12 +784,12 @@ paths:
       summary: Stampa dell'avviso di una pendenza
       operationId: getStampaPendenza
       description: >-
-        Fornisce la stampa dell'avviso di pagamento della pendenza,
-        identificata tramite gli identificativi del gestionale (idA2A e
-        idPendenza) invece che tramite numeroAvviso. Le opzioni di
-        personalizzazione testuale/traduzione dell'avviso (lingua
-        secondaria, testi tradotti) si specificano nei parametri di questa
-        chiamata.
+        Fornisce la stampa dell'avviso di pagamento della pendenza, in
+        formato PDF, identificata tramite gli identificativi del
+        gestionale (idA2A e idPendenza) invece che tramite numeroAvviso.
+        Le opzioni di personalizzazione testuale/traduzione dell'avviso
+        (lingua secondaria, testi tradotti) si specificano nei parametri
+        di questa chiamata.
       parameters:
         - in: path
           name: idA2A
@@ -724,11 +811,8 @@ paths:
         - $ref: '#/components/parameters/informativaImportoTradotta'
       responses:
         '200':
-          description: Avviso di pagamento
+          description: Avviso di pagamento in formato PDF
           content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Avviso'
             application/pdf:
               schema:
                 type: string
@@ -736,9 +820,7 @@ paths:
         '400':
           description: >-
             Bilinguismo richiesto (`linguaSecondaria`) senza
-            `causaleTradotta`, oppure `causaleTradotta`/
-            `informativaImporto`/`informativaImportoTradotta` specificati
-            sulla variante `application/json` (hanno effetto solo sul PDF)
+            `causaleTradotta`
           content:
             application/problem+json:
               schema:
@@ -750,9 +832,7 @@ paths:
         '404':
           $ref: '#/components/responses/404NotFound'
         '406':
-          description: >-
-            Header `Accept` non compatibile con `application/json` o
-            `application/pdf`
+          description: 'Header `Accept` non compatibile con `application/pdf`'
           content:
             application/problem+json:
               schema:
@@ -956,434 +1036,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Rendicontazioni'
-        '401':
-          $ref: '#/components/responses/401NotAuthenticated'
-        '403':
-          $ref: '#/components/responses/403NotAuthorized'
-        '404':
-          $ref: '#/components/responses/404NotFound'
-        '500':
-          $ref: '#/components/responses/500ServiceUnavailable'
-
-  # ============================================================
-  # ANAGRAFICHE
-  # ============================================================
-
-  '/domini':
-    get:
-      tags:
-        - Anagrafiche
-      summary: Elenco dei domini
-      operationId: findDomini
-      description: Fornisce la lista dei domini, filtrata ed ordinata.
-      parameters:
-        - in: query
-          name: idDominio
-          description: Ricerca parziale (case-insensitive) sull'identificativo del dominio.
-          required: false
-          schema:
-            type: string
-        - in: query
-          name: ragioneSociale
-          description: Ricerca parziale (case-insensitive) sulla ragione sociale.
-          required: false
-          schema:
-            type: string
-        - $ref: '#/components/parameters/page'
-        - $ref: '#/components/parameters/cursor'
-        - $ref: '#/components/parameters/limit'
-        - $ref: '#/components/parameters/sort'
-        - $ref: '#/components/parameters/fields'
-        - $ref: '#/components/parameters/total'
-      responses:
-        '200':
-          description: Elenco dei domini che rispettano i filtri di ricerca
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Domini'
-        '401':
-          $ref: '#/components/responses/401NotAuthenticated'
-        '403':
-          $ref: '#/components/responses/403NotAuthorized'
-        '500':
-          $ref: '#/components/responses/500ServiceUnavailable'
-
-  '/domini/{idDominio}':
-    get:
-      tags:
-        - Anagrafiche
-      summary: Anagrafica di un dominio
-      operationId: getDominio
-      description: >-
-        Fornisce l'anagrafica del dominio creditore, referenziato per
-        identificativo da posizioni debitorie, pendenze e voci di pendenza.
-      parameters:
-        - in: path
-          name: idDominio
-          description: Identificativo del dominio
-          required: true
-          schema:
-            type: string
-            pattern: '(^([0-9]){11}$)'
-      responses:
-        '200':
-          description: Anagrafica del dominio
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Dominio'
-        '401':
-          $ref: '#/components/responses/401NotAuthenticated'
-        '403':
-          $ref: '#/components/responses/403NotAuthorized'
-        '404':
-          $ref: '#/components/responses/404NotFound'
-        '500':
-          $ref: '#/components/responses/500ServiceUnavailable'
-
-  '/domini/{idDominio}/unita-operative':
-    get:
-      tags:
-        - Anagrafiche
-      summary: Elenco delle unità operative di un dominio
-      operationId: findUnitaOperative
-      description: Fornisce la lista delle unità operative del dominio, filtrata ed ordinata.
-      parameters:
-        - in: path
-          name: idDominio
-          description: Identificativo del dominio
-          required: true
-          schema:
-            type: string
-            pattern: '(^([0-9]){11}$)'
-        - in: query
-          name: idUnitaOperativa
-          description: Ricerca parziale (case-insensitive) sull'identificativo dell'unità operativa.
-          required: false
-          schema:
-            type: string
-        - in: query
-          name: ragioneSociale
-          description: Ricerca parziale (case-insensitive) sulla ragione sociale.
-          required: false
-          schema:
-            type: string
-        - $ref: '#/components/parameters/page'
-        - $ref: '#/components/parameters/cursor'
-        - $ref: '#/components/parameters/limit'
-        - $ref: '#/components/parameters/sort'
-        - $ref: '#/components/parameters/fields'
-        - $ref: '#/components/parameters/total'
-      responses:
-        '200':
-          description: Elenco delle unità operative che rispettano i filtri di ricerca
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/UnitaOperative'
-        '401':
-          $ref: '#/components/responses/401NotAuthenticated'
-        '403':
-          $ref: '#/components/responses/403NotAuthorized'
-        '404':
-          $ref: '#/components/responses/404NotFound'
-        '500':
-          $ref: '#/components/responses/500ServiceUnavailable'
-
-  '/domini/{idDominio}/unita-operative/{idUnitaOperativa}':
-    get:
-      tags:
-        - Anagrafiche
-      summary: Anagrafica di un'unità operativa
-      operationId: getUnitaOperativa
-      description: >-
-        Fornisce l'anagrafica dell'unità operativa, referenziata per
-        identificativo dalle posizioni debitorie.
-      parameters:
-        - in: path
-          name: idDominio
-          description: Identificativo del dominio
-          required: true
-          schema:
-            type: string
-            pattern: '(^([0-9]){11}$)'
-        - in: path
-          name: idUnitaOperativa
-          description: Identificativo dell'unità operativa
-          required: true
-          schema:
-            type: string
-            pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
-      responses:
-        '200':
-          description: Anagrafica dell'unità operativa
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/UnitaOperativa'
-        '401':
-          $ref: '#/components/responses/401NotAuthenticated'
-        '403':
-          $ref: '#/components/responses/403NotAuthorized'
-        '404':
-          $ref: '#/components/responses/404NotFound'
-        '500':
-          $ref: '#/components/responses/500ServiceUnavailable'
-
-  '/domini/{idDominio}/tipi-pendenza':
-    get:
-      tags:
-        - Anagrafiche
-      summary: Elenco delle tipologie di pendenza di un dominio
-      operationId: findTipiPendenza
-      description: Fornisce la lista delle tipologie di pendenza del dominio, filtrata ed ordinata.
-      parameters:
-        - in: path
-          name: idDominio
-          description: Identificativo del dominio
-          required: true
-          schema:
-            type: string
-            pattern: '(^([0-9]){11}$)'
-        - in: query
-          name: idTipoPendenza
-          description: Ricerca parziale (case-insensitive) sull'identificativo della tipologia di pendenza.
-          required: false
-          schema:
-            type: string
-        - in: query
-          name: descrizione
-          description: Ricerca parziale (case-insensitive) sulla descrizione.
-          required: false
-          schema:
-            type: string
-        - $ref: '#/components/parameters/page'
-        - $ref: '#/components/parameters/cursor'
-        - $ref: '#/components/parameters/limit'
-        - $ref: '#/components/parameters/sort'
-        - $ref: '#/components/parameters/fields'
-        - $ref: '#/components/parameters/total'
-      responses:
-        '200':
-          description: Elenco delle tipologie di pendenza che rispettano i filtri di ricerca
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/TipiPendenza'
-        '401':
-          $ref: '#/components/responses/401NotAuthenticated'
-        '403':
-          $ref: '#/components/responses/403NotAuthorized'
-        '404':
-          $ref: '#/components/responses/404NotFound'
-        '500':
-          $ref: '#/components/responses/500ServiceUnavailable'
-
-  '/domini/{idDominio}/tipi-pendenza/{idTipoPendenza}':
-    get:
-      tags:
-        - Anagrafiche
-      summary: Anagrafica di una tipologia di pendenza
-      operationId: getTipoPendenza
-      description: >-
-        Fornisce l'anagrafica della tipologia di pendenza, referenziata per
-        identificativo (`idTipoPendenza`) dalle pendenze.
-      parameters:
-        - in: path
-          name: idDominio
-          description: Identificativo del dominio
-          required: true
-          schema:
-            type: string
-            pattern: '(^([0-9]){11}$)'
-        - in: path
-          name: idTipoPendenza
-          description: Identificativo della tipologia di pendenza
-          required: true
-          schema:
-            type: string
-            pattern: '(^[a-zA-Z0-9\-_\.]{1,35}$)'
-      responses:
-        '200':
-          description: Anagrafica della tipologia di pendenza
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/TipoPendenza'
-        '401':
-          $ref: '#/components/responses/401NotAuthenticated'
-        '403':
-          $ref: '#/components/responses/403NotAuthorized'
-        '404':
-          $ref: '#/components/responses/404NotFound'
-        '500':
-          $ref: '#/components/responses/500ServiceUnavailable'
-
-  '/domini/{idDominio}/iban-accredito':
-    get:
-      tags:
-        - Anagrafiche
-      summary: Elenco degli IBAN di accredito di un dominio
-      operationId: findIbanAccredito
-      description: Fornisce la lista degli IBAN di accredito abilitati per il dominio, filtrata ed ordinata.
-      parameters:
-        - in: path
-          name: idDominio
-          description: Identificativo del dominio
-          required: true
-          schema:
-            type: string
-            pattern: '(^([0-9]){11}$)'
-        - in: query
-          name: iban
-          description: Ricerca parziale (case-insensitive) sull'IBAN.
-          required: false
-          schema:
-            type: string
-        - $ref: '#/components/parameters/page'
-        - $ref: '#/components/parameters/cursor'
-        - $ref: '#/components/parameters/limit'
-        - $ref: '#/components/parameters/sort'
-        - $ref: '#/components/parameters/fields'
-        - $ref: '#/components/parameters/total'
-      responses:
-        '200':
-          description: Elenco degli IBAN di accredito che rispettano i filtri di ricerca
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/IbanAccrediti'
-        '401':
-          $ref: '#/components/responses/401NotAuthenticated'
-        '403':
-          $ref: '#/components/responses/403NotAuthorized'
-        '404':
-          $ref: '#/components/responses/404NotFound'
-        '500':
-          $ref: '#/components/responses/500ServiceUnavailable'
-
-  '/domini/{idDominio}/iban-accredito/{iban}':
-    get:
-      tags:
-        - Anagrafiche
-      summary: Anagrafica di un IBAN di accredito
-      operationId: getIbanAccredito
-      description: >-
-        Fornisce l'anagrafica di un IBAN di accredito abilitato per il
-        dominio, referenziato dalle voci di pendenza (`ibanAccredito`).
-      parameters:
-        - in: path
-          name: idDominio
-          description: Identificativo del dominio
-          required: true
-          schema:
-            type: string
-            pattern: '(^([0-9]){11}$)'
-        - in: path
-          name: iban
-          description: IBAN di accredito
-          required: true
-          schema:
-            type: string
-            pattern: "[a-zA-Z]{2,2}[0-9]{2,2}[a-zA-Z0-9]{1,30}"
-      responses:
-        '200':
-          description: Anagrafica dell'IBAN di accredito
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/IbanAccredito'
-        '401':
-          $ref: '#/components/responses/401NotAuthenticated'
-        '403':
-          $ref: '#/components/responses/403NotAuthorized'
-        '404':
-          $ref: '#/components/responses/404NotFound'
-        '500':
-          $ref: '#/components/responses/500ServiceUnavailable'
-
-  '/domini/{idDominio}/tipi-entrata':
-    get:
-      tags:
-        - Anagrafiche
-      summary: Elenco dei tipi di entrata di un dominio
-      operationId: findTipiEntrata
-      description: Fornisce la lista dei tipi di entrata del dominio, filtrata ed ordinata.
-      parameters:
-        - in: path
-          name: idDominio
-          description: Identificativo del dominio
-          required: true
-          schema:
-            type: string
-            pattern: '(^([0-9]){11}$)'
-        - in: query
-          name: codEntrata
-          description: Ricerca parziale (case-insensitive) sull'identificativo del tipo di entrata.
-          required: false
-          schema:
-            type: string
-        - in: query
-          name: descrizione
-          description: Ricerca parziale (case-insensitive) sulla descrizione.
-          required: false
-          schema:
-            type: string
-        - $ref: '#/components/parameters/page'
-        - $ref: '#/components/parameters/cursor'
-        - $ref: '#/components/parameters/limit'
-        - $ref: '#/components/parameters/sort'
-        - $ref: '#/components/parameters/fields'
-        - $ref: '#/components/parameters/total'
-      responses:
-        '200':
-          description: Elenco dei tipi di entrata che rispettano i filtri di ricerca
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/TipiEntrata'
-        '401':
-          $ref: '#/components/responses/401NotAuthenticated'
-        '403':
-          $ref: '#/components/responses/403NotAuthorized'
-        '404':
-          $ref: '#/components/responses/404NotFound'
-        '500':
-          $ref: '#/components/responses/500ServiceUnavailable'
-
-  '/domini/{idDominio}/tipi-entrata/{codEntrata}':
-    get:
-      tags:
-        - Anagrafiche
-      summary: Anagrafica di un tipo di entrata
-      operationId: getTipoEntrata
-      description: >-
-        Fornisce l'anagrafica del tipo di entrata, referenziato per
-        identificativo (`codEntrata`) dalle voci di pendenza con
-        riferimento a un'entrata configurata in GovPay.
-      parameters:
-        - in: path
-          name: idDominio
-          description: Identificativo del dominio
-          required: true
-          schema:
-            type: string
-            pattern: '(^([0-9]){11}$)'
-        - in: path
-          name: codEntrata
-          description: Identificativo del tipo di entrata
-          required: true
-          schema:
-            type: string
-            pattern: '(^[a-zA-Z0-9\-_\.]{1,35}$)'
-      responses:
-        '200':
-          description: Anagrafica del tipo di entrata
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/TipoEntrata'
         '401':
           $ref: '#/components/responses/401NotAuthenticated'
         '403':
@@ -3117,78 +2769,6 @@ components:
                 type: string
 
     # ============================================================
-    # AVVISO
-    # ============================================================
-
-    Avviso:
-      type: object
-      required:
-        - stato
-      properties:
-        stato:
-          $ref: '#/components/schemas/StatoAvviso'
-        importo:
-          type: number
-          description: Importo della pendenza associata all'avviso.
-          examples:
-            - 10.01
-        idDominio:
-          type: string
-          description: Identificativo del creditore dell'avviso
-          examples:
-            - '01234567890'
-        numeroAvviso:
-          type: string
-          description: Numero identificativo dell'avviso di pagamento
-          examples:
-            - '00100000000000012'
-        dataValidita:
-          type: string
-          format: date
-          description: Data di validita dei dati dell'avviso, decorsa la quale l'importo può subire variazioni.
-          examples:
-            - '2019-12-31'
-        dataScadenza:
-          type: string
-          format: date
-          description: >-
-            Data di scadenza dell'avviso, decorsa la quale non è più
-            pagabile: coincide con la data di scadenza da stampare della
-            pendenza, o in assenza con quella dell'opzione di pagamento a
-            cui appartiene.
-          examples:
-            - '2020-12-31'
-        dataPagamento:
-          type: string
-          format: date
-          description: Data di pagamento dell'avviso.
-          examples:
-            - '2020-12-31'
-        descrizione:
-          type: string
-          description: Descrizione da inserire nell'avviso di pagamento
-          examples:
-            - 'Sanzione CdS n. abc00000'
-        qrcode:
-          type: string
-          description: Testo da codificare nel qr-code dell'avviso
-        barcode:
-          type: string
-          description: Testo da codificare nel bar-code dell'avviso
-
-    StatoAvviso:
-      description: Stato dell'avviso
-      examples:
-        - Non pagato
-      type: string
-      enum:
-        - DUPLICATA
-        - NON_ESEGUITA
-        - ANNULLATA
-        - SCONOSCIUTA
-        - SCADUTA
-
-    # ============================================================
     # RICEVUTE
     # ============================================================
 
@@ -3880,327 +3460,6 @@ components:
         - ANOMALO
       examples:
         - NON_ESEGUITO
-
-    Dominio:
-      type: object
-      required:
-        - idDominio
-        - ragioneSociale
-      properties:
-        idDominio:
-          type: string
-          description: Codice fiscale
-          examples:
-            - '01234567890'
-          minLength: 1
-          maxLength: 35
-        ragioneSociale:
-          type: string
-          description: Ragione sociale
-          examples:
-            - Comune Dimostrativo
-          minLength: 1
-          maxLength: 70
-        indirizzo:
-          type: string
-          examples:
-            - Piazza della Vittoria
-          minLength: 1
-          maxLength: 70
-        civico:
-          type: string
-          examples:
-            - 10/A
-          minLength: 1
-          maxLength: 16
-        cap:
-          type: string
-          examples:
-            - '00000'
-          minLength: 1
-          maxLength: 16
-        localita:
-          type: string
-          examples:
-            - Roma
-          minLength: 1
-          maxLength: 35
-        provincia:
-          type: string
-          examples:
-            - Roma
-          minLength: 1
-          maxLength: 35
-        nazione:
-          type: string
-          examples:
-            - IT
-          pattern: "[A-Z]{2,2}"
-        email:
-          type: string
-          description: Posta elettronica ordinaria
-          examples:
-            - peo@creditore.it
-          pattern: "[A-Za-z0-9_]+([\\-\\+\\.'][A-Za-z0-9_]+)*@[A-Za-z0-9_]+([\\-\\.][A-Za-z0-9_]+)*\\.[A-Za-z0-9_]+([\\-\\.][A-Za-z0-9_]+)*"
-        pec:
-          type: string
-          description: Posta elettronica certificata
-          examples:
-            - pec@creditore.it
-          pattern: "[A-Za-z0-9_]+([\\-\\+\\.'][A-Za-z0-9_]+)*@[A-Za-z0-9_]+([\\-\\.][A-Za-z0-9_]+)*\\.[A-Za-z0-9_]+([\\-\\.][A-Za-z0-9_]+)*"
-        tel:
-          type: string
-          description: Numero di telefono dell'help desk di primo livello
-          examples:
-            - '021234567890'
-        fax:
-          type: string
-          description: Numero di fax dell'help desk di primo livello
-          examples:
-            - '021234567890'
-        web:
-          type: string
-          description: Url del sito web
-          examples:
-            - http://www.comune.it/
-        gln:
-          type: string
-          description: Global Location Number del creditore
-          examples:
-            - '0011223344556'
-        cbill:
-          type: string
-          description: Codice creditore sul circuito CBILL
-          examples:
-            - '12345'
-        logo:
-          type: string
-          description: Logo del creditore, codificato in base64
-          examples:
-            - /9j/4AA...base64...FFFFABRRRQB/9k=
-
-    Domini:
-      type: object
-      allOf:
-        - $ref: '#/components/schemas/PaginatedResponse'
-        - type: object
-          properties:
-            results:
-              type: array
-              items:
-                $ref: '#/components/schemas/Dominio'
-
-    UnitaOperativa:
-      type: object
-      required:
-        - ragioneSociale
-      properties:
-        idUnita:
-          type: string
-          description: Codice fiscale
-          examples:
-            - '01234567890'
-          minLength: 1
-          maxLength: 35
-        ragioneSociale:
-          type: string
-          description: Ragione sociale
-          examples:
-            - Ufficio due
-          minLength: 1
-          maxLength: 70
-        indirizzo:
-          type: string
-          examples:
-            - Piazza della Vittoria
-          minLength: 1
-          maxLength: 70
-        civico:
-          type: string
-          examples:
-            - 10/A
-          minLength: 1
-          maxLength: 16
-        cap:
-          type: string
-          examples:
-            - '00000'
-          minLength: 1
-          maxLength: 16
-        localita:
-          type: string
-          examples:
-            - Roma
-          minLength: 1
-          maxLength: 35
-        provincia:
-          type: string
-          examples:
-            - Roma
-          minLength: 1
-          maxLength: 35
-        nazione:
-          type: string
-          examples:
-            - IT
-          pattern: "[A-Z]{2,2}"
-        email:
-          type: string
-          description: Posta elettronica ordinaria
-          examples:
-            - peo@creditore.it
-          pattern: "[A-Za-z0-9_]+([\\-\\+\\.'][A-Za-z0-9_]+)*@[A-Za-z0-9_]+([\\-\\.][A-Za-z0-9_]+)*\\.[A-Za-z0-9_]+([\\-\\.][A-Za-z0-9_]+)*"
-        pec:
-          type: string
-          description: Posta elettronica certificata
-          examples:
-            - peo@creditore.it
-          pattern: "[A-Za-z0-9_]+([\\-\\+\\.'][A-Za-z0-9_]+)*@[A-Za-z0-9_]+([\\-\\.][A-Za-z0-9_]+)*\\.[A-Za-z0-9_]+([\\-\\.][A-Za-z0-9_]+)*"
-        tel:
-          type: string
-          description: Numero di telefono dell'help desk di primo livello
-          examples:
-            - '021234567890'
-        fax:
-          type: string
-          description: Numero di fax dell'help desk di primo livello
-          examples:
-            - '021234567890'
-        web:
-          type: string
-          description: Url del sito web
-          examples:
-            - http://www.comune.it/
-        area:
-          type: string
-          description: Nome dell'area di competenza
-          examples:
-            - Affari generali e istituzionali
-
-    UnitaOperative:
-      type: object
-      allOf:
-        - $ref: '#/components/schemas/PaginatedResponse'
-        - type: object
-          properties:
-            results:
-              type: array
-              items:
-                $ref: '#/components/schemas/UnitaOperativa'
-
-    TipoPendenza:
-      type: object
-      required:
-        - idTipoPendenza
-        - descrizione
-        - notificaAppIO
-      properties:
-        idTipoPendenza:
-          type: string
-          examples:
-            - REFNIDO
-        descrizione:
-          type: string
-          examples:
-            - Refezione scolastica Asilo Nido
-        notificaAppIO:
-          type: boolean
-          description: >-
-            Indica se per questa tipologia di pendenza è configurato l'invio
-            di notifiche tramite AppIO.
-          examples:
-            - true
-
-    TipiPendenza:
-      type: object
-      allOf:
-        - $ref: '#/components/schemas/PaginatedResponse'
-        - type: object
-          properties:
-            results:
-              type: array
-              items:
-                $ref: '#/components/schemas/TipoPendenza'
-
-    IbanAccredito:
-      type: object
-      required:
-        - iban
-        - abilitato
-      properties:
-        iban:
-          type: string
-          examples:
-            - IT60X0542811101000000123456
-          pattern: "[a-zA-Z]{2,2}[0-9]{2,2}[a-zA-Z0-9]{1,30}"
-        bic:
-          type: string
-          examples:
-            - DABAIE2D
-        abilitato:
-          type: boolean
-          description: Indica se l'IBAN è abilitato a operare sulla piattaforma.
-          examples:
-            - true
-        postale:
-          type: boolean
-          description: Indica se è un conto corrente postale.
-          examples:
-            - false
-
-    IbanAccrediti:
-      type: object
-      allOf:
-        - $ref: '#/components/schemas/PaginatedResponse'
-        - type: object
-          properties:
-            results:
-              type: array
-              items:
-                $ref: '#/components/schemas/IbanAccredito'
-
-    TipoEntrata:
-      type: object
-      description: >-
-        Tipo di entrata configurato per il dominio, referenziato per
-        identificativo (`codEntrata`) dalle voci di pendenza che vi fanno
-        riferimento.
-      required:
-        - codEntrata
-        - ibanAccredito
-        - tassonomia
-      properties:
-        codEntrata:
-          type: string
-          examples:
-            - SRV-12345
-        descrizione:
-          type: string
-          examples:
-            - Imposta municipale unica
-        ibanAccredito:
-          type: string
-          examples:
-            - IT60X0542811101000000123456
-          pattern: "[a-zA-Z]{2,2}[0-9]{2,2}[a-zA-Z0-9]{1,30}"
-        ibanAppoggio:
-          type: string
-          examples:
-            - IT60X0542811101000000123456
-          pattern: "[a-zA-Z]{2,2}[0-9]{2,2}[a-zA-Z0-9]{1,30}"
-        tassonomia:
-          $ref: '#/components/schemas/tassonomia'
-
-    TipiEntrata:
-      type: object
-      allOf:
-        - $ref: '#/components/schemas/PaginatedResponse'
-        - type: object
-          properties:
-            results:
-              type: array
-              items:
-                $ref: '#/components/schemas/TipoEntrata'
 
     LinguaSecondaria:
       examples:
