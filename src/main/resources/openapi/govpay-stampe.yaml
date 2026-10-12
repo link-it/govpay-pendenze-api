@@ -515,7 +515,7 @@ components:
         amount:
           type: number
           format: double
-          minimum: 0.01
+          minimum: 0
           description: Total payment amount
           example: 150.00
         operation_date:
@@ -569,7 +569,7 @@ components:
         amount:
           type: number
           format: double
-          minimum: 0.01
+          minimum: 0
           description: Item amount
           example: 100.00
         status:

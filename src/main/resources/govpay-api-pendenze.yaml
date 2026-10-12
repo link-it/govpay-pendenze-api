@@ -997,6 +997,73 @@ paths:
         '500':
           $ref: '#/components/responses/500ServiceUnavailable'
 
+  '/pendenze/{idA2A}/{idPendenza}/ricevute/{iur}/stampa':
+    get:
+      tags:
+        - Pendenze
+      summary: Stampa di una ricevuta di pagamento di una pendenza
+      operationId: getStampaRicevutaPendenza
+      description: >-
+        Fornisce la stampa della ricevuta di pagamento (RT) della pendenza, in
+        formato PDF, così come il Nodo dei Pagamenti l'ha trasmessa.
+      parameters:
+        - in: path
+          name: idA2A
+          description: Identificativo del gestionale
+          required: true
+          schema:
+            type: string
+            pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
+        - in: path
+          name: idPendenza
+          description: Identificativo della pendenza
+          required: true
+          schema:
+            type: string
+            pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
+        - in: path
+          name: iur
+          description: Identificativo univoco di riscossione della ricevuta
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Ricevuta di pagamento in formato PDF
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/401NotAuthenticated'
+        '403':
+          $ref: '#/components/responses/403NotAuthorized'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+        '406':
+          description: 'Header `Accept` non compatibile con `application/pdf`'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '500':
+          $ref: '#/components/responses/500ServiceUnavailable'
+        '502':
+          description: 'Errore di comunicazione con il microservizio `govpay-stampe`'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: >-
+            Microservizio `govpay-stampe` non configurato
+            (`app.stampe.base-url` mancante)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+
   '/pendenze/{idA2A}/{idPendenza}/rendicontazioni':
     get:
       tags:
