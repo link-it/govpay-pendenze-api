@@ -1,15 +1,17 @@
 package it.govpay.pendenze.posizionedebitoria;
 
+import it.govpay.pendenze.comando.AggiornamentoPendenza;
+import it.govpay.pendenze.comando.AggiornamentoPosizioneDebitoria;
+import it.govpay.pendenze.comando.DatiOpzionePagamento;
+import it.govpay.pendenze.comando.DatiPendenza;
+import it.govpay.pendenze.comando.DatiPosizioneDebitoria;
+import it.govpay.pendenze.comando.DatiSoggettoDebitore;
+import it.govpay.pendenze.comando.ModificaCampo;
+
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.LocalDate;
-import java.util.ArrayDeque;
-import java.util.Deque;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Component;
@@ -184,7 +186,7 @@ public class PosizioneDebitoriaMapper {
      * Come {@link #risolviIdDominioAbilitato}, ma per un dominio gia' risolto per id — usato
      * da {@link #toOpzionePagamento(String, Long, NuovaOpzionePagamento)}, dove il dominio
      * arriva gia' come {@code Long} dalla posizione esistente. Necessario perche' quell'entry
-     * point riusa {@code idDominioPosizione} senza ripassare da {@link #toEntity}: senza
+     * point riusa {@code idDominioPosizione} senza ripassare da {@link #toComando}: senza
      * questo controllo, un dominio disabilitato DOPO la creazione della posizione non
      * impedirebbe di aggiungergli una nuova opzione di pagamento.
      *
@@ -410,7 +412,7 @@ public class PosizioneDebitoriaMapper {
 
     // ── Richiesta -> entita' ─────────────────────────────────────────────────
 
-    public it.govpay.pendenze.entity.PosizioneDebitoria toEntity(String idA2A, NuovaPosizioneDebitoria dto) {
+    public DatiPosizioneDebitoria toComando(String idA2A, NuovaPosizioneDebitoria dto) {
         ApplicazioneEntity applicazione = applicazioneRepository.findByCodApplicazione(idA2A)
                 .orElseThrow(() -> new AnagraficaNonTrovataException("nessuna applicazione con idA2A [" + idA2A
                         + "]"));
@@ -434,28 +436,20 @@ public class PosizioneDebitoriaMapper {
         for (NuovaOpzionePagamento opzione : dto.getOpzioniPagamento()) {
             posizione.addOpzionePagamento(toOpzionePagamento(opzione, idDominio, applicazione));
         }
-        return posizione;
+        return DatiPosizioneDebitoria.da(posizione);
     }
 
     /**
-     * Converte {@code NuovaOpzionePagamento} in entita' per
-     * {@code POST .../posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento}
-     * (aggiunta a una posizione GIA' esistente — a differenza di {@link #toEntity}, qui
-     * {@code idDominioPosizione} viene dal chiamante, che ha gia' risolto la posizione presso
-     * {@code PosizioneDebitoriaService#aggiungiOpzionePagamento} prima di costruire l'opzione).
-     * Stessi controlli di risoluzione/abilitazione/autorizzazione di {@link #toEntity} (tipo
-     * pendenza, tributo, IBAN): nessuna duplicazione, delega al convertitore privato condiviso.
-     *
-     * @throws AnagraficaNonTrovataException se {@code idA2A} non corrisponde a nessuna
-     *                                        applicazione
+     * Converte la richiesta in dati di creazione; risolve e verifica le anagrafiche
+     * nel dominio della posizione, senza modificare entita gestite.
      */
-    public it.govpay.pendenze.entity.OpzionePagamento toOpzionePagamento(String idA2A, Long idDominioPosizione,
+    public DatiOpzionePagamento toOpzionePagamento(String idA2A, Long idDominioPosizione,
             NuovaOpzionePagamento dto) {
         ApplicazioneEntity applicazione = applicazioneRepository.findByCodApplicazione(idA2A)
                 .orElseThrow(() -> new AnagraficaNonTrovataException("nessuna applicazione con idA2A [" + idA2A
                         + "]"));
         verificaDominioAbilitato(idDominioPosizione);
-        return toOpzionePagamento(dto, idDominioPosizione, applicazione);
+        return DatiOpzionePagamento.da(toOpzionePagamento(dto, idDominioPosizione, applicazione));
     }
 
     private SoggettoDebitore toSoggettoDebitore(Soggetto dto) {
@@ -476,25 +470,16 @@ public class PosizioneDebitoriaMapper {
     // ── PATCH (RFC 6902) ────────────────────────────────────────────────────────
 
     /**
-     * Applica un sottoinsieme di operazioni JSON Patch (RFC 6902, add/remove/replace) a una
-     * posizione debitoria ({@code PATCH .../posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}}).
-     * Path supportati: {@code /descrizione}, {@code /dataPubblicazione},
-     * {@code /notificaSend}, {@code /navNotifica}, {@code /soggettiDebitori} (solo
-     * sostituzione dell'intero array: {@code /soggettiDebitori/{indice}} e
-     * {@code /soggettiDebitori/-} non sono supportati in questa prima versione). Qualunque
-     * altro path (incluso {@code /opzioniPagamento}: si aggiornano con
-     * {@code POST}/{@code PATCH .../opzioni-pagamento} dedicati) e' rifiutato con 400.
-     *
-     * <p>Le mutazioni sono applicate direttamente su {@code posizione}, un aggregato gestito
-     * da JPA passato dal chiamante ({@link it.govpay.pendenze.service.PosizioneDebitoriaService#aggiorna}):
-     * questo metodo non lo salva ne' lo rivalida.</p>
-     *
-     * @throws ValidazioneNonSuperataException se un'operazione ha un path non supportato,
-     *                                          un {@code op} non ammesso per quel path, un
-     *                                          {@code value} assente dove richiesto, o di
-     *                                          tipo/forma sbagliata
+     * Traduce il sottoinsieme supportato di JSON Patch in un comando della libreria.
+     * Conserva la distinzione fra campo assente e rimozione e valida ogni operazione
+     * nell'ordine ricevuto, anche in presenza di path ripetuti.
      */
-    public void applicaPatch(it.govpay.pendenze.entity.PosizioneDebitoria posizione, List<PatchOp> operazioni) {
+    public AggiornamentoPosizioneDebitoria toAggiornamentoPosizione(List<PatchOp> operazioni) {
+        ModificaCampo<String> descrizione = ModificaCampo.invariato();
+        ModificaCampo<LocalDate> dataPubblicazione = ModificaCampo.invariato();
+        ModificaCampo<Boolean> notificaSend = ModificaCampo.invariato();
+        ModificaCampo<String> navNotifica = ModificaCampo.invariato();
+        ModificaCampo<List<DatiSoggettoDebitore>> soggettiDebitori = ModificaCampo.invariato();
         for (PatchOp operazione : operazioni) {
             if (operazione == null) {
                 throw new ValidazioneNonSuperataException(
@@ -502,15 +487,17 @@ public class PosizioneDebitoriaMapper {
                                 + "oggetto {op, path, value}");
             }
             switch (operazione.getPath()) {
-                case "/descrizione" -> applicaDescrizione(posizione, operazione);
-                case "/dataPubblicazione" -> applicaDataPubblicazione(posizione, operazione);
-                case "/notificaSend" -> applicaNotificaSend(posizione, operazione);
-                case "/navNotifica" -> applicaNavNotifica(posizione, operazione);
-                case "/soggettiDebitori" -> applicaSoggettiDebitori(posizione, operazione);
+                case "/descrizione" -> descrizione = ModificaCampo.imposta(leggiDescrizione(operazione));
+                case "/dataPubblicazione" -> dataPubblicazione = ModificaCampo.imposta(leggiDataPubblicazione(operazione));
+                case "/notificaSend" -> notificaSend = ModificaCampo.imposta(leggiNotificaSend(operazione));
+                case "/navNotifica" -> navNotifica = ModificaCampo.imposta(leggiNavNotifica(operazione));
+                case "/soggettiDebitori" -> soggettiDebitori = ModificaCampo.imposta(leggiSoggettiDebitori(operazione));
                 default -> throw new ValidazioneNonSuperataException(
                         "path [" + operazione.getPath() + "] non supportato per questa risorsa");
             }
         }
+        return new AggiornamentoPosizioneDebitoria(descrizione, dataPubblicazione, notificaSend,
+                navNotifica, soggettiDebitori);
     }
 
     /**
@@ -520,7 +507,7 @@ public class PosizioneDebitoriaMapper {
      */
     private static final int DESCRIZIONE_MAX_LENGTH = 140;
 
-    private void applicaDescrizione(it.govpay.pendenze.entity.PosizioneDebitoria posizione, PatchOp operazione) {
+    private String leggiDescrizione(PatchOp operazione) {
         if (operazione.getOp() == PatchOp.OpEnum.REMOVE) {
             throw new ValidazioneNonSuperataException(
                     "'descrizione' e' obbligatoria: non puo' essere rimossa con 'remove'");
@@ -531,25 +518,23 @@ public class PosizioneDebitoriaMapper {
                     "'descrizione' non puo' superare " + DESCRIZIONE_MAX_LENGTH + " caratteri (" + descrizione.length()
                             + " forniti)");
         }
-        posizione.setDescrizione(descrizione);
+        return descrizione;
     }
 
-    private void applicaDataPubblicazione(it.govpay.pendenze.entity.PosizioneDebitoria posizione,
-            PatchOp operazione) {
+    private LocalDate leggiDataPubblicazione(PatchOp operazione) {
         if (operazione.getOp() == PatchOp.OpEnum.REMOVE) {
-            posizione.setDataPubblicazione(null);
-            return;
+            return null;
         }
         Object valore = valorePresente(operazione, "dataPubblicazione");
         try {
-            posizione.setDataPubblicazione(objectMapper.convertValue(valore, LocalDate.class));
+            return objectMapper.convertValue(valore, LocalDate.class);
         } catch (RuntimeException e) {
             throw new ValidazioneNonSuperataException(
                     "'dataPubblicazione' non e' una data valida (formato atteso: AAAA-MM-GG)");
         }
     }
 
-    private void applicaNotificaSend(it.govpay.pendenze.entity.PosizioneDebitoria posizione, PatchOp operazione) {
+    private Boolean leggiNotificaSend(PatchOp operazione) {
         if (operazione.getOp() == PatchOp.OpEnum.REMOVE) {
             throw new ValidazioneNonSuperataException(
                     "'notificaSend' e' un booleano: non puo' essere rimosso con 'remove', usare 'replace' con false");
@@ -558,18 +543,17 @@ public class PosizioneDebitoriaMapper {
         if (!(valore instanceof Boolean booleano)) {
             throw new ValidazioneNonSuperataException("'notificaSend' richiede un valore booleano");
         }
-        posizione.setNotificaSend(booleano);
+        return booleano;
     }
 
-    private void applicaNavNotifica(it.govpay.pendenze.entity.PosizioneDebitoria posizione, PatchOp operazione) {
+    private String leggiNavNotifica(PatchOp operazione) {
         if (operazione.getOp() == PatchOp.OpEnum.REMOVE) {
-            posizione.setNavNotifica(null);
-            return;
+            return null;
         }
-        posizione.setNavNotifica(valoreStringa(operazione, "navNotifica"));
+        return valoreStringa(operazione, "navNotifica");
     }
 
-    private void applicaSoggettiDebitori(it.govpay.pendenze.entity.PosizioneDebitoria posizione, PatchOp operazione) {
+    private List<DatiSoggettoDebitore> leggiSoggettiDebitori(PatchOp operazione) {
         if (operazione.getOp() == PatchOp.OpEnum.REMOVE) {
             throw new ValidazioneNonSuperataException(
                     "'soggettiDebitori' non puo' essere rimosso interamente: la posizione debitoria "
@@ -598,7 +582,7 @@ public class PosizioneDebitoriaMapper {
                         "soggetto debitore non valido: " + violazioni.iterator().next().getMessage());
             }
         }
-        posizione.sostituisciSoggettiDebitori(dto.stream().map(this::toSoggettoDebitore).toList());
+        return dto.stream().map(this::toSoggettoDebitore).map(DatiSoggettoDebitore::da).toList();
     }
 
     private String valoreStringa(PatchOp operazione, String nomeCampo) {
@@ -621,7 +605,7 @@ public class PosizioneDebitoriaMapper {
      * Valida il body di {@code PATCH .../opzioni-pagamento/{idOpzionePagamento}}: l'unica
      * operazione supportata e' la transizione manuale di stato
      * ({@code [{"op": "replace"|"add", "path": "/stato", "value": "ANNULLATA"|"DISPONIBILE"}]}),
-     * annullamento o ripristino — a differenza di {@link #applicaPatch} (posizione), qui non
+     * annullamento o ripristino — a differenza di {@link #toAggiornamentoPosizione} (posizione), qui non
      * c'e' alcuna entita' da mutare direttamente: la transizione vera e propria, inclusa la
      * cascata sulle pendenze dell'opzione, e' interamente a carico di
      * {@code PosizioneDebitoriaService#annulla}/{@code #ripristina}, chiamati dal controller
@@ -671,213 +655,14 @@ public class PosizioneDebitoriaMapper {
     }
 
     /**
-     * Sostituisce i dati di una pendenza esistente ({@code PUT .../pendenze/{idA2A}/{idPendenza}})
-     * — la "PUT profonda" legacy ({@code PendenzeDAO.createOrUpdate}, {@code aggiornaSeEsiste=true}),
-     * verificata essere un verbo HTTP PUT letterale che riusa esattamente lo stesso schema
-     * della creazione ({@code wars/api-pendenze/.../v2/controller/PendenzeController.java:348},
-     * {@code PendenzeConverter.getVersamentoFromPendenza}: stesso DTO {@code NuovaPendenza},
-     * stessa {@code .validate()}). Qui {@code dto} e' lo stesso {@link NuovaPendenza} della
-     * creazione ({@link #toPendenza}), non una lista di operazioni JSON Patch: il chiamante
-     * invia l'intero stato desiderato.
-     *
-     * <p><b>Campi NON editabili</b> nonostante la struttura condivisa — mirror del legacy
-     * ({@code VersamentoUtils.validazioneSemanticaAggiornamento}, {@code jars/core/.../utils/
-     * VersamentoUtils.java:161-264}) salvo dove annotato:</p>
-     * <ul>
-     * <li>{@code idPendenza}: obbligatorio ({@code @NotNull} sul DTO generato, stesso vincolo
-     * della creazione) e deve coincidere con quello del path (identificativo di risorsa, non
-     * un campo modificabile);</li>
-     * <li>{@code numeroAvviso}: non puo' cambiare una volta assegnato (mirror VER_024); se
-     * ancora assente puo' essere impostato;</li>
-     * <li>per voce MATCHATA (per {@code idVocePendenza}): {@code idTributo}/
-     * {@code idIbanAccredito} non possono cambiare (mirror esatto VER_007/VER_023) — quindi
-     * nemmeno il passaggio a/da BOLLO, dato che {@code getTipoRiferimento()} si deriva da
-     * questi stessi campi.</li>
-     * </ul>
-     * {@code idTipoPendenza} e {@code idIbanAppoggio} sono invece liberamente modificabili,
-     * cosi' come {@code tipoBollo}/{@code hashDocumento}/{@code provinciaResidenza} su una voce
-     * che resta BOLLO: il legacy non protegge nessuno di questi campi (li sovrascrive sempre
-     * senza controlli, vedi {@code VersamentoUtils.validazioneSemanticaAggiornamento}) — scelta
-     * deliberata di restare un mirror esatto, non di introdurre vincoli che il legacy, in anni
-     * di uso in produzione, non ha mai avuto.
-     *
-     * <p><b>Voci: rimozione ammessa</b>, a differenza del legacy ({@code VER_005}/{@code VER_006},
-     * che rifiutano sempre una riduzione) — richiesta esplicita per questo endpoint v3, non un
-     * mirror. Le voci esistenti non presenti nella richiesta vengono rimosse dalla collezione
-     * ({@code Pendenza.voci} ha {@code orphanRemoval}); il minimo di una voce e' garantito sia
-     * dallo schema ({@code NuovaPendenza.voci} ha {@code minItems: 1}) sia, a valle, da
-     * {@code ValidatorePosizioneDebitoria.validaPendenza} (cardinalita' 1-5). {@code indice}
-     * non e' mai preso dalla richiesta: sulle voci matchate resta quello originale, alle voci
-     * nuove viene assegnato in sequenza dopo l'ultimo esistente — stessa regola del legacy
-     * ({@code indiceDati} mai dalla richiesta).</p>
-     *
-     * <p>Nessuna validazione manuale delle voci qui (a differenza della precedente PATCH basata
-     * su JSON Patch): il controller riceve {@code dto} gia' come {@code @Valid @RequestBody},
-     * che Spring cascata automaticamente su ogni elemento di {@code voci} (annotato
-     * {@code @Valid} nel modello generato) — stessa garanzia della creazione.</p>
-     *
-     * <p>Le mutazioni sono applicate direttamente su {@code pendenza}, un aggregato gestito da
-     * JPA passato dal chiamante ({@code PosizioneDebitoriaService#aggiornaPendenza}): questo
-     * metodo non lo salva ne' lo rivalida (la rivalidazione, inclusa la coerenza importo/voci,
-     * avviene dopo, nello stesso punto della creazione — {@code ValidatorePosizioneDebitoria}).</p>
-     *
-     * @throws AnagraficaNonTrovataException       se {@code idA2A} non corrisponde a nessuna
-     *                                              applicazione
-     * @throws ValidazioneNonSuperataException     se {@code idPendenza} nel body non coincide
-     *                                              con quello del path, o se {@code idTipoPendenza}
-     *                                              non e' risolvibile/autorizzato per questa
-     *                                              applicazione
-     * @throws TransizioneStatoNonAmmessaException se la richiesta cambia {@code numeroAvviso}
-     *                                              gia' assegnato, o il riferimento (tributo/
-     *                                              IBAN di accredito) di una voce esistente
+     * Converte il PUT nei soli dati ammessi, risolvendo anagrafiche e autorizzazioni.
+     * Matching delle voci, immutabilita dei riferimenti e controlli di stato sono
+     * applicati dal servizio della libreria.
      */
-    public void applicaPutPendenza(String idA2A, it.govpay.pendenze.entity.Pendenza pendenza, NuovaPendenza dto) {
+    public AggiornamentoPendenza toAggiornamentoPendenza(String idA2A, Long idDominio, NuovaPendenza dto) {
         ApplicazioneEntity applicazione = applicazioneRepository.findByCodApplicazione(idA2A)
-                .orElseThrow(() -> new AnagraficaNonTrovataException("nessuna applicazione con idA2A [" + idA2A
-                        + "]"));
-
-        if (!dto.getIdPendenza().equals(pendenza.getIdPendenza())) {
-            throw new ValidazioneNonSuperataException("'idPendenza' nel body [" + dto.getIdPendenza()
-                    + "] non corrisponde a quello nel path [" + pendenza.getIdPendenza() + "]");
-        }
-
-        TipoVersamentoDominioEntity tipoVersamentoDominio = risolviTipoVersamentoDominio(dto.getIdTipoPendenza(),
-                pendenza.getIdDominio());
-        verificaAutorizzazioneTipoVersamento(applicazione, tipoVersamentoDominio);
-        pendenza.setIdTipoPendenza(tipoVersamentoDominio.getId());
-        pendenza.setIdTipoVersamento(tipoVersamentoDominio.getTipoVersamento().getId());
-        pendenza.setCodificaIuvTipoPendenza(codificaIuvEffettiva(tipoVersamentoDominio));
-
-        if (pendenza.getNumeroAvviso() != null && dto.getNumeroAvviso() != null
-                && !pendenza.getNumeroAvviso().equals(dto.getNumeroAvviso())) {
-            throw new TransizioneStatoNonAmmessaException("'numeroAvviso' non puo' cambiare rispetto all'originale ["
-                    + pendenza.getNumeroAvviso() + "]");
-        }
-        if (pendenza.getNumeroAvviso() == null) {
-            pendenza.setNumeroAvviso(dto.getNumeroAvviso());
-        }
-
-        pendenza.setImporto(dto.getImporto().doubleValue());
-        pendenza.setDataValidita(aInizioGiorno(dto.getDataValidita()));
-        pendenza.setDataScadenzaAvviso(aInizioGiorno(dto.getDataScadenzaAvviso()));
-
-        sostituisciVoci(pendenza, dto.getVoci());
-    }
-
-    /**
-     * Le voci rimosse (non ripresentate nella richiesta, rimozione ammessa per questo
-     * endpoint) non vengono cancellate subito: finiscono in {@code daRiusare}, da cui le voci
-     * nuove le "pescano" per riusarne la riga (stesso {@code indice}, stesso id JPA — un
-     * {@code UPDATE}, non una coppia {@code DELETE}+{@code INSERT}).
-     *
-     * <p><b>Perche' serve</b>: Hibernate esegue, nello stesso flush, tutti gli insert PRIMA di
-     * tutti i delete. Una voce nuova che riusasse l'indice di una voce rimossa SENZA riusarne
-     * anche la riga (cioe' un vero {@code INSERT} con lo stesso indice appena "liberato" in
-     * memoria) violerebbe quindi transitoriamente il vincolo di unicita'
-     * {@code (id_versamento, indice_dati)}, perche' al momento dell'{@code INSERT} la riga
-     * rimossa e' ancora presente — il suo {@code DELETE} non e' ancora partito. Bug
-     * riscontrato riproducendo esattamente questo caso (sostituzione dell'unica voce di una
-     * pendenza): assegnare alle voci nuove "il massimo indice esistente + 1" evitava la
-     * collisione ma cresceva senza limite a ogni ciclo rimozione+aggiunta, superando 5 (il
-     * {@code maximum} dello schema di {@code VocePendenza.indice}) dopo poche sostituzioni,
-     * pur restando sempre entro la cardinalita' massima di 5 voci.</p>
-     *
-     * <p>Solo le voci nuove in eccesso rispetto alle righe disponibili da riusare (quando le
-     * voci nuove superano quelle rimosse) ottengono un indice libero genuino — mai occupato da
-     * nessuna riga, nemmeno in rimozione, quindi senza alcun rischio di collisione: essendo il
-     * totale delle voci sempre {@code <=} 5 (verificato a valle da
-     * {@code ValidatorePosizioneDebitoria}), ne esiste sempre uno.</p>
-     */
-    private void sostituisciVoci(it.govpay.pendenze.entity.Pendenza pendenza, List<NuovaVocePendenza> richieste) {
-        Map<String, VocePendenza> esistentiPerId = pendenza.getVoci().stream()
-                .collect(Collectors.toMap(VocePendenza::getIdVocePendenza, v -> v));
-
-        List<VocePendenza> candidate = richieste.stream()
-                .map(dto -> toVocePendenza(dto, pendenza.getIdDominio()))
-                .toList();
-        // Stessa materializzazione fatta dal service in creazione
-        // (PosizioneDebitoriaService#crea/#aggiungiOpzionePagamento, "se voce.idDominio e'
-        // null lo valorizzo con quello della posizione"): qui non si passa da quel codice,
-        // quindi senza questo passaggio una voce senza override esplicito perderebbe idDominio.
-        for (VocePendenza candidata : candidate) {
-            if (candidata.getIdDominio() == null) {
-                candidata.setIdDominio(pendenza.getIdDominio());
-            }
-        }
-
-        /*
-         * Unicita' di idVocePendenza DENTRO la richiesta, verificata qui e non solo a valle da
-         * ValidatorePosizioneDebitoria: se l'id duplicato corrisponde a una voce NUOVA, il
-         * duplicato sopravvive nell'aggregato finale e il controllo comune lo intercetta — ma
-         * se corrisponde a una voce ESISTENTE, il ciclo sotto applica entrambe le occorrenze
-         * alla STESSA entity (match per idVocePendenza), quindi nell'aggregato finale non c'e'
-         * mai un duplicato da intercettare: la richiesta viene accettata con 200 e prevale
-         * silenziosamente l'ultima occorrenza (bug riscontrato). Controllo esplicito qui,
-         * prima di qualunque match/mutazione, per rifiutare entrambi i casi allo stesso modo.
-         */
-        Set<String> idVisti = new HashSet<>();
-        for (VocePendenza candidata : candidate) {
-            if (!idVisti.add(candidata.getIdVocePendenza())) {
-                throw new ValidazioneNonSuperataException(
-                        "la voce [" + candidata.getIdVocePendenza() + "] e' presente piu' volte nella richiesta");
-            }
-        }
-
-        Set<String> idPresentiNellaRichiesta = candidate.stream()
-                .map(VocePendenza::getIdVocePendenza).collect(Collectors.toSet());
-
-        Deque<VocePendenza> daRiusare = pendenza.getVoci().stream()
-                .filter(v -> !idPresentiNellaRichiesta.contains(v.getIdVocePendenza()))
-                .collect(Collectors.toCollection(ArrayDeque::new));
-        Set<Integer> indiciOccupati = pendenza.getVoci().stream()
-                .map(VocePendenza::getIndice)
-                .collect(Collectors.toCollection(HashSet::new));
-        int prossimoIndiceLibero = 1;
-
-        for (VocePendenza candidata : candidate) {
-            VocePendenza esistente = esistentiPerId.get(candidata.getIdVocePendenza());
-            if (esistente == null) {
-                VocePendenza riusata = daRiusare.poll();
-                if (riusata != null) {
-                    sovrascriviCampiVoce(riusata, candidata);
-                    continue;
-                }
-                while (indiciOccupati.contains(prossimoIndiceLibero)) {
-                    prossimoIndiceLibero++;
-                }
-                candidata.setIndice(prossimoIndiceLibero);
-                indiciOccupati.add(prossimoIndiceLibero);
-                pendenza.addVocePendenza(candidata);
-                continue;
-            }
-            if (!Objects.equals(esistente.getIdTributo(), candidata.getIdTributo())
-                    || !Objects.equals(esistente.getIdIbanAccredito(), candidata.getIdIbanAccredito())) {
-                throw new TransizioneStatoNonAmmessaException(
-                        "la voce [" + candidata.getIdVocePendenza() + "] non puo' cambiare il riferimento "
-                                + "(tributo/IBAN di accredito) rispetto all'originale");
-            }
-            sovrascriviCampiVoce(esistente, candidata);
-        }
-
-        // Voci rimaste senza una voce nuova che le riusi: rimozione effettiva — orphanRemoval
-        // su Pendenza.voci le elimina su DB.
-        pendenza.getVoci().removeAll(daRiusare);
-    }
-
-    /** Non tocca {@code indice} (va preservato sia sulle voci matchate sia su quelle riusate — vedi Javadoc del chiamante) ne' l'id JPA. */
-    private void sovrascriviCampiVoce(VocePendenza target, VocePendenza candidata) {
-        target.setIdVocePendenza(candidata.getIdVocePendenza());
-        target.setImporto(candidata.getImporto());
-        target.setDescrizione(candidata.getDescrizione());
-        target.setIdDominio(candidata.getIdDominio());
-        target.setIdTributo(candidata.getIdTributo());
-        target.setIdIbanAccredito(candidata.getIdIbanAccredito());
-        target.setIdIbanAppoggio(candidata.getIdIbanAppoggio());
-        target.setTassonomia(candidata.getTassonomia());
-        target.setTipoBollo(candidata.getTipoBollo());
-        target.setHashDocumento(candidata.getHashDocumento());
-        target.setProvinciaResidenza(candidata.getProvinciaResidenza());
-        target.setDettaglioContabile(candidata.getDettaglioContabile());
+                .orElseThrow(() -> new AnagraficaNonTrovataException("nessuna applicazione con idA2A [" + idA2A + "]"));
+        return AggiornamentoPendenza.da(toPendenza(dto, idDominio, applicazione));
     }
 
     private it.govpay.pendenze.entity.OpzionePagamento toOpzionePagamento(NuovaOpzionePagamento dto,
@@ -915,26 +700,15 @@ public class PosizioneDebitoriaMapper {
     }
 
     /**
-     * Converte {@code NuovaPendenza} in entita' per
-     * {@code POST .../posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/
-     * {idOpzionePagamento}/pendenze} (aggiunta a un'opzione GIA' esistente — a differenza di
-     * {@link #toOpzionePagamento(NuovaOpzionePagamento, Long, ApplicazioneEntity)}, qui
-     * {@code idDominioPosizione} viene dal chiamante, che ha gia' risolto l'opzione presso
-     * {@code PosizioneDebitoriaService#aggiungiPendenza} prima di costruire la pendenza).
-     * Stessi controlli di risoluzione/abilitazione/autorizzazione del tipo pendenza di
-     * {@link #toPendenza(NuovaPendenza, Long, ApplicazioneEntity)}: nessuna duplicazione,
-     * delega al convertitore privato condiviso — stesso pattern di
-     * {@link #toOpzionePagamento(String, Long, NuovaOpzionePagamento)}.
-     *
-     * @throws AnagraficaNonTrovataException se {@code idA2A} non corrisponde a nessuna
-     *                                        applicazione
+     * Converte i dati della nuova pendenza e verifica le anagrafiche nel dominio
+     * proprietario. Il servizio assegna identita interne, stati e collegamenti.
      */
-    public it.govpay.pendenze.entity.Pendenza toPendenza(String idA2A, Long idDominioPosizione, NuovaPendenza dto) {
+    public DatiPendenza toPendenza(String idA2A, Long idDominioPosizione, NuovaPendenza dto) {
         ApplicazioneEntity applicazione = applicazioneRepository.findByCodApplicazione(idA2A)
                 .orElseThrow(() -> new AnagraficaNonTrovataException("nessuna applicazione con idA2A [" + idA2A
                         + "]"));
         verificaDominioAbilitato(idDominioPosizione);
-        return toPendenza(dto, idDominioPosizione, applicazione);
+        return DatiPendenza.da(toPendenza(dto, idDominioPosizione, applicazione));
     }
 
     private it.govpay.pendenze.entity.Pendenza toPendenza(NuovaPendenza dto, Long idDominioPosizione,

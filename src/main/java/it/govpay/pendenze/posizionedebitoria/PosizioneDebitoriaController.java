@@ -77,8 +77,8 @@ public class PosizioneDebitoriaController implements PosizioniDebitorieApi {
             throw new ValidazioneNonSuperataException("body della richiesta mancante");
         }
 
-        it.govpay.pendenze.entity.PosizioneDebitoria posizione = mapper.toEntity(idA2A, nuovaPosizioneDebitoria);
-        it.govpay.pendenze.entity.PosizioneDebitoria creata = posizioneDebitoriaService.crea(posizione);
+        var comando = mapper.toComando(idA2A, nuovaPosizioneDebitoria);
+        it.govpay.pendenze.entity.PosizioneDebitoria creata = posizioneDebitoriaService.crea(comando);
 
         URI location = ServletUriComponentsBuilder.fromCurrentContextPath()
                 .path(PosizioniDebitorieApi.PATH_GET_POSIZIONE_DEBITORIA)
@@ -118,7 +118,7 @@ public class PosizioneDebitoriaController implements PosizioniDebitorieApi {
 
     /**
      * Applica un JSON Patch (RFC 6902, sottoinsieme add/remove/replace) alla posizione
-     * debitoria — vedi Javadoc di {@link PosizioneDebitoriaMapper#applicaPatch} per i path
+     * debitoria — vedi Javadoc di {@link PosizioneDebitoriaMapper#toAggiornamentoPosizione} per i path
      * supportati e di {@link PosizioneDebitoriaService#aggiorna} per la rivalidazione e la
      * marcatura ACA applicate dopo il patch. Le opzioni di pagamento non si toccano qui
      * (vedi descrizione dell'operazione nello YAML).
@@ -133,7 +133,7 @@ public class PosizioneDebitoriaController implements PosizioniDebitorieApi {
             throw new ValidazioneNonSuperataException("body della richiesta mancante");
         }
         posizioneDebitoriaService.aggiorna(idA2A, idPosizioneDebitoria,
-                posizione -> mapper.applicaPatch(posizione, patchOp));
+                mapper.toAggiornamentoPosizione(patchOp));
         return ResponseEntity.ok().build();
     }
 
@@ -161,7 +161,7 @@ public class PosizioneDebitoriaController implements PosizioniDebitorieApi {
         }
         it.govpay.pendenze.entity.OpzionePagamento creata = posizioneDebitoriaService.aggiungiOpzionePagamento(
                 idA2A, idPosizioneDebitoria,
-                posizione -> mapper.toOpzionePagamento(idA2A, posizione.getIdDominio(), nuovaOpzionePagamento));
+                mapper.toOpzionePagamento(idA2A, dominioPosizione(idA2A, idPosizioneDebitoria), nuovaOpzionePagamento));
         return ResponseEntity.status(org.springframework.http.HttpStatus.CREATED)
                 .body(mapper.toOpzionePagamentoDto(creata));
     }
@@ -185,7 +185,7 @@ public class PosizioneDebitoriaController implements PosizioniDebitorieApi {
         }
         it.govpay.pendenze.entity.Pendenza creata = posizioneDebitoriaService.aggiungiPendenza(idA2A,
                 idPosizioneDebitoria, idOpzionePagamento,
-                opzione -> mapper.toPendenza(idA2A, opzione.getPosizioneDebitoria().getIdDominio(), nuovaPendenza));
+                mapper.toPendenza(idA2A, dominioPosizione(idA2A, idPosizioneDebitoria), nuovaPendenza));
         return ResponseEntity.status(org.springframework.http.HttpStatus.CREATED).body(mapper.toPendenzaDto(creata));
     }
 
@@ -319,5 +319,10 @@ public class PosizioneDebitoriaController implements PosizioniDebitorieApi {
                             + "'total=true' non e' compatibile. Usa la presenza di 'nextCursor' in "
                             + "risposta per sapere se ci sono altre pagine");
         }
+    }
+    private Long dominioPosizione(String idA2A, String idPosizioneDebitoria) {
+        return posizioneDebitoriaService.trovaPerIdentificativo(idA2A, idPosizioneDebitoria)
+                .orElseThrow(() -> new RisorsaNonTrovataException("nessuna posizione debitoria con idPosizioneDebitoria ["
+                        + idPosizioneDebitoria + "] per idA2A [" + idA2A + "]")).getIdDominio();
     }
 }
