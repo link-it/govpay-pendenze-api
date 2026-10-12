@@ -44,6 +44,7 @@ import it.govpay.pendenze.posizionedebitoria.PosizioneDebitoriaMapper;
 import it.govpay.pendenze.rendicontazione.RendicontazioneMapper;
 import it.govpay.pendenze.repository.RicevutaElenco;
 import it.govpay.pendenze.ricevuta.RicevutaMapper;
+import it.govpay.pendenze.ricevuta.RicevutaPdfPayloadMapper;
 import it.govpay.pendenze.security.AclAuthorizer;
 import it.govpay.pendenze.security.CurrentApplicazioneService;
 import it.govpay.pendenze.service.PosizioneDebitoriaService;
@@ -52,6 +53,7 @@ import it.govpay.pendenze.web.NotAcceptableMediaTypeException;
 import it.govpay.pendenze.web.QueryParamUtils;
 import it.govpay.pendenze.web.SelezioneCampi;
 import it.govpay.stampe.client.model.PaymentNotice;
+import it.govpay.stampe.client.model.Receipt;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import tools.jackson.databind.ObjectMapper;
@@ -74,6 +76,7 @@ public class PendenzaController implements PendenzeApi {
     private final PosizioneDebitoriaService posizioneDebitoriaService;
     private final RicevutaRendicontazioneService ricevutaRendicontazioneService;
     private final RicevutaMapper ricevutaMapper;
+    private final RicevutaPdfPayloadMapper ricevutaPdfPayloadMapper;
     private final RendicontazioneMapper rendicontazioneMapper;
     private final ObjectMapper objectMapper;
     private final HttpServletRequest currentRequest;
@@ -86,6 +89,7 @@ public class PendenzaController implements PendenzeApi {
             ExternalCallMetricsRecorder externalCallMetricsRecorder,
             PosizioneDebitoriaService posizioneDebitoriaService,
             RicevutaRendicontazioneService ricevutaRendicontazioneService, RicevutaMapper ricevutaMapper,
+            RicevutaPdfPayloadMapper ricevutaPdfPayloadMapper,
             RendicontazioneMapper rendicontazioneMapper, ObjectMapper objectMapper,
             HttpServletRequest currentRequest, HttpServletResponse currentResponse,
             CurrentApplicazioneService currentApplicazioneService, AclAuthorizer aclAuthorizer) {
@@ -96,6 +100,7 @@ public class PendenzaController implements PendenzeApi {
         this.posizioneDebitoriaService = posizioneDebitoriaService;
         this.ricevutaRendicontazioneService = ricevutaRendicontazioneService;
         this.ricevutaMapper = ricevutaMapper;
+        this.ricevutaPdfPayloadMapper = ricevutaPdfPayloadMapper;
         this.rendicontazioneMapper = rendicontazioneMapper;
         this.objectMapper = objectMapper;
         this.currentRequest = currentRequest;
@@ -444,6 +449,44 @@ public class PendenzaController implements PendenzeApi {
                 .orElseThrow(() -> new RisorsaNonTrovataException(
                         "nessuna ricevuta con iur [" + iur + "] per idPendenza [" + idPendenza + "]"));
         return ResponseEntity.ok(ricevutaMapper.toRicevuta(rpt));
+    }
+
+    /**
+     * Unico content-type prodotto: {@code application/pdf}, stesso pattern di streaming manuale
+     * di {@link #getStampaPendenza} (vedi il suo Javadoc). Nessun controllo MBT/anagrafica
+     * assente qui: a differenza dell'avviso, la ricevuta descrive un pagamento gia' avvenuto,
+     * non un documento da proporre al debitore — quei controlli non hanno senso su un fatto
+     * storico. 404 con lo stesso trattamento di {@link #getRicevutaPendenza} se la pendenza o
+     * la ricevuta non esistono.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public ResponseEntity<Resource> getStampaRicevutaPendenza(String idA2A, String idPendenza, String iur) {
+        aclAuthorizer.richiedeLettura();
+        currentApplicazioneService.verificaIdA2A(idA2A);
+        verificaAcceptCompatibileConPdf();
+
+        Pendenza pendenza = trovaPendenza(idA2A, idPendenza);
+        Rpt rpt = ricevutaRendicontazioneService.trovaRicevuta(pendenza.getId(), iur)
+                .orElseThrow(() -> new RisorsaNonTrovataException(
+                        "nessuna ricevuta con iur [" + iur + "] per idPendenza [" + idPendenza + "]"));
+        streamRicevutaPdf(pendenza, rpt);
+        return ResponseEntity.ok().build();
+    }
+
+    private void streamRicevutaPdf(Pendenza pendenza, Rpt rpt) {
+        Ricevuta ricevuta = ricevutaMapper.toRicevuta(rpt);
+        Receipt payload = ricevutaPdfPayloadMapper.toReceipt(pendenza, rpt, ricevuta);
+        currentResponse.setContentType(MediaType.APPLICATION_PDF_VALUE);
+        currentResponse.setHeader(HttpHeaders.CONTENT_DISPOSITION,
+                "attachment; filename=\"" + rpt.getIur() + ".pdf\"");
+        try {
+            var output = currentResponse.getOutputStream();
+            externalCallMetricsRecorder.record("stampe", "receipt", () -> stampeClient.streamReceipt(payload, output));
+            currentResponse.flushBuffer();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 
     /** Unico campo ordinabile per le rendicontazioni: stesso principio di {@link #CAMPI_ORDINABILI_RICEVUTE}. */

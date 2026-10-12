@@ -17,6 +17,7 @@ import tools.jackson.databind.ObjectMapper;
 
 import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import it.govpay.stampe.client.model.PaymentNotice;
+import it.govpay.stampe.client.model.Receipt;
 
 /**
  * Facade verso il microservizio {@code govpay-stampe}: verifica che {@code app.stampe.base-url}
@@ -36,6 +37,7 @@ public class StampeClient {
 
     /** Path del microservizio sul base-url (allineato a govpay-stampe.yaml). */
     private static final String PAYMENT_NOTICE_PATH = "/standard";
+    private static final String RECEIPT_PATH = "/receipt";
 
     private final StampeRawClient rawClient;
     private final ObjectMapper objectMapper;
@@ -53,6 +55,32 @@ public class StampeClient {
             throw new StampeNotConfiguredException();
         }
         URI url = URI.create(baseUrl + PAYMENT_NOTICE_PATH);
+        try {
+            rawClient.execute(url,
+                    request -> {
+                        request.getHeaders().setContentType(MediaType.APPLICATION_JSON);
+                        request.getHeaders().setAccept(List.of(MediaType.APPLICATION_PDF));
+                        objectMapper.writeValue(request.getBody(), payload);
+                    },
+                    response -> {
+                        StreamUtils.copy(response.getBody(), output);
+                        return null;
+                    });
+        } catch (CallNotPermittedException e) {
+            log.warn("Circuit breaker aperto sul client govpay-stampe: {}", e.getMessage());
+            throw new StampeUnavailableException(
+                    "Microservizio govpay-stampe momentaneamente non disponibile (circuit open).", e);
+        } catch (RestClientException e) {
+            log.warn("Chiamata al microservizio govpay-stampe fallita: {}", e.getMessage());
+            throw new StampeUnavailableException("Chiamata al microservizio govpay-stampe fallita.", e);
+        }
+    }
+
+    public void streamReceipt(Receipt payload, OutputStream output) {
+        if (!StringUtils.hasText(baseUrl)) {
+            throw new StampeNotConfiguredException();
+        }
+        URI url = URI.create(baseUrl + RECEIPT_PATH);
         try {
             rawClient.execute(url,
                     request -> {

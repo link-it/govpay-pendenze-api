@@ -1576,4 +1576,131 @@ class PendenzaControllerTest {
                 .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
                 .andExpect(jsonPath("$.status").value(422));
     }
+
+    @Test
+    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/ricevute/{iur}/stampa restituisce 404 se la pendenza "
+            + "non esiste")
+    void getStampaRicevutaPendenzaRestituisce404SeLaPendenzaNonEsiste() throws Exception {
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/ricevute/{iur}/stampa", "A2A-TEST",
+                        "pendenza-inesistente", "iur-qualsiasi")
+                        .accept(MediaType.APPLICATION_PDF))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(404));
+    }
+
+    @Test
+    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/ricevute/{iur}/stampa restituisce 404 se l'iur non "
+            + "esiste per questa pendenza")
+    void getStampaRicevutaPendenzaRestituisce404SeIurNonEsiste() throws Exception {
+        creaPosizioneConPendenza("pos-stampa-ric-404", "12345678901", "pendenza-stampa-ric-404");
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/ricevute/{iur}/stampa", "A2A-TEST",
+                        "pendenza-stampa-ric-404", "iur-inesistente")
+                        .accept(MediaType.APPLICATION_PDF))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value(404));
+    }
+
+    @Test
+    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/ricevute/{iur}/stampa restituisce 406 per un Accept "
+            + "non compatibile con PDF")
+    void getStampaRicevutaPendenzaRestituisce406PerAcceptNonSupportato() throws Exception {
+        creaPosizioneConPendenza("pos-stampa-ric-406", "12345678901", "pendenza-stampa-ric-406");
+        ricevutaPersistita("pendenza-stampa-ric-406", "RT900000003", "RPTV2_RTV1", OffsetDateTime.now(),
+                xmlFixture("rt-v2-ok.xml"));
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/ricevute/{iur}/stampa", "A2A-TEST",
+                        "pendenza-stampa-ric-406", "RT900000003")
+                        .accept(MediaType.APPLICATION_XML))
+                .andExpect(status().isNotAcceptable())
+                .andExpect(jsonPath("$.status").value(406));
+    }
+
+    /**
+     * Il 503 (non un 500 per NPE nella costruzione del payload) conferma che il mapper ha
+     * costruito correttamente il {@code Receipt} dalla ricevuta ctReceipt persistita — stesso
+     * principio di {@code getStampaPendenzaPdfRestituisce503SeStampeNonConfigurato}: con
+     * {@code app.stampe.base-url} non configurato (default di questo contesto di test) la
+     * richiesta arriva comunque a tentare la chiamata, fallendo per quello.
+     */
+    @Test
+    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/ricevute/{iur}/stampa (Accept: application/pdf) "
+            + "restituisce 503 se app.stampe.base-url non e' configurato, dopo aver costruito il payload")
+    void getStampaRicevutaPendenzaRestituisce503SeStampeNonConfigurato() throws Exception {
+        creaPosizioneConPendenza("pos-stampa-ric-503", "12345678901", "pendenza-stampa-ric-503");
+        ricevutaPersistita("pendenza-stampa-ric-503", "RT900000003", "RPTV2_RTV1", OffsetDateTime.now(),
+                xmlFixture("rt-v2-ok.xml"));
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/ricevute/{iur}/stampa", "A2A-TEST",
+                        "pendenza-stampa-ric-503", "RT900000003")
+                        .accept(MediaType.APPLICATION_PDF))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(503));
+    }
+
+    /** Stesso scenario, ma formato SANP_230: verifica che anche il ramo RPT/fallback non lanci un 500. */
+    @Test
+    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/ricevute/{iur}/stampa (Accept: application/pdf) "
+            + "costruisce il payload anche per il formato SANP_230 (data operazione dalla colonna, "
+            + "xml_rpt assente)")
+    void getStampaRicevutaPendenzaSanp230RestituisceComunque503NonErrore() throws Exception {
+        creaPosizioneConPendenza("pos-stampa-ric-sanp230", "12345678901", "pendenza-stampa-ric-sanp230");
+        ricevutaPersistita("pendenza-stampa-ric-sanp230", "CCP900000004", "SANP_230", OffsetDateTime.now(),
+                xmlFixtureSanp230());
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/ricevute/{iur}/stampa", "A2A-TEST",
+                        "pendenza-stampa-ric-sanp230", "CCP900000004")
+                        .accept(MediaType.APPLICATION_PDF))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.status").value(503));
+    }
+
+    /** RT minimale ma completa (tutti i campi {@code required}) in formato SANP_230 (digitpa schema). */
+    private static byte[] xmlFixtureSanp230() {
+        return """
+                <RT xmlns="http://www.digitpa.gov.it/schemas/2011/Pagamenti/">
+                  <versioneOggetto>6.2</versioneOggetto>
+                  <dominio>
+                    <identificativoDominio>12345678901</identificativoDominio>
+                    <identificativoStazioneRichiedente>STZ-1</identificativoStazioneRichiedente>
+                  </dominio>
+                  <identificativoMessaggioRicevuta>RT900000004</identificativoMessaggioRicevuta>
+                  <dataOraMessaggioRicevuta>2026-06-10T09:32:00</dataOraMessaggioRicevuta>
+                  <istitutoAttestante>
+                    <identificativoUnivocoAttestante>
+                      <tipoIdentificativoUnivoco>A</tipoIdentificativoUnivoco>
+                      <codiceIdentificativoUnivoco>01234567890</codiceIdentificativoUnivoco>
+                    </identificativoUnivocoAttestante>
+                    <denominazioneAttestante>Banca Attestante SpA</denominazioneAttestante>
+                  </istitutoAttestante>
+                  <enteBeneficiario>
+                    <identificativoUnivocoBeneficiario>
+                      <tipoIdentificativoUnivoco>G</tipoIdentificativoUnivoco>
+                      <codiceIdentificativoUnivoco>12345678901</codiceIdentificativoUnivoco>
+                    </identificativoUnivocoBeneficiario>
+                    <denominazioneBeneficiario>Comune di Test</denominazioneBeneficiario>
+                  </enteBeneficiario>
+                  <soggettoPagatore>
+                    <identificativoUnivocoPagatore>
+                      <tipoIdentificativoUnivoco>F</tipoIdentificativoUnivoco>
+                      <codiceIdentificativoUnivoco>RSSMRA80A01H501U</codiceIdentificativoUnivoco>
+                    </identificativoUnivocoPagatore>
+                    <anagraficaPagatore>Mario Rossi</anagraficaPagatore>
+                  </soggettoPagatore>
+                  <datiPagamento>
+                    <codiceEsitoPagamento>0</codiceEsitoPagamento>
+                    <importoTotalePagato>16.00</importoTotalePagato>
+                    <identificativoUnivocoVersamento>IUV900000004</identificativoUnivocoVersamento>
+                    <codiceContestoPagamento>CCP900000004</codiceContestoPagamento>
+                    <datiSingoloPagamento>
+                      <singoloImportoPagato>16.00</singoloImportoPagato>
+                      <identificativoUnivocoRiscossione>IUR900000004</identificativoUnivocoRiscossione>
+                      <causaleVersamento>Diritti di segreteria</causaleVersamento>
+                    </datiSingoloPagamento>
+                  </datiPagamento>
+                </RT>
+                """.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    }
 }
