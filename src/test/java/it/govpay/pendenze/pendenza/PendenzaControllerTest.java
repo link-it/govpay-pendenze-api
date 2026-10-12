@@ -1,0 +1,1706 @@
+package it.govpay.pendenze.pendenza;
+
+import static org.hamcrest.Matchers.notNullValue;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import com.jayway.jsonpath.JsonPath;
+
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.boot.webmvc.test.autoconfigure.MockMvcBuilderCustomizer;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
+
+import java.time.OffsetDateTime;
+
+import it.govpay.common.auth.GovpayPasswordEncoder;
+import it.govpay.common.entity.ApplicazioneEntity;
+import it.govpay.common.entity.DominioEntity;
+import it.govpay.common.entity.TipoTributoEntity;
+import it.govpay.common.entity.TipoVersamentoDominioEntity;
+import it.govpay.common.entity.TipoVersamentoEntity;
+import it.govpay.common.entity.TributoEntity;
+import it.govpay.common.repository.ApplicazioneRepository;
+import it.govpay.common.repository.DominioRepository;
+import it.govpay.common.repository.TipoTributoRepository;
+import it.govpay.common.repository.TipoVersamentoDominioRepository;
+import it.govpay.common.repository.TipoVersamentoRepository;
+import it.govpay.common.repository.TributoRepository;
+import it.govpay.pendenze.entity.FlussoRendicontazione;
+import it.govpay.pendenze.entity.Pendenza;
+import it.govpay.pendenze.entity.Rendicontazione;
+import it.govpay.pendenze.entity.Rpt;
+import it.govpay.pendenze.model.StatoFlussoRendicontazione;
+import it.govpay.pendenze.model.StatoPendenza;
+import it.govpay.pendenze.model.StatoRendicontazione;
+import it.govpay.pendenze.repository.FlussoRendicontazioneRepository;
+import it.govpay.pendenze.repository.PendenzaRepository;
+import it.govpay.pendenze.repository.PosizioneDebitoriaRepository;
+import it.govpay.pendenze.repository.RendicontazioneRepository;
+import it.govpay.pendenze.repository.RptRepository;
+import it.govpay.pendenze.security.AclEntity;
+import it.govpay.pendenze.security.AclRepository;
+import it.govpay.pendenze.security.UtenzaEntity;
+import it.govpay.pendenze.security.UtenzaRepository;
+
+/**
+ * Verifica {@code GET /pendenze/{idA2A}} (ricerca per numero avviso) a livello di
+ * integrazione, come {@code PosizioneDebitoriaControllerTest}: contesto Spring completo, DB
+ * H2 con lo schema reale, niente {@code @Transactional} sulla classe per lo stesso motivo li'
+ * documentato (maschererebbe la classe di bug delle relazioni LAZY lette dopo la chiusura
+ * della transazione di scrittura).
+ */
+@SpringBootTest
+@AutoConfigureMockMvc
+@ActiveProfiles("test")
+@Import(PendenzaControllerTest.BasicAuthDiDefaultConfig.class)
+class PendenzaControllerTest {
+
+    private static final String PRINCIPAL = "A2A-TEST";
+    private static final String PASSWORD = "test-password";
+
+    /**
+     * Vedi Javadoc dell'omologo in {@code PosizioneDebitoriaControllerTest}: nessun test in
+     * questa classe usa un idA2A diverso da "A2A-TEST", quindi qui basta l'iniezione di
+     * default, senza override per-richiesta.
+     */
+    @TestConfiguration
+    static class BasicAuthDiDefaultConfig {
+        @Bean
+        MockMvcBuilderCustomizer basicAuthDiDefaultCustomizer() {
+            return builder -> builder.defaultRequest(
+                    MockMvcRequestBuilders.get("/").with(httpBasic(PRINCIPAL, PASSWORD)));
+        }
+    }
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @Autowired
+    private ApplicazioneRepository applicazioneRepository;
+
+    @Autowired
+    private UtenzaRepository utenzaRepository;
+
+    @Autowired
+    private AclRepository aclRepository;
+
+    @Autowired
+    private GovpayPasswordEncoder passwordEncoder;
+
+    @Autowired
+    private DominioRepository dominioRepository;
+
+    @Autowired
+    private TipoVersamentoRepository tipoVersamentoRepository;
+
+    @Autowired
+    private TipoVersamentoDominioRepository tipoVersamentoDominioRepository;
+
+    @Autowired
+    private TipoTributoRepository tipoTributoRepository;
+
+    @Autowired
+    private TributoRepository tributoRepository;
+
+    @Autowired
+    private PosizioneDebitoriaRepository posizioneDebitoriaRepository;
+
+    @Autowired
+    private PendenzaRepository pendenzaRepository;
+
+    @Autowired
+    private RptRepository rptRepository;
+
+    @Autowired
+    private FlussoRendicontazioneRepository flussoRendicontazioneRepository;
+
+    @Autowired
+    private RendicontazioneRepository rendicontazioneRepository;
+
+    private TipoVersamentoEntity tipoVersamento;
+    private TipoTributoEntity tipoTributo;
+
+    @BeforeEach
+    void creaAnagrafiche() {
+        UtenzaEntity utenza = creaUtenza(PRINCIPAL, PASSWORD);
+
+        applicazioneRepository.save(ApplicazioneEntity.builder()
+                .codApplicazione("A2A-TEST")
+                .autoIuv(true)
+                .firmaRicevuta("N")
+                .trusted(true)
+                .idUtenza(utenza.getId())
+                .build());
+
+        creaDominio("12345678901", "Comune di Test");
+
+        tipoVersamento = nuovoTipoVersamento("DIRITTI_SEGRETERIA", "Diritti di segreteria");
+        tipoVersamentoRepository.save(tipoVersamento);
+
+        tipoTributo = new TipoTributoEntity();
+        tipoTributo.setCodTributo("DIRITTI_SEGRETERIA");
+        tipoTributo.setDescrizione("Diritti di segreteria");
+        tipoTributoRepository.save(tipoTributo);
+
+        configuraTipoVersamentoPerDominio("12345678901");
+    }
+
+    /**
+     * {@code tipi_versamento} ha 9 colonne {@code NOT NULL DEFAULT false} (configurazione
+     * BO/PAG/avvisatura mail/AppIO, mai {@code null} su una riga reale) — valorizzate qui
+     * esplicitamente a {@code false} ("nessuna integrazione attiva"), altrimenti l'INSERT
+     * fallisce (il default SQL non si applica: Hibernate invia sempre un valore esplicito,
+     * {@code NULL} se il campo Java non e' stato impostato).
+     */
+    private TipoVersamentoEntity nuovoTipoVersamento(String codTipoVersamento, String descrizione) {
+        TipoVersamentoEntity tv = new TipoVersamentoEntity();
+        tv.setCodTipoVersamento(codTipoVersamento);
+        tv.setDescrizione(descrizione);
+        tv.setAbilitato(true);
+        tv.setPagaTerzi(false);
+        tv.setBoAbilitato(false);
+        tv.setPagAbilitato(false);
+        tv.setAvvMailPromAvvAbilitato(false);
+        tv.setAvvMailPromRicAbilitato(false);
+        tv.setAvvMailPromScadAbilitato(false);
+        tv.setAvvAppIoPromAvvAbilitato(false);
+        tv.setAvvAppIoPromRicAbilitato(false);
+        tv.setAvvAppIoPromScadAbilitato(false);
+        return tv;
+    }
+
+    private DominioEntity creaDominio(String codDominio, String ragioneSociale) {
+        return dominioRepository.save(DominioEntity.builder()
+                .codDominio(codDominio)
+                .ragioneSociale(ragioneSociale)
+                .abilitato(true)
+                .intermediato(false)
+                .scaricaFr(false)
+                .auxDigit(1)
+                .build());
+    }
+
+    /**
+     * Configura sia {@code tipi_vers_domini} (idTipoPendenza) sia {@code tributi} (codEntrata
+     * di RIFERIMENTO_ENTRATA — bug del lead, 2026-09-28: {@code VocePendenza.codEntrata} va
+     * risolto contro l'anagrafica reale, non e' piu' una stringa libera) per questo dominio:
+     * ogni test di questa classe usa sempre lo stesso {@code codEntrata}
+     * ({@code DIRITTI_SEGRETERIA}) delle voci, su domini diversi (M13).
+     */
+    private void configuraTipoVersamentoPerDominio(String codDominio) {
+        DominioEntity dominio = dominioRepository.findByCodDominio(codDominio).orElseThrow();
+        TipoVersamentoDominioEntity override = new TipoVersamentoDominioEntity();
+        override.setTipoVersamento(tipoVersamento);
+        override.setDominio(dominio);
+        tipoVersamentoDominioRepository.save(override);
+
+        TributoEntity tributo = new TributoEntity();
+        tributo.setAbilitato(true);
+        tributo.setDominio(dominio);
+        tributo.setTipoTributo(tipoTributo);
+        tributoRepository.save(tributo);
+    }
+
+    @AfterEach
+    void pulisci() {
+        rendicontazioneRepository.deleteAll();
+        flussoRendicontazioneRepository.deleteAll();
+        rptRepository.deleteAll();
+        posizioneDebitoriaRepository.deleteAll();
+        tipoVersamentoDominioRepository.deleteAll();
+        tipoVersamentoRepository.deleteAll();
+        tributoRepository.deleteAll();
+        tipoTributoRepository.deleteAll();
+        dominioRepository.deleteAll();
+        applicazioneRepository.deleteAll();
+        aclRepository.deleteAll();
+        utenzaRepository.deleteAll();
+    }
+
+    /**
+     * Vedi Javadoc dell'omologo in {@code PosizioneDebitoriaControllerTest}: diritti pieni
+     * ("RW") sul servizio "API Pendenze" — questa classe usa POST (setup dei dati via l'altro
+     * controller) e GET (l'endpoint sotto test), entrambi richiedono l'ACL.
+     */
+    private UtenzaEntity creaUtenza(String principal, String password) {
+        UtenzaEntity utenza = new UtenzaEntity();
+        utenza.setPrincipal(principal);
+        utenza.setPrincipalOriginale(principal);
+        utenza.setAbilitato(true);
+        utenza.setAutorizzazioneTipiVersStar(false);
+        utenza.setPassword(passwordEncoder.encode(password));
+        utenza = utenzaRepository.save(utenza);
+
+        AclEntity acl = new AclEntity();
+        acl.setServizio("API Pendenze");
+        acl.setDiritti("RW");
+        acl.setIdUtenza(utenza.getId());
+        aclRepository.save(acl);
+
+        return utenza;
+    }
+
+    /**
+     * {@code numeroAvviso} non indicato nella richiesta (a differenza di
+     * {@code PosizioneDebitoriaControllerTest}, che ne verifica solo il prefisso): il formato
+     * pagoPA di un numero avviso valido include un check digit mod-93 dipendente da un
+     * progressivo interno — costruirne uno a mano nel test rischia di produrne uno che
+     * {@code GeneratoreIuvStandard#convertiDaNumeroAvviso} rifiuta. Si lascia percio' generare
+     * IUV/numero avviso reali da {@code GeneratoreIuvStandard} (nessuno stub, come nell'altro
+     * test) e si recupera il valore effettivo dalla risposta del POST, da riusare in seguito
+     * per la ricerca.
+     *
+     * @return il {@code numeroAvviso} generato per la pendenza appena creata
+     */
+    private String creaPosizioneConPendenza(String idPosizioneDebitoria, String codDominio, String idPendenza)
+            throws Exception {
+        String body = """
+                {
+                  "idPosizioneDebitoria": "%s",
+                  "idDominio": "%s",
+                  "descrizione": "test ricerca pendenze",
+                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y",
+                                           "anagrafica": "Mario Rossi" } ],
+                  "opzioniPagamento": [ {
+                    "tipologia": "SOLUZIONE_UNICA",
+                    "pendenze": [ {
+                      "idPendenza": "%s",
+                      "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                      "importo": 16.00,
+                      "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-%s", "importo": 16.00,
+                                  "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
+                    } ]
+                  } ]
+                }
+                """.formatted(idPosizioneDebitoria, codDominio, idPendenza, idPendenza);
+
+        String risposta = mockMvc.perform(post("/posizioni-debitorie/{idA2A}", "A2A-TEST")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+
+        return JsonPath.read(risposta, "$.opzioniPagamento[0].pendenze[0].numeroAvviso");
+    }
+
+    /**
+     * Come {@link #creaPosizioneConPendenza}, ma con un {@code numeroAvviso} esplicito nella
+     * richiesta invece di lasciarlo generare: il servizio lo accetta senza toccarlo se e'
+     * accompagnato da un IUV ricavabile per conversione (vedi Javadoc di
+     * {@code PosizioneDebitoriaService#crea}). Usato solo per gli scenari M13 (stesso
+     * {@code numeroAvviso} riusato su un secondo dominio): valido perche' il check digit
+     * mod-93 di {@code IuvUtils} dipende solo da {@code auxDigit} (uguale su entrambi i
+     * domini di test), non dall'identita' del dominio.
+     */
+    private void creaPosizioneConPendenzaENumeroAvviso(String idPosizioneDebitoria, String codDominio,
+            String idPendenza, String numeroAvviso) throws Exception {
+        String body = """
+                {
+                  "idPosizioneDebitoria": "%s",
+                  "idDominio": "%s",
+                  "descrizione": "test ricerca pendenze",
+                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y",
+                                           "anagrafica": "Mario Rossi" } ],
+                  "opzioniPagamento": [ {
+                    "tipologia": "SOLUZIONE_UNICA",
+                    "pendenze": [ {
+                      "idPendenza": "%s",
+                      "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                      "importo": 16.00,
+                      "numeroAvviso": "%s",
+                      "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-%s", "importo": 16.00,
+                                  "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
+                    } ]
+                  } ]
+                }
+                """.formatted(idPosizioneDebitoria, codDominio, idPendenza, numeroAvviso, idPendenza);
+
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}", "A2A-TEST")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isCreated());
+    }
+
+    @Test
+    @DisplayName("GET /pendenze/{idA2A} trova la pendenza per numeroAvviso, comprensiva di "
+            + "opzionePagamento e posizioneDebitoria")
+    void findPendenzeTrovaLaPendenzaPerNumeroAvviso() throws Exception {
+        String numeroAvviso = creaPosizioneConPendenza("pos-nav-1", "12345678901", "pendenza-nav-1");
+
+        mockMvc.perform(get("/pendenze/{idA2A}", "A2A-TEST")
+                        .param("numeroAvviso", numeroAvviso)
+                        .param("total", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.pagination.totalResults").value(1))
+                .andExpect(jsonPath("$.results.length()").value(1))
+                .andExpect(jsonPath("$.results[0].idPendenza").value("pendenza-nav-1"))
+                .andExpect(jsonPath("$.results[0].numeroAvviso").value(numeroAvviso))
+                .andExpect(jsonPath("$.results[0].idDominio").value("12345678901"))
+                .andExpect(jsonPath("$.results[0].opzionePagamento.tipologia").value("SOLUZIONE_UNICA"))
+                .andExpect(jsonPath("$.results[0].posizioneDebitoria.idPosizioneDebitoria").value("pos-nav-1"));
+    }
+
+    @Test
+    @DisplayName("GET /pendenze/{idA2A} restituisce 400 (non 500) se numeroAvviso manca, obbligatorio")
+    void findPendenzeRestituisce400SeNumeroAvvisoMancante() throws Exception {
+        mockMvc.perform(get("/pendenze/{idA2A}", "A2A-TEST"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    @DisplayName("GET /pendenze/{idA2A} restituisce 400 se numeroAvviso non rispetta il formato (18 cifre)")
+    void findPendenzeRestituisce400SeNumeroAvvisoNonValido() throws Exception {
+        mockMvc.perform(get("/pendenze/{idA2A}", "A2A-TEST")
+                        .param("numeroAvviso", "non-un-numero-avviso"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    @DisplayName("M13: lo stesso numeroAvviso puo' esistere su domini diversi — senza idDominio "
+            + "trova entrambe le pendenze, con idDominio filtra a una sola")
+    void findPendenzeConStessoNumeroAvvisoSuDominiDiversiFiltraConIdDominio() throws Exception {
+        creaDominio("22222222222", "Secondo Comune di Test");
+        configuraTipoVersamentoPerDominio("22222222222");
+
+        String numeroAvviso = creaPosizioneConPendenza("pos-m13-dominio-1", "12345678901",
+                "pendenza-m13-dominio-1");
+        creaPosizioneConPendenzaENumeroAvviso("pos-m13-dominio-2", "22222222222", "pendenza-m13-dominio-2",
+                numeroAvviso);
+
+        mockMvc.perform(get("/pendenze/{idA2A}", "A2A-TEST")
+                        .param("numeroAvviso", numeroAvviso)
+                        .param("total", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.pagination.totalResults").value(2))
+                .andExpect(jsonPath("$.results.length()").value(2));
+
+        mockMvc.perform(get("/pendenze/{idA2A}", "A2A-TEST")
+                        .param("numeroAvviso", numeroAvviso)
+                        .param("idDominio", "22222222222")
+                        .param("total", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.pagination.totalResults").value(1))
+                .andExpect(jsonPath("$.results[0].idDominio").value("22222222222"))
+                .andExpect(jsonPath("$.results[0].idPendenza").value("pendenza-m13-dominio-2"));
+    }
+
+    @Test
+    @DisplayName("GET /pendenze/{idA2A} restituisce 404 se idDominio non corrisponde a nessun dominio censito")
+    void findPendenzeRestituisce404SeIdDominioNonEsiste() throws Exception {
+        String numeroAvviso = creaPosizioneConPendenza("pos-dominio-ignoto", "12345678901",
+                "pendenza-dominio-ignoto");
+
+        mockMvc.perform(get("/pendenze/{idA2A}", "A2A-TEST")
+                        .param("numeroAvviso", numeroAvviso)
+                        .param("idDominio", "00000000000"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value(404));
+    }
+
+    @Test
+    @DisplayName("GET /pendenze/{idA2A} pagina a offset (total=false, default): hasNextPage=true quando ce ne "
+            + "sono altri, mantenendo numeroAvviso/idDominio su page=2")
+    void findPendenzePaginaAOffsetSegnalaHasNextPage() throws Exception {
+        creaDominio("22222222222", "Secondo Comune di Test");
+        configuraTipoVersamentoPerDominio("22222222222");
+
+        String numeroAvviso = creaPosizioneConPendenza("pos-pagina-1", "12345678901", "pendenza-pagina-1");
+        creaPosizioneConPendenzaENumeroAvviso("pos-pagina-2", "22222222222", "pendenza-pagina-2", numeroAvviso);
+
+        mockMvc.perform(get("/pendenze/{idA2A}", "A2A-TEST")
+                        .param("numeroAvviso", numeroAvviso)
+                        .param("limit", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.pagination.hasNextPage").value(true))
+                .andExpect(jsonPath("$.pagination.totalResults").doesNotExist())
+                .andExpect(jsonPath("$.results.length()").value(1));
+
+        mockMvc.perform(get("/pendenze/{idA2A}", "A2A-TEST")
+                        .param("numeroAvviso", numeroAvviso)
+                        .param("limit", "1")
+                        .param("page", "2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.pagination.hasNextPage").value(false))
+                .andExpect(jsonPath("$.results.length()").value(1));
+    }
+
+    @Test
+    @DisplayName("GET /pendenze/{idA2A} applica fields: restituisce solo i campi richiesti")
+    void findPendenzeApplicaFields() throws Exception {
+        String numeroAvviso = creaPosizioneConPendenza("pos-fields-1", "12345678901", "pendenza-fields-1");
+
+        mockMvc.perform(get("/pendenze/{idA2A}", "A2A-TEST")
+                        .param("numeroAvviso", numeroAvviso)
+                        .param("fields", "idPendenza"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.results[0].idPendenza").exists())
+                .andExpect(jsonPath("$.results[0].numeroAvviso").doesNotExist())
+                .andExpect(jsonPath("$.results[0].posizioneDebitoria").doesNotExist())
+                .andExpect(jsonPath("$.results[0].opzionePagamento").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("GET /pendenze/{idA2A} paginazione a cursore: nextCursor porta al resto dei risultati "
+            + "senza sovrapposizioni")
+    void findPendenzeCursoreScorreSenzaSovrapposizioni() throws Exception {
+        creaDominio("22222222222", "Secondo Comune di Test");
+        configuraTipoVersamentoPerDominio("22222222222");
+
+        String numeroAvviso = creaPosizioneConPendenza("pos-cursore-1", "12345678901", "pendenza-cursore-1");
+        creaPosizioneConPendenzaENumeroAvviso("pos-cursore-2", "22222222222", "pendenza-cursore-2", numeroAvviso);
+
+        org.springframework.test.web.servlet.MvcResult primaPagina = mockMvc.perform(get("/pendenze/{idA2A}",
+                        "A2A-TEST")
+                        .param("numeroAvviso", numeroAvviso)
+                        .param("cursor", "")
+                        .param("limit", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.pagination").doesNotExist())
+                .andExpect(jsonPath("$.nextCursor").exists())
+                .andExpect(jsonPath("$.results.length()").value(1))
+                .andReturn();
+
+        String nextCursor = com.jayway.jsonpath.JsonPath.read(
+                primaPagina.getResponse().getContentAsString(), "$.nextCursor");
+
+        mockMvc.perform(get("/pendenze/{idA2A}", "A2A-TEST")
+                        .param("numeroAvviso", numeroAvviso)
+                        .param("cursor", nextCursor)
+                        .param("limit", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nextCursor").doesNotExist())
+                .andExpect(jsonPath("$.results.length()").value(1));
+    }
+
+    @Test
+    @DisplayName("GET /pendenze/{idA2A} rifiuta con 400 'page' e 'cursor' insieme")
+    void findPendenzeRifiutaPageECursoreInsieme() throws Exception {
+        mockMvc.perform(get("/pendenze/{idA2A}", "A2A-TEST")
+                        .param("numeroAvviso", "123456789012345678")
+                        .param("page", "1")
+                        .param("cursor", ""))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/ricevute restituisce l'elenco, piu' recenti prima, "
+            + "con 'tipo' mappato dal valore legacy di 'versione'")
+    void findRicevutePendenzaRestituisceElenco() throws Exception {
+        creaPosizioneConPendenza("pos-ricevute-1", "12345678901", "pendenza-ricevute-1");
+        OffsetDateTime adesso = OffsetDateTime.now();
+        ricevutaPersistita("pendenza-ricevute-1", "iur-vecchia", "SANP_230", adesso.minusDays(1));
+        ricevutaPersistita("pendenza-ricevute-1", "iur-recente", "SANP_321_V2", adesso);
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/ricevute", "A2A-TEST", "pendenza-ricevute-1")
+                        .param("sort", "data:desc"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.results.length()").value(2))
+                .andExpect(jsonPath("$.results[0].iur").value("iur-recente"))
+                .andExpect(jsonPath("$.results[0].tipo").value("ctReceiptV2"))
+                .andExpect(jsonPath("$.results[1].iur").value("iur-vecchia"))
+                .andExpect(jsonPath("$.results[1].tipo").value("ctRicevutaTelematica"));
+    }
+
+    @Test
+    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/ricevute esclude le rpt per cui la ricevuta non e' "
+            + "ancora arrivata e restituisce 404 se la pendenza non esiste")
+    void findRicevutePendenzaEscludeRptInAttesaERestituisce404SeNonEsiste() throws Exception {
+        creaPosizioneConPendenza("pos-ricevute-attesa", "12345678901", "pendenza-ricevute-attesa");
+        ricevutaPersistita("pendenza-ricevute-attesa", "iur-arrivata", "SANP_240", OffsetDateTime.now());
+        Pendenza pendenza = pendenzaRepository.findAll().stream()
+                .filter(p -> "pendenza-ricevute-attesa".equals(p.getIdPendenza()))
+                .findFirst().orElseThrow();
+        Rpt inAttesa = new Rpt();
+        inAttesa.setIdVersamento(pendenza.getId());
+        inAttesa.setIuv(pendenza.getIuv());
+        inAttesa.setIur("iur-in-attesa");
+        inAttesa.setCodDominio("12345678901");
+        inAttesa.setVersione("SANP_240");
+        rptRepository.save(inAttesa);
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/ricevute", "A2A-TEST", "pendenza-ricevute-attesa"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.results.length()").value(1))
+                .andExpect(jsonPath("$.results[0].iur").value("iur-arrivata"));
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/ricevute", "A2A-TEST", "pendenza-inesistente"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/ricevute paginazione a cursore: nextCursor porta al "
+            + "resto dei risultati senza sovrapposizioni")
+    void findRicevutePendenzaCursoreScorreSenzaSovrapposizioni() throws Exception {
+        creaPosizioneConPendenza("pos-ricevute-cursore", "12345678901", "pendenza-ricevute-cursore");
+        OffsetDateTime adesso = OffsetDateTime.now();
+        ricevutaPersistita("pendenza-ricevute-cursore", "iur-1", "SANP_240", adesso.minusDays(2));
+        ricevutaPersistita("pendenza-ricevute-cursore", "iur-2", "SANP_240", adesso.minusDays(1));
+        ricevutaPersistita("pendenza-ricevute-cursore", "iur-3", "SANP_240", adesso);
+
+        org.springframework.test.web.servlet.MvcResult primaPagina = mockMvc
+                .perform(get("/pendenze/{idA2A}/{idPendenza}/ricevute", "A2A-TEST", "pendenza-ricevute-cursore")
+                        .param("cursor", "")
+                        .param("limit", "2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.pagination").doesNotExist())
+                .andExpect(jsonPath("$.nextCursor").exists())
+                .andExpect(jsonPath("$.results.length()").value(2))
+                .andExpect(jsonPath("$.results[0].iur").value("iur-3"))
+                .andExpect(jsonPath("$.results[1].iur").value("iur-2"))
+                .andReturn();
+
+        String nextCursor = com.jayway.jsonpath.JsonPath.read(
+                primaPagina.getResponse().getContentAsString(), "$.nextCursor");
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/ricevute", "A2A-TEST", "pendenza-ricevute-cursore")
+                        .param("cursor", nextCursor)
+                        .param("limit", "2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nextCursor").doesNotExist())
+                .andExpect(jsonPath("$.results.length()").value(1))
+                .andExpect(jsonPath("$.results[0].iur").value("iur-1"));
+    }
+
+    @Test
+    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/ricevute rifiuta con 400 'page' e 'cursor' insieme")
+    void findRicevutePendenzaRifiutaPageECursoreInsieme() throws Exception {
+        creaPosizioneConPendenza("pos-ricevute-mutex", "12345678901", "pendenza-ricevute-mutex");
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/ricevute", "A2A-TEST", "pendenza-ricevute-mutex")
+                        .param("page", "1")
+                        .param("cursor", ""))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/ricevute/{iur} restituisce il dettaglio nel "
+            + "formato ctReceipt, con 'tipo' coerente con quello dell'elenco")
+    void getRicevutaPendenzaRestituisceCtReceipt() throws Exception {
+        creaPosizioneConPendenza("pos-ricevuta-det-1", "12345678901", "pendenza-ricevuta-det-1");
+        ricevutaPersistita("pendenza-ricevuta-det-1", "RT900000003", "RPTV2_RTV1", OffsetDateTime.now(),
+                xmlFixture("rt-v2-ok.xml"));
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/ricevute/{iur}", "A2A-TEST",
+                        "pendenza-ricevuta-det-1", "RT900000003"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.tipo").value("ctReceipt"))
+                .andExpect(jsonPath("$.receiptId").value("RT900000003"))
+                .andExpect(jsonPath("$.fiscalCode").value("12345678901"))
+                .andExpect(jsonPath("$.outcome").value("OK"))
+                .andExpect(jsonPath("$.paymentAmount").value(10.00))
+                .andExpect(jsonPath("$.debtor.fullName").value("Mario Rossi"))
+                .andExpect(jsonPath("$.transferList[0].IBAN").value("IT60X0542811101000000123456"));
+    }
+
+    @Test
+    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/ricevute/{iur} restituisce il dettaglio nel "
+            + "formato ctReceiptV2")
+    void getRicevutaPendenzaRestituisceCtReceiptV2() throws Exception {
+        creaPosizioneConPendenza("pos-ricevuta-det-2", "12345678901", "pendenza-ricevuta-det-2");
+        ricevutaPersistita("pendenza-ricevuta-det-2", "RT900000001", "SANP_321_V2", OffsetDateTime.now(),
+                xmlFixture("rt-v2_2-ok.xml"));
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/ricevute/{iur}", "A2A-TEST",
+                        "pendenza-ricevuta-det-2", "RT900000001"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.tipo").value("ctReceiptV2"))
+                .andExpect(jsonPath("$.receiptId").value("RT900000001"))
+                .andExpect(jsonPath("$.officeName").value("Ufficio Tributi"))
+                .andExpect(jsonPath("$.debtor.city").value("Roma"))
+                .andExpect(jsonPath("$.paymentMethod").value("AD"));
+    }
+
+    @Test
+    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/ricevute/{iur} restituisce 404 se l'iur non esiste "
+            + "o se la pendenza non ha ancora questa ricevuta")
+    void getRicevutaPendenzaRestituisce404SeIurNonEsiste() throws Exception {
+        creaPosizioneConPendenza("pos-ricevuta-404", "12345678901", "pendenza-ricevuta-404");
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/ricevute/{iur}", "A2A-TEST",
+                        "pendenza-ricevuta-404", "iur-inesistente"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/rendicontazioni restituisce l'elenco, comprensivo dei dati "
+            + "di testata del flusso (trn = flusso.iur, rename verificato contro il legacy)")
+    void findRendicontazioniPendenzaRestituisceElenco() throws Exception {
+        creaPosizioneConPendenza("pos-rend-1", "12345678901", "pendenza-rend-1");
+        OffsetDateTime adesso = OffsetDateTime.now();
+        rendicontazionePersistita("pendenza-rend-1", "flusso-rend-1", adesso, "iur-rend-1");
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/rendicontazioni", "A2A-TEST", "pendenza-rend-1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.results.length()").value(1))
+                .andExpect(jsonPath("$.results[0].iur").value("iur-rend-1"))
+                .andExpect(jsonPath("$.results[0].esito").value(0))
+                .andExpect(jsonPath("$.results[0].stato").value("OK"))
+                .andExpect(jsonPath("$.results[0].flusso.idFlusso").value("flusso-rend-1"))
+                .andExpect(jsonPath("$.results[0].flusso.trn").value("trn-flusso-rend-1"))
+                .andExpect(jsonPath("$.results[0].flusso.stato").value("ACCETTATA"));
+    }
+
+    @Test
+    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/rendicontazioni paginazione a cursore: nextCursor porta "
+            + "al resto dei risultati senza sovrapposizioni, ordinati per flusso.dataOraFlusso desc")
+    void findRendicontazioniPendenzaCursoreScorreSenzaSovrapposizioni() throws Exception {
+        creaPosizioneConPendenza("pos-rend-cursore", "12345678901", "pendenza-rend-cursore");
+        OffsetDateTime adesso = OffsetDateTime.now();
+        rendicontazionePersistita("pendenza-rend-cursore", "flusso-rc-1", adesso.minusDays(2), "iur-1");
+        rendicontazionePersistita("pendenza-rend-cursore", "flusso-rc-2", adesso.minusDays(1), "iur-2");
+        rendicontazionePersistita("pendenza-rend-cursore", "flusso-rc-3", adesso, "iur-3");
+
+        org.springframework.test.web.servlet.MvcResult primaPagina = mockMvc
+                .perform(get("/pendenze/{idA2A}/{idPendenza}/rendicontazioni", "A2A-TEST", "pendenza-rend-cursore")
+                        .param("cursor", "")
+                        .param("limit", "2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.pagination").doesNotExist())
+                .andExpect(jsonPath("$.nextCursor").exists())
+                .andExpect(jsonPath("$.results.length()").value(2))
+                .andExpect(jsonPath("$.results[0].iur").value("iur-3"))
+                .andExpect(jsonPath("$.results[1].iur").value("iur-2"))
+                .andReturn();
+
+        String nextCursor = com.jayway.jsonpath.JsonPath.read(
+                primaPagina.getResponse().getContentAsString(), "$.nextCursor");
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/rendicontazioni", "A2A-TEST", "pendenza-rend-cursore")
+                        .param("cursor", nextCursor)
+                        .param("limit", "2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nextCursor").doesNotExist())
+                .andExpect(jsonPath("$.results.length()").value(1))
+                .andExpect(jsonPath("$.results[0].iur").value("iur-1"));
+    }
+
+    @Test
+    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/rendicontazioni rifiuta con 400 'page' e 'cursor' insieme")
+    void findRendicontazioniPendenzaRifiutaPageECursoreInsieme() throws Exception {
+        creaPosizioneConPendenza("pos-rend-mutex", "12345678901", "pendenza-rend-mutex");
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/rendicontazioni", "A2A-TEST", "pendenza-rend-mutex")
+                        .param("page", "1")
+                        .param("cursor", ""))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    @DisplayName("GET /pendenze/{idA2A}/{idPendenza} restituisce il dettaglio completo, comprensivo "
+            + "di voci, opzione di pagamento e posizione debitoria di appartenenza")
+    void getPendenzaRestituisceIlDettaglioCompleto() throws Exception {
+        String numeroAvviso = creaPosizioneConPendenza("pos-get-1", "12345678901", "pendenza-get-1");
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST", "pendenza-get-1"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.idA2A").value("A2A-TEST"))
+                .andExpect(jsonPath("$.idPendenza").value("pendenza-get-1"))
+                .andExpect(jsonPath("$.idDominio").value("12345678901"))
+                .andExpect(jsonPath("$.stato").value("NON_ESEGUITO"))
+                .andExpect(jsonPath("$.numeroAvviso").value(numeroAvviso))
+                .andExpect(jsonPath("$.iuv").value(notNullValue()))
+                .andExpect(jsonPath("$.opzionePagamento.tipologia").value("SOLUZIONE_UNICA"))
+                .andExpect(jsonPath("$.opzionePagamento.stato").value("DISPONIBILE"))
+                .andExpect(jsonPath("$.posizioneDebitoria.idPosizioneDebitoria").value("pos-get-1"))
+                .andExpect(jsonPath("$.voci.length()").value(1))
+                .andExpect(jsonPath("$.voci[0].idVocePendenza").value("voce-pendenza-get-1"))
+                .andExpect(jsonPath("$.voci[0].codEntrata").value("DIRITTI_SEGRETERIA"))
+                .andExpect(jsonPath("$.voci[0].stato").value("NON_ESEGUITO"));
+    }
+
+    @Test
+    @DisplayName("GET /pendenze/{idA2A}/{idPendenza} restituisce 404 se la pendenza non esiste")
+    void getPendenzaRestituisce404SeNonEsiste() throws Exception {
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST", "pendenza-inesistente"))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(404));
+    }
+
+    @Test
+    @DisplayName("PUT /pendenze/{idA2A}/{idPendenza} aggiorna dataScadenzaAvviso/dataValidita, "
+            + "leggibili dalla GET successiva; omesse nel body le azzera (sostituzione integrale)")
+    void updatePendenzaAggiornaDateConSuccesso() throws Exception {
+        creaPosizioneConPendenza("pos-patch-pendenza-date", "12345678901", "pendenza-patch-date");
+
+        mockMvc.perform(MockMvcRequestBuilders.put("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+                        "pendenza-patch-date")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "idPendenza": "pendenza-patch-date", "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                                  "importo": 16.00, "dataScadenzaAvviso": "2027-01-15",
+                                  "dataValidita": "2027-01-10",
+                                  "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA",
+                                              "idVocePendenza": "voce-pendenza-patch-date", "importo": 16.00,
+                                              "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ] }
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST", "pendenza-patch-date"))
+                .andExpect(jsonPath("$.dataScadenzaAvviso").value("2027-01-15"))
+                .andExpect(jsonPath("$.dataValidita").value("2027-01-10"));
+
+        mockMvc.perform(MockMvcRequestBuilders.put("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+                        "pendenza-patch-date")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "idPendenza": "pendenza-patch-date", "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                                  "importo": 16.00,
+                                  "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA",
+                                              "idVocePendenza": "voce-pendenza-patch-date", "importo": 16.00,
+                                              "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ] }
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST", "pendenza-patch-date"))
+                .andExpect(jsonPath("$.dataScadenzaAvviso").doesNotExist())
+                .andExpect(jsonPath("$.dataValidita").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("PUT /pendenze/{idA2A}/{idPendenza} aggiorna importo e voci: la voce esistente viene "
+            + "aggiornata (matchata per idVocePendenza), una nuova viene aggiunta")
+    void updatePendenzaAggiornaImportoEVociConSuccesso() throws Exception {
+        creaPosizioneConPendenza("pos-patch-pendenza-voci", "12345678901", "pendenza-patch-voci");
+
+        mockMvc.perform(MockMvcRequestBuilders.put("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+                        "pendenza-patch-voci")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "idPendenza": "pendenza-patch-voci", "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                                  "importo": 30.00,
+                                  "voci": [
+                                      { "tipoRiferimento": "RIFERIMENTO_ENTRATA",
+                                        "idVocePendenza": "voce-pendenza-patch-voci", "importo": 16.00,
+                                        "descrizione": "aggiornata", "codEntrata": "DIRITTI_SEGRETERIA" },
+                                      { "tipoRiferimento": "RIFERIMENTO_ENTRATA",
+                                        "idVocePendenza": "voce-nuova-patch-voci", "importo": 14.00,
+                                        "descrizione": "nuova", "codEntrata": "DIRITTI_SEGRETERIA" }
+                                  ] }
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST", "pendenza-patch-voci"))
+                .andExpect(jsonPath("$.importo").value(30.00))
+                .andExpect(jsonPath("$.voci.length()").value(2))
+                .andExpect(jsonPath("$.voci[0].idVocePendenza").value("voce-pendenza-patch-voci"))
+                .andExpect(jsonPath("$.voci[0].descrizione").value("aggiornata"))
+                // idDominio non indicato nella richiesta per nessuna delle due voci: deve
+                // restare (sulla esistente) o essere assegnato (sulla nuova) a quello della
+                // pendenza, non perdersi.
+                .andExpect(jsonPath("$.voci[0].idDominio").value("12345678901"))
+                .andExpect(jsonPath("$.voci[1].idVocePendenza").value("voce-nuova-patch-voci"))
+                .andExpect(jsonPath("$.voci[1].idDominio").value("12345678901"));
+    }
+
+    @Test
+    @DisplayName("PUT /pendenze/{idA2A}/{idPendenza} permette la rimozione di una voce esistente, purche' "
+            + "ne resti almeno una — a differenza della precedente semantica di upsert")
+    void updatePendenzaPermetteRimozioneVoceEsistente() throws Exception {
+        creaPosizioneConPendenza("pos-patch-pendenza-voce-rimossa", "12345678901", "pendenza-patch-voce-rimossa");
+
+        mockMvc.perform(MockMvcRequestBuilders.put("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+                        "pendenza-patch-voce-rimossa")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "idPendenza": "pendenza-patch-voce-rimossa",
+                                  "idTipoPendenza": "DIRITTI_SEGRETERIA", "importo": 16.00,
+                                  "voci": [
+                                      { "tipoRiferimento": "RIFERIMENTO_ENTRATA",
+                                        "idVocePendenza": "voce-pendenza-patch-voce-rimossa", "importo": 10.00,
+                                        "descrizione": "originale", "codEntrata": "DIRITTI_SEGRETERIA" },
+                                      { "tipoRiferimento": "RIFERIMENTO_ENTRATA",
+                                        "idVocePendenza": "voce-sostituta", "importo": 6.00,
+                                        "descrizione": "sostituta", "codEntrata": "DIRITTI_SEGRETERIA" }
+                                  ] }
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(MockMvcRequestBuilders.put("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+                        "pendenza-patch-voce-rimossa")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "idPendenza": "pendenza-patch-voce-rimossa",
+                                  "idTipoPendenza": "DIRITTI_SEGRETERIA", "importo": 6.00,
+                                  "voci": [
+                                      { "tipoRiferimento": "RIFERIMENTO_ENTRATA",
+                                        "idVocePendenza": "voce-sostituta", "importo": 6.00,
+                                        "descrizione": "sostituta", "codEntrata": "DIRITTI_SEGRETERIA" }
+                                  ] }
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST", "pendenza-patch-voce-rimossa"))
+                .andExpect(jsonPath("$.voci.length()").value(1))
+                .andExpect(jsonPath("$.voci[0].idVocePendenza").value("voce-sostituta"));
+    }
+
+    /**
+     * Bug riscontrato: l'indice per le voci nuove veniva assegnato come "massimo indice
+     * esistente + 1", che cresce senza limite a ogni ciclo rimozione+aggiunta anche restando
+     * sempre a una sola voce — dopo 5 sostituzioni l'indice superava 5 (il {@code maximum}
+     * dello schema di {@code VocePendenza.indice}). {@code sostituisciVoci} ora riusa la riga
+     * della voce rimossa per quella nuova (stesso indice, un {@code UPDATE} non un
+     * {@code DELETE}+{@code INSERT}): qui ogni sostituzione rimpiazza l'unica voce presente
+     * con una nuova, quindi l'indice resta sempre 1.
+     */
+    @Test
+    @DisplayName("PUT /pendenze/{idA2A}/{idPendenza} non supera indice 5 dopo ripetute sostituzioni "
+            + "dell'unica voce presente")
+    void updatePendenzaNonSuperaIndiceMassimoDopoRipetuteSostituzioni() throws Exception {
+        creaPosizioneConPendenza("pos-patch-pendenza-indice", "12345678901", "pendenza-patch-indice");
+
+        for (int i = 1; i <= 5; i++) {
+            mockMvc.perform(MockMvcRequestBuilders.put("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+                            "pendenza-patch-indice")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    { "idPendenza": "pendenza-patch-indice",
+                                      "idTipoPendenza": "DIRITTI_SEGRETERIA", "importo": 16.00,
+                                      "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA",
+                                                  "idVocePendenza": "voce-indice-%d", "importo": 16.00,
+                                                  "descrizione": "sostituzione %d",
+                                                  "codEntrata": "DIRITTI_SEGRETERIA" } ] }
+                                    """.formatted(i, i)))
+                    .andExpect(status().isOk());
+        }
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST", "pendenza-patch-indice"))
+                .andExpect(jsonPath("$.voci.length()").value(1))
+                .andExpect(jsonPath("$.voci[0].idVocePendenza").value("voce-indice-5"))
+                .andExpect(jsonPath("$.voci[0].indice").value(1));
+    }
+
+    /**
+     * Caso limite per lo stesso fix: sostituire TUTTE le voci di una pendenza gia' al massimo
+     * (5) in un'unica PUT costringerebbe, con un'allocazione che evita solo gli indici delle
+     * voci matchate, a scegliere un indice {@code >} 5 per la prima voce nuova (nessuna voce
+     * sopravvive, quindi "nessun indice occupato" secondo quella logica, ma le 5 righe
+     * esistenti sono ancora fisicamente presenti quando Hibernate esegue gli insert). Con il
+     * riuso delle righe rimosse, invece, le 5 voci nuove si limitano a sovrascrivere le 5
+     * righe esistenti: nessun insert, nessun delete, nessuna collisione.
+     */
+    @Test
+    @DisplayName("PUT /pendenze/{idA2A}/{idPendenza} sostituisce tutte le 5 voci di una pendenza al "
+            + "massimo della cardinalita' senza superare indice 5 ne' errori di integrita'")
+    void updatePendenzaSostituisceTutteLeCinqueVociSenzaSuperareIndiceMassimo() throws Exception {
+        String body = """
+                {
+                  "idPosizioneDebitoria": "pos-patch-cinque-voci",
+                  "idDominio": "12345678901",
+                  "descrizione": "test cinque voci",
+                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
+                  "opzioniPagamento": [ {
+                    "tipologia": "SOLUZIONE_UNICA",
+                    "pendenze": [ {
+                      "idPendenza": "pendenza-cinque-voci",
+                      "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                      "importo": 50.00,
+                      "voci": [
+                          { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-a", "importo": 10.00,
+                            "descrizione": "a", "codEntrata": "DIRITTI_SEGRETERIA" },
+                          { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-b", "importo": 10.00,
+                            "descrizione": "b", "codEntrata": "DIRITTI_SEGRETERIA" },
+                          { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-c", "importo": 10.00,
+                            "descrizione": "c", "codEntrata": "DIRITTI_SEGRETERIA" },
+                          { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-d", "importo": 10.00,
+                            "descrizione": "d", "codEntrata": "DIRITTI_SEGRETERIA" },
+                          { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-e", "importo": 10.00,
+                            "descrizione": "e", "codEntrata": "DIRITTI_SEGRETERIA" }
+                      ]
+                    } ]
+                  } ]
+                }
+                """;
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}", "A2A-TEST")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(MockMvcRequestBuilders.put("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+                        "pendenza-cinque-voci")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "idPendenza": "pendenza-cinque-voci",
+                                  "idTipoPendenza": "DIRITTI_SEGRETERIA", "importo": 50.00,
+                                  "voci": [
+                                      { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-f",
+                                        "importo": 10.00, "descrizione": "f", "codEntrata": "DIRITTI_SEGRETERIA" },
+                                      { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-g",
+                                        "importo": 10.00, "descrizione": "g", "codEntrata": "DIRITTI_SEGRETERIA" },
+                                      { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-h",
+                                        "importo": 10.00, "descrizione": "h", "codEntrata": "DIRITTI_SEGRETERIA" },
+                                      { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-i",
+                                        "importo": 10.00, "descrizione": "i", "codEntrata": "DIRITTI_SEGRETERIA" },
+                                      { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-j",
+                                        "importo": 10.00, "descrizione": "j", "codEntrata": "DIRITTI_SEGRETERIA" }
+                                  ] }
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST", "pendenza-cinque-voci"))
+                .andExpect(jsonPath("$.voci.length()").value(5))
+                .andExpect(jsonPath("$.voci[0].indice").value(1))
+                .andExpect(jsonPath("$.voci[1].indice").value(2))
+                .andExpect(jsonPath("$.voci[2].indice").value(3))
+                .andExpect(jsonPath("$.voci[3].indice").value(4))
+                .andExpect(jsonPath("$.voci[4].indice").value(5))
+                .andExpect(jsonPath("$.voci[4].idVocePendenza").value("voce-j"));
+    }
+
+    /**
+     * Il riuso della riga (vedi test precedenti) sovrascrive anche {@code idTributo}: deve
+     * restare permesso quando la voce che la riusa e' genuinamente nuova (idVocePendenza
+     * diverso), non trattato come un cambio di riferimento sulla voce rimossa — altrimenti il
+     * controllo prima/dopo di {@code PosizioneDebitoriaService#aggiornaPendenza} (indicizzato
+     * per idVocePendenza, non per id di database — vedi suo Javadoc) tornerebbe erroneamente
+     * un 409.
+     */
+    @Test
+    @DisplayName("PUT /pendenze/{idA2A}/{idPendenza} permette di sostituire una voce con una nuova che ha "
+            + "un tributo diverso (non e' un cambio di riferimento sulla stessa voce)")
+    void updatePendenzaPermetteSostituzioneConTributoDiverso() throws Exception {
+        creaPosizioneConPendenza("pos-patch-pendenza-voce-nuovo-trib", "12345678901",
+                "pendenza-patch-voce-nuovo-trib");
+        aggiungiTributo("ALTRO_TRIBUTO_2", "Altro tributo 2");
+
+        mockMvc.perform(MockMvcRequestBuilders.put("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+                        "pendenza-patch-voce-nuovo-trib")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "idPendenza": "pendenza-patch-voce-nuovo-trib",
+                                  "idTipoPendenza": "DIRITTI_SEGRETERIA", "importo": 16.00,
+                                  "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA",
+                                              "idVocePendenza": "voce-altro-tributo", "importo": 16.00,
+                                              "descrizione": "nuova con altro tributo",
+                                              "codEntrata": "ALTRO_TRIBUTO_2" } ] }
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST", "pendenza-patch-voce-nuovo-trib"))
+                .andExpect(jsonPath("$.voci.length()").value(1))
+                .andExpect(jsonPath("$.voci[0].idVocePendenza").value("voce-altro-tributo"))
+                .andExpect(jsonPath("$.voci[0].codEntrata").value("ALTRO_TRIBUTO_2"));
+    }
+
+    @Test
+    @DisplayName("PUT /pendenze/{idA2A}/{idPendenza} rifiuta con 400 'voci' vuoto: deve restare almeno "
+            + "una voce (vincolo di schema, minItems: 1)")
+    void updatePendenzaRifiutaConBadRequestSeVociVuoto() throws Exception {
+        creaPosizioneConPendenza("pos-patch-pendenza-voci-vuoto", "12345678901", "pendenza-patch-voci-vuoto");
+
+        mockMvc.perform(MockMvcRequestBuilders.put("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+                        "pendenza-patch-voci-vuoto")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "idPendenza": "pendenza-patch-voci-vuoto",
+                                  "idTipoPendenza": "DIRITTI_SEGRETERIA", "importo": 0.00, "voci": [] }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    /**
+     * Bug riscontrato: due voci nuove con lo stesso {@code idVocePendenza} (importi diversi,
+     * totale coerente) venivano accettate ed entrambe salvate — un aggiornamento successivo
+     * della stessa pendenza avrebbe poi fallito nel matching per identificativo. Rifiutato da
+     * {@code ValidatorePosizioneDebitoria#validaPendenza} in govpay-common-pendenze.
+     */
+    @Test
+    @DisplayName("PUT /pendenze/{idA2A}/{idPendenza} rifiuta con 400 due voci con lo stesso idVocePendenza, "
+            + "anche con importi diversi e totale coerente")
+    void updatePendenzaRifiutaConBadRequestSeDueVociConLoStessoId() throws Exception {
+        creaPosizioneConPendenza("pos-patch-pendenza-voce-dup", "12345678901", "pendenza-patch-voce-dup");
+
+        mockMvc.perform(MockMvcRequestBuilders.put("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+                        "pendenza-patch-voce-dup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "idPendenza": "pendenza-patch-voce-dup", "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                                  "importo": 16.00,
+                                  "voci": [
+                                      { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-dup",
+                                        "importo": 10.00, "descrizione": "prima", "codEntrata": "DIRITTI_SEGRETERIA" },
+                                      { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-dup",
+                                        "importo": 6.00, "descrizione": "seconda", "codEntrata": "DIRITTI_SEGRETERIA" }
+                                  ] }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    /**
+     * Bug riscontrato: a differenza del caso sopra (due voci NUOVE con lo stesso id, che
+     * sopravvivono entrambe nell'aggregato e sono intercettate a valle da
+     * {@code ValidatorePosizioneDebitoria}), due occorrenze che puntano a una voce ESISTENTE
+     * matchano la STESSA entity: nessun duplicato arriva mai all'aggregato finale da
+     * controllare, e la richiesta veniva accettata con 200, con l'ultima occorrenza che
+     * sovrascriveva silenziosamente la prima.
+     */
+    @Test
+    @DisplayName("PUT /pendenze/{idA2A}/{idPendenza} rifiuta con 400 due occorrenze della stessa voce "
+            + "ESISTENTE, non solo due voci nuove duplicate")
+    void updatePendenzaRifiutaConBadRequestSeVoceEsistenteDuplicataNellaRichiesta() throws Exception {
+        creaPosizioneConPendenza("pos-patch-pendenza-voce-esis-dup", "12345678901",
+                "pendenza-patch-voce-esis-dup");
+
+        mockMvc.perform(MockMvcRequestBuilders.put("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+                        "pendenza-patch-voce-esis-dup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "idPendenza": "pendenza-patch-voce-esis-dup",
+                                  "idTipoPendenza": "DIRITTI_SEGRETERIA", "importo": 16.00,
+                                  "voci": [
+                                      { "tipoRiferimento": "RIFERIMENTO_ENTRATA",
+                                        "idVocePendenza": "voce-pendenza-patch-voce-esis-dup", "importo": 10.00,
+                                        "descrizione": "prima", "codEntrata": "DIRITTI_SEGRETERIA" },
+                                      { "tipoRiferimento": "RIFERIMENTO_ENTRATA",
+                                        "idVocePendenza": "voce-pendenza-patch-voce-esis-dup", "importo": 6.00,
+                                        "descrizione": "seconda", "codEntrata": "DIRITTI_SEGRETERIA" }
+                                  ] }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    /**
+     * Bug riscontrato: un elemento {@code null} nell'array {@code voci} superava la bean
+     * validation (che cascata solo sugli elementi non null) e falliva poi con un 500 non
+     * gestito dentro {@code PosizioneDebitoriaMapper#toVocePendenza}.
+     */
+    @Test
+    @DisplayName("PUT /pendenze/{idA2A}/{idPendenza} rifiuta con 400 un elemento null in 'voci', non 500")
+    void updatePendenzaRifiutaConBadRequestSeVoceNulla() throws Exception {
+        creaPosizioneConPendenza("pos-patch-pendenza-voce-null", "12345678901", "pendenza-patch-voce-null");
+
+        mockMvc.perform(MockMvcRequestBuilders.put("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+                        "pendenza-patch-voce-null")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "idPendenza": "pendenza-patch-voce-null",
+                                  "idTipoPendenza": "DIRITTI_SEGRETERIA", "importo": 16.00,
+                                  "voci": [ null ] }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    @DisplayName("PUT /pendenze/{idA2A}/{idPendenza} rifiuta con 400 un importo negativo, anche con "
+            + "somma voci coerente")
+    void updatePendenzaRifiutaConBadRequestSeImportoNegativo() throws Exception {
+        creaPosizioneConPendenza("pos-patch-pendenza-importo-neg", "12345678901", "pendenza-patch-importo-neg");
+
+        mockMvc.perform(MockMvcRequestBuilders.put("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+                        "pendenza-patch-importo-neg")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "idPendenza": "pendenza-patch-importo-neg",
+                                  "idTipoPendenza": "DIRITTI_SEGRETERIA", "importo": -16.00,
+                                  "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA",
+                                              "idVocePendenza": "voce-pendenza-patch-importo-neg",
+                                              "importo": -16.00, "descrizione": "test",
+                                              "codEntrata": "DIRITTI_SEGRETERIA" } ] }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    @DisplayName("PUT /pendenze/{idA2A}/{idPendenza} rifiuta con 400 (non 500) una voce senza importo")
+    void updatePendenzaRifiutaConBadRequestSeVoceSenzaImporto() throws Exception {
+        creaPosizioneConPendenza("pos-patch-pendenza-voce-no-imp", "12345678901", "pendenza-patch-voce-no-imp");
+
+        mockMvc.perform(MockMvcRequestBuilders.put("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+                        "pendenza-patch-voce-no-imp")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "idPendenza": "pendenza-patch-voce-no-imp",
+                                  "idTipoPendenza": "DIRITTI_SEGRETERIA", "importo": 16.00,
+                                  "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA",
+                                              "idVocePendenza": "voce-pendenza-patch-voce-no-imp",
+                                              "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ] }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    @DisplayName("PUT /pendenze/{idA2A}/{idPendenza} restituisce 409 se 'voci' cambia il tributo di "
+            + "riferimento di una voce esistente")
+    void updatePendenzaRestituisce409SeRiferimentoVoceModificato() throws Exception {
+        creaPosizioneConPendenza("pos-patch-pendenza-voce-rif", "12345678901", "pendenza-patch-voce-rif");
+        aggiungiTributo("ALTRO_TRIBUTO", "Altro tributo");
+
+        mockMvc.perform(MockMvcRequestBuilders.put("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+                        "pendenza-patch-voce-rif")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "idPendenza": "pendenza-patch-voce-rif",
+                                  "idTipoPendenza": "DIRITTI_SEGRETERIA", "importo": 16.00,
+                                  "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA",
+                                              "idVocePendenza": "voce-pendenza-patch-voce-rif", "importo": 16.00,
+                                              "descrizione": "test", "codEntrata": "ALTRO_TRIBUTO" } ] }
+                                """))
+                .andExpect(status().isConflict())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(409));
+    }
+
+    @Test
+    @DisplayName("PUT /pendenze/{idA2A}/{idPendenza} rifiuta con 400 se 'idPendenza' nel body non "
+            + "coincide con quello del path")
+    void updatePendenzaRifiutaConBadRequestSeIdPendenzaBodyDiverso() throws Exception {
+        creaPosizioneConPendenza("pos-patch-pendenza-id-diverso", "12345678901", "pendenza-patch-id-diverso");
+
+        mockMvc.perform(MockMvcRequestBuilders.put("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+                        "pendenza-patch-id-diverso")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "idPendenza": "un-altro-id", "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                                  "importo": 16.00,
+                                  "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA",
+                                              "idVocePendenza": "voce-pendenza-patch-id-diverso", "importo": 16.00,
+                                              "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ] }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    /**
+     * {@code idPendenza} e' {@code @NotNull} su {@code NuovaPendenza} (stesso schema della
+     * creazione): un body senza {@code idPendenza} e' rifiutato dalla bean validation prima
+     * ancora di arrivare al mapper, non e' un caso ammesso.
+     */
+    @Test
+    @DisplayName("PUT /pendenze/{idA2A}/{idPendenza} rifiuta con 400 un body senza 'idPendenza'")
+    void updatePendenzaRifiutaConBadRequestSeIdPendenzaAssente() throws Exception {
+        creaPosizioneConPendenza("pos-patch-pendenza-id-assente", "12345678901", "pendenza-patch-id-assente");
+
+        mockMvc.perform(MockMvcRequestBuilders.put("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+                        "pendenza-patch-id-assente")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "idTipoPendenza": "DIRITTI_SEGRETERIA", "importo": 16.00,
+                                  "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA",
+                                              "idVocePendenza": "voce-pendenza-patch-id-assente", "importo": 16.00,
+                                              "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ] }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    @DisplayName("PUT /pendenze/{idA2A}/{idPendenza} rifiuta con 400 un importo non numerico")
+    void updatePendenzaRifiutaConBadRequestSeImportoNonNumerico() throws Exception {
+        creaPosizioneConPendenza("pos-patch-pendenza-importo-nan", "12345678901", "pendenza-patch-importo-nan");
+
+        mockMvc.perform(MockMvcRequestBuilders.put("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+                        "pendenza-patch-importo-nan")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "idPendenza": "pendenza-patch-importo-nan",
+                                  "idTipoPendenza": "DIRITTI_SEGRETERIA", "importo": "non-un-numero",
+                                  "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA",
+                                              "idVocePendenza": "voce-pendenza-patch-importo-nan", "importo": 16.00,
+                                              "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ] }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    @DisplayName("PUT /pendenze/{idA2A}/{idPendenza} restituisce 404 se la pendenza non esiste")
+    void updatePendenzaRestituisce404SeNonEsiste() throws Exception {
+        mockMvc.perform(MockMvcRequestBuilders.put("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+                        "pendenza-inesistente")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "idPendenza": "pendenza-inesistente", "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                                  "importo": 16.00,
+                                  "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA",
+                                              "idVocePendenza": "voce-1", "importo": 16.00,
+                                              "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ] }
+                                """))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(404));
+    }
+
+    @Test
+    @DisplayName("PUT /pendenze/{idA2A}/{idPendenza} restituisce 409 se la pendenza e' ESEGUITA: "
+            + "i metadati si possono aggiornare solo se NON_ESEGUITO o ANNULLATO")
+    void updatePendenzaRestituisce409SePendenzaEseguita() throws Exception {
+        creaPosizioneConPendenza("pos-patch-pendenza-409", "12345678901", "pendenza-patch-409");
+        forzaStato("pendenza-patch-409", StatoPendenza.ESEGUITO);
+
+        mockMvc.perform(MockMvcRequestBuilders.put("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+                        "pendenza-patch-409")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "idPendenza": "pendenza-patch-409", "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                                  "importo": 16.00,
+                                  "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA",
+                                              "idVocePendenza": "voce-pendenza-patch-409", "importo": 16.00,
+                                              "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ] }
+                                """))
+                .andExpect(status().isConflict())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(409));
+    }
+
+    /** Secondo tributo (stesso dominio), solo per {@link #updatePendenzaRestituisce409SeRiferimentoVoceModificato}. */
+    private void aggiungiTributo(String codTributo, String descrizione) {
+        TipoTributoEntity secondoTipoTributo = new TipoTributoEntity();
+        secondoTipoTributo.setCodTributo(codTributo);
+        secondoTipoTributo.setDescrizione(descrizione);
+        tipoTributoRepository.save(secondoTipoTributo);
+
+        DominioEntity dominio = dominioRepository.findByCodDominio("12345678901").orElseThrow();
+        TributoEntity secondoTributo = new TributoEntity();
+        secondoTributo.setAbilitato(true);
+        secondoTributo.setDominio(dominio);
+        secondoTributo.setTipoTributo(secondoTipoTributo);
+        tributoRepository.save(secondoTributo);
+    }
+
+    /**
+     * Le pendenze create dall'helper di setup sono sempre {@code NON_ESEGUITO} senza scadenza:
+     * per i test sulla mappatura STATO -> {@code Avviso.stato} si forza direttamente lo stato
+     * (e all'occorrenza la scadenza) sull'entita' gia' persistita, senza passare per un secondo
+     * endpoint di transizione che questo servizio non espone ancora.
+     */
+    private Rpt ricevutaPersistita(String idPendenza, String iur, String versione, OffsetDateTime dataMsgRicevuta) {
+        return ricevutaPersistita(idPendenza, iur, versione, dataMsgRicevuta,
+                "<Receipt/>".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    }
+
+    private Rpt ricevutaPersistita(String idPendenza, String iur, String versione, OffsetDateTime dataMsgRicevuta,
+            byte[] xmlRt) {
+        Pendenza pendenza = pendenzaRepository.findAll().stream()
+                .filter(p -> idPendenza.equals(p.getIdPendenza()))
+                .findFirst().orElseThrow();
+        Rpt rpt = new Rpt();
+        rpt.setIdVersamento(pendenza.getId());
+        rpt.setIuv(pendenza.getIuv());
+        rpt.setIur(iur);
+        rpt.setCodDominio("12345678901");
+        rpt.setXmlRt(xmlRt);
+        rpt.setDataMsgRicevuta(dataMsgRicevuta);
+        rpt.setVersione(versione);
+        return rptRepository.save(rpt);
+    }
+
+    private Rendicontazione rendicontazionePersistita(String idPendenza, String codFlusso,
+            OffsetDateTime dataOraFlusso, String iurRendicontazione) {
+        Pendenza pendenza = pendenzaRepository.findAll().stream()
+                .filter(p -> idPendenza.equals(p.getIdPendenza()))
+                .findFirst().orElseThrow();
+        DominioEntity dominio = dominioRepository.findByCodDominio("12345678901").orElseThrow();
+
+        FlussoRendicontazione flusso = new FlussoRendicontazione();
+        flusso.setIdDominio(dominio.getId());
+        flusso.setCodDominio(dominio.getCodDominio());
+        flusso.setCodFlusso(codFlusso);
+        flusso.setDataOraFlusso(dataOraFlusso);
+        flusso.setIur("trn-" + codFlusso);
+        flusso.setDataAcquisizione(dataOraFlusso);
+        flusso.setDataRegolamento(dataOraFlusso);
+        flusso.setCodPsp("PSP-1");
+        flusso.setNumeroPagamenti(1L);
+        flusso.setImportoTotale(pendenza.getImporto());
+        flusso.setStato(StatoFlussoRendicontazione.ACCETTATA);
+        flusso.setRevisione(1L);
+        flusso.setObsoleto(false);
+        flussoRendicontazioneRepository.save(flusso);
+
+        Rendicontazione rendicontazione = new Rendicontazione();
+        rendicontazione.setFlusso(flusso);
+        rendicontazione.setIuv(pendenza.getIuv());
+        rendicontazione.setIur(iurRendicontazione);
+        rendicontazione.setImportoPagato(pendenza.getImporto());
+        rendicontazione.setEsito(0);
+        rendicontazione.setData(dataOraFlusso);
+        rendicontazione.setStato(StatoRendicontazione.OK);
+        return rendicontazioneRepository.save(rendicontazione);
+    }
+
+    private static byte[] xmlFixture(String nome) throws java.io.IOException {
+        try (var in = PendenzaControllerTest.class.getResourceAsStream("/rt/" + nome)) {
+            return in.readAllBytes();
+        }
+    }
+
+    private void forzaStato(String idPendenza, StatoPendenza stato) {
+        Pendenza pendenza = pendenzaRepository.findAll().stream()
+                .filter(p -> idPendenza.equals(p.getIdPendenza()))
+                .findFirst().orElseThrow();
+        pendenza.setStato(stato);
+        pendenzaRepository.save(pendenza);
+    }
+
+    @Test
+    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/stampa restituisce 404 se la pendenza non esiste")
+    void getStampaPendenzaRestituisce404SeNonEsiste() throws Exception {
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/stampa", "A2A-TEST", "pendenza-inesistente"))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(404));
+    }
+
+    @Test
+    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/stampa restituisce 406 per un Accept non compatibile "
+            + "con PDF")
+    void getStampaPendenzaRestituisce406PerAcceptNonSupportato() throws Exception {
+        creaPosizioneConPendenza("pos-stampa-406", "12345678901", "pendenza-stampa-406");
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/stampa", "A2A-TEST", "pendenza-stampa-406")
+                        .accept(MediaType.APPLICATION_XML))
+                .andExpect(status().isNotAcceptable())
+                .andExpect(jsonPath("$.status").value(406));
+    }
+
+    /**
+     * {@code application/pdf;q=0} esclude esplicitamente il PDF (non e' solo "meno preferito"),
+     * l'unico content-type prodotto da questo endpoint: il wildcard generico, meno specifico,
+     * non deve "resuscitarlo" solo perche' ha una qualita' maggiore (vedi Javadoc di
+     * {@code PendenzaController#qualitaPiuSpecifica}).
+     */
+    @Test
+    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/stampa restituisce 406 se l'Accept esclude esplicitamente "
+            + "application/pdf (q=0), anche con un wildcard generico di qualita' maggiore")
+    void getStampaPendenzaRestituisce406SeAcceptEsclude406Pdf() throws Exception {
+        creaPosizioneConPendenza("pos-stampa-q0", "12345678901", "pendenza-stampa-q0");
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/stampa", "A2A-TEST", "pendenza-stampa-q0")
+                        .header("Accept", "application/pdf;q=0, */*;q=1"))
+                .andExpect(status().isNotAcceptable())
+                .andExpect(jsonPath("$.status").value(406));
+    }
+
+    /**
+     * Il 503 (non il 400) conferma che causaleTradotta e' stato accettato e inoltrato verso
+     * govpay-stampe (va in second_language.title, l'oggetto del pagamento tradotto).
+     */
+    @Test
+    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/stampa (Accept: application/pdf) accetta causaleTradotta "
+            + "e lo inoltra a govpay-stampe")
+    void getStampaPendenzaPdfAccettaCausaleTradotta() throws Exception {
+        creaPosizioneConPendenza("pos-stampa-causale-pdf", "12345678901", "pendenza-stampa-causale-pdf");
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/stampa", "A2A-TEST", "pendenza-stampa-causale-pdf")
+                        .accept(MediaType.APPLICATION_PDF)
+                        .param("linguaSecondaria", "EN")
+                        .param("causaleTradotta", "Payment notice"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.status").value(503));
+    }
+
+    /**
+     * Il 503 (non il 400) conferma che informativaImportoTradotta e' stato accettato e inoltrato
+     * verso govpay-stampe (va in second_language.informativa_importo).
+     */
+    @Test
+    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/stampa (Accept: application/pdf) accetta "
+            + "informativaImportoTradotta e lo inoltra a govpay-stampe")
+    void getStampaPendenzaPdfAccettaInformativaImportoTradotta() throws Exception {
+        creaPosizioneConPendenza("pos-stampa-info-tra-pdf", "12345678901", "pendenza-stampa-info-tra-pdf");
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/stampa", "A2A-TEST", "pendenza-stampa-info-tra-pdf")
+                        .accept(MediaType.APPLICATION_PDF)
+                        .param("linguaSecondaria", "EN")
+                        .param("causaleTradotta", "Secretarial fees")
+                        .param("informativaImporto", "Testo personalizzato")
+                        .param("informativaImportoTradotta", "Testo tradotto"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.status").value(503));
+    }
+
+    @Test
+    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/stampa (Accept: application/pdf) restituisce 400 se "
+            + "linguaSecondaria e' specificato senza causaleTradotta: un avviso bilingue senza causale tradotta "
+            + "non e' un documento valido")
+    void getStampaPendenzaPdfRestituisce400SeLinguaSecondariaSenzaCausaleTradotta() throws Exception {
+        creaPosizioneConPendenza("pos-stampa-bil-no-causale", "12345678901", "pendenza-stampa-bil-no-causale");
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/stampa", "A2A-TEST", "pendenza-stampa-bil-no-causale")
+                        .accept(MediaType.APPLICATION_PDF)
+                        .param("linguaSecondaria", "EN"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/stampa (Accept: application/pdf) restituisce 503 se "
+            + "app.stampe.base-url non e' configurato (default di questo contesto di test)")
+    void getStampaPendenzaPdfRestituisce503SeStampeNonConfigurato() throws Exception {
+        creaPosizioneConPendenza("pos-stampa-pdf-503", "12345678901", "pendenza-stampa-pdf-503");
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/stampa", "A2A-TEST", "pendenza-stampa-pdf-503")
+                        .accept(MediaType.APPLICATION_PDF))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(503));
+    }
+
+    /**
+     * Il 503 (non il 400) conferma che informativaImporto e' stato accettato e inoltrato verso
+     * govpay-stampe: con app.stampe.base-url non configurato (default di test) la richiesta
+     * arriva comunque a tentare la chiamata, fallendo per quello, non per la validazione.
+     */
+    @Test
+    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/stampa (Accept: application/pdf) accetta informativaImporto "
+            + "e lo inoltra a govpay-stampe")
+    void getStampaPendenzaPdfAccettaInformativaImporto() throws Exception {
+        creaPosizioneConPendenza("pos-stampa-info-pdf", "12345678901", "pendenza-stampa-info-pdf");
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/stampa", "A2A-TEST", "pendenza-stampa-info-pdf")
+                        .accept(MediaType.APPLICATION_PDF)
+                        .param("informativaImporto", "Testo personalizzato"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.status").value(503));
+    }
+
+    /**
+     * Una pendenza con una voce BOLLO (tipoBollo/hashDocumento/provinciaResidenza tutti
+     * valorizzati, vedi schema {@code Bollo}) e' una Marca da Bollo Telematica: l'avviso PDF
+     * non le si applica, a prescindere da {@code app.stampe.base-url} (il controllo avviene
+     * PRIMA di contattare govpay-stampe).
+     */
+    @Test
+    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/stampa (Accept: application/pdf) restituisce 422 per una "
+            + "pendenza con Marca da Bollo Telematica")
+    void getStampaPendenzaPdfRestituisce422PerPendenzaMbt() throws Exception {
+        String body = """
+                {
+                  "idPosizioneDebitoria": "pos-stampa-pdf-mbt",
+                  "idDominio": "12345678901",
+                  "descrizione": "test MBT",
+                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
+                  "opzioniPagamento": [ {
+                    "tipologia": "SOLUZIONE_UNICA",
+                    "pendenze": [ {
+                      "idPendenza": "pendenza-stampa-pdf-mbt",
+                      "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                      "importo": 16.00,
+                      "voci": [ { "tipoRiferimento": "BOLLO", "idVocePendenza": "voce-mbt", "importo": 16.00,
+                                  "descrizione": "test", "tipoBollo": "01", "hashDocumento": "aGFzaA==",
+                                  "provinciaResidenza": "RM", "tassonomia": "9/0101002IM/" } ]
+                    } ]
+                  } ]
+                }
+                """;
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}", "A2A-TEST")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/stampa", "A2A-TEST", "pendenza-stampa-pdf-mbt")
+                        .accept(MediaType.APPLICATION_PDF))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(422));
+    }
+
+    /**
+     * Un {@code SoggettoDebitore} con solo {@code tipo}+{@code identificativo} e' ammesso
+     * dallo schema v3 ({@code anagrafica} non e' {@code required}), ma govpay-stampe-api
+     * richiede {@code Debtor.full_name}: senza il controllo esplicito la chiamata a
+     * govpay-stampe risponderebbe 400, tradotto poi in 502 generico dal client HTTP.
+     */
+    @Test
+    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/stampa (Accept: application/pdf) restituisce 422 se il "
+            + "debitore non ha anagrafica")
+    void getStampaPendenzaPdfRestituisce422PerAnagraficaDebitoreAssente() throws Exception {
+        String body = """
+                {
+                  "idPosizioneDebitoria": "pos-stampa-pdf-no-anagrafica",
+                  "idDominio": "12345678901",
+                  "descrizione": "test anagrafica assente",
+                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
+                  "opzioniPagamento": [ {
+                    "tipologia": "SOLUZIONE_UNICA",
+                    "pendenze": [ {
+                      "idPendenza": "pendenza-stampa-pdf-no-anagrafica",
+                      "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                      "importo": 16.00,
+                      "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-no-anagrafica",
+                                  "importo": 16.00, "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
+                    } ]
+                  } ]
+                }
+                """;
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}", "A2A-TEST")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/stampa", "A2A-TEST", "pendenza-stampa-pdf-no-anagrafica")
+                        .accept(MediaType.APPLICATION_PDF))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(422));
+    }
+
+    @Test
+    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/ricevute/{iur}/stampa restituisce 404 se la pendenza "
+            + "non esiste")
+    void getStampaRicevutaPendenzaRestituisce404SeLaPendenzaNonEsiste() throws Exception {
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/ricevute/{iur}/stampa", "A2A-TEST",
+                        "pendenza-inesistente", "iur-qualsiasi")
+                        .accept(MediaType.APPLICATION_PDF))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(404));
+    }
+
+    @Test
+    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/ricevute/{iur}/stampa restituisce 404 se l'iur non "
+            + "esiste per questa pendenza")
+    void getStampaRicevutaPendenzaRestituisce404SeIurNonEsiste() throws Exception {
+        creaPosizioneConPendenza("pos-stampa-ric-404", "12345678901", "pendenza-stampa-ric-404");
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/ricevute/{iur}/stampa", "A2A-TEST",
+                        "pendenza-stampa-ric-404", "iur-inesistente")
+                        .accept(MediaType.APPLICATION_PDF))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value(404));
+    }
+
+    @Test
+    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/ricevute/{iur}/stampa restituisce 406 per un Accept "
+            + "non compatibile con PDF")
+    void getStampaRicevutaPendenzaRestituisce406PerAcceptNonSupportato() throws Exception {
+        creaPosizioneConPendenza("pos-stampa-ric-406", "12345678901", "pendenza-stampa-ric-406");
+        ricevutaPersistita("pendenza-stampa-ric-406", "RT900000003", "RPTV2_RTV1", OffsetDateTime.now(),
+                xmlFixture("rt-v2-ok.xml"));
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/ricevute/{iur}/stampa", "A2A-TEST",
+                        "pendenza-stampa-ric-406", "RT900000003")
+                        .accept(MediaType.APPLICATION_XML))
+                .andExpect(status().isNotAcceptable())
+                .andExpect(jsonPath("$.status").value(406));
+    }
+
+    /**
+     * Il 503 (non un 500 per NPE nella costruzione del payload) conferma che il mapper ha
+     * costruito correttamente il {@code Receipt} dalla ricevuta ctReceipt persistita — stesso
+     * principio di {@code getStampaPendenzaPdfRestituisce503SeStampeNonConfigurato}: con
+     * {@code app.stampe.base-url} non configurato (default di questo contesto di test) la
+     * richiesta arriva comunque a tentare la chiamata, fallendo per quello.
+     */
+    @Test
+    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/ricevute/{iur}/stampa (Accept: application/pdf) "
+            + "restituisce 503 se app.stampe.base-url non e' configurato, dopo aver costruito il payload")
+    void getStampaRicevutaPendenzaRestituisce503SeStampeNonConfigurato() throws Exception {
+        creaPosizioneConPendenza("pos-stampa-ric-503", "12345678901", "pendenza-stampa-ric-503");
+        ricevutaPersistita("pendenza-stampa-ric-503", "RT900000003", "RPTV2_RTV1", OffsetDateTime.now(),
+                xmlFixture("rt-v2-ok.xml"));
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/ricevute/{iur}/stampa", "A2A-TEST",
+                        "pendenza-stampa-ric-503", "RT900000003")
+                        .accept(MediaType.APPLICATION_PDF))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(503));
+    }
+
+    /** Stesso scenario, ma formato SANP_230: verifica che anche il ramo RPT/fallback non lanci un 500. */
+    @Test
+    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/ricevute/{iur}/stampa (Accept: application/pdf) "
+            + "costruisce il payload anche per il formato SANP_230 (data operazione dalla colonna, "
+            + "xml_rpt assente)")
+    void getStampaRicevutaPendenzaSanp230RestituisceComunque503NonErrore() throws Exception {
+        creaPosizioneConPendenza("pos-stampa-ric-sanp230", "12345678901", "pendenza-stampa-ric-sanp230");
+        ricevutaPersistita("pendenza-stampa-ric-sanp230", "CCP900000004", "SANP_230", OffsetDateTime.now(),
+                xmlFixtureSanp230());
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/ricevute/{iur}/stampa", "A2A-TEST",
+                        "pendenza-stampa-ric-sanp230", "CCP900000004")
+                        .accept(MediaType.APPLICATION_PDF))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.status").value(503));
+    }
+
+    /** RT minimale ma completa (tutti i campi {@code required}) in formato SANP_230 (digitpa schema). */
+    private static byte[] xmlFixtureSanp230() {
+        return """
+                <RT xmlns="http://www.digitpa.gov.it/schemas/2011/Pagamenti/">
+                  <versioneOggetto>6.2</versioneOggetto>
+                  <dominio>
+                    <identificativoDominio>12345678901</identificativoDominio>
+                    <identificativoStazioneRichiedente>STZ-1</identificativoStazioneRichiedente>
+                  </dominio>
+                  <identificativoMessaggioRicevuta>RT900000004</identificativoMessaggioRicevuta>
+                  <dataOraMessaggioRicevuta>2026-06-10T09:32:00</dataOraMessaggioRicevuta>
+                  <istitutoAttestante>
+                    <identificativoUnivocoAttestante>
+                      <tipoIdentificativoUnivoco>A</tipoIdentificativoUnivoco>
+                      <codiceIdentificativoUnivoco>01234567890</codiceIdentificativoUnivoco>
+                    </identificativoUnivocoAttestante>
+                    <denominazioneAttestante>Banca Attestante SpA</denominazioneAttestante>
+                  </istitutoAttestante>
+                  <enteBeneficiario>
+                    <identificativoUnivocoBeneficiario>
+                      <tipoIdentificativoUnivoco>G</tipoIdentificativoUnivoco>
+                      <codiceIdentificativoUnivoco>12345678901</codiceIdentificativoUnivoco>
+                    </identificativoUnivocoBeneficiario>
+                    <denominazioneBeneficiario>Comune di Test</denominazioneBeneficiario>
+                  </enteBeneficiario>
+                  <soggettoPagatore>
+                    <identificativoUnivocoPagatore>
+                      <tipoIdentificativoUnivoco>F</tipoIdentificativoUnivoco>
+                      <codiceIdentificativoUnivoco>RSSMRA80A01H501U</codiceIdentificativoUnivoco>
+                    </identificativoUnivocoPagatore>
+                    <anagraficaPagatore>Mario Rossi</anagraficaPagatore>
+                  </soggettoPagatore>
+                  <datiPagamento>
+                    <codiceEsitoPagamento>0</codiceEsitoPagamento>
+                    <importoTotalePagato>16.00</importoTotalePagato>
+                    <identificativoUnivocoVersamento>IUV900000004</identificativoUnivocoVersamento>
+                    <codiceContestoPagamento>CCP900000004</codiceContestoPagamento>
+                    <datiSingoloPagamento>
+                      <singoloImportoPagato>16.00</singoloImportoPagato>
+                      <identificativoUnivocoRiscossione>IUR900000004</identificativoUnivocoRiscossione>
+                      <causaleVersamento>Diritti di segreteria</causaleVersamento>
+                    </datiSingoloPagamento>
+                  </datiPagamento>
+                </RT>
+                """.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    }
+}
