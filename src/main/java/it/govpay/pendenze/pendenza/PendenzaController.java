@@ -111,7 +111,7 @@ public class PendenzaController implements PendenzeApi {
 
     /**
      * {@code PUT .../pendenze/{idA2A}/{idPendenza}}: sostituisce i dati della singola pendenza
-     * (vedi Javadoc di {@link PosizioneDebitoriaMapper#applicaPutPendenza} per la superficie
+     * (vedi Javadoc di {@link PosizioneDebitoriaMapper#toAggiornamentoPendenza} per la superficie
      * esatta e i campi non editabili). Non annulla/ripristina piu' la pendenza: quell'operazione
      * e' sull'opzione di pagamento ({@code PATCH .../opzioni-pagamento/{id}},
      * {@code PosizioneDebitoriaController}) — vedi Javadoc di classe di
@@ -125,8 +125,11 @@ public class PendenzaController implements PendenzeApi {
         if (nuovaPendenza == null) {
             throw new ValidazioneNonSuperataException("body della richiesta mancante");
         }
+        var pendenza = posizioneDebitoriaService.trovaPendenzaPerIdentificativo(idA2A, idPendenza)
+                .orElseThrow(() -> new RisorsaNonTrovataException("nessuna pendenza con idPendenza ["
+                        + idPendenza + "] per idA2A [" + idA2A + "]"));
         posizioneDebitoriaService.aggiornaPendenza(idA2A, idPendenza,
-                pendenza -> mapper.applicaPutPendenza(idA2A, pendenza, nuovaPendenza));
+                mapper.toAggiornamentoPendenza(idA2A, pendenza.getIdDominio(), nuovaPendenza));
         return ResponseEntity.ok().build();
     }
 
