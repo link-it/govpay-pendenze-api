@@ -107,6 +107,26 @@ import it.govpay.pendenze.web.AnagraficaNonTrovataException;
 @Component
 public class PosizioneDebitoriaMapper {
 
+    /**
+     * Codice della unita' operativa sintetica che il legacy auto-crea per ogni dominio
+     * ({@code DominiDAO.setCodUo(Dominio.EC)}) e usa come default per ogni versamento senza
+     * una UO esplicita ({@code VersamentoUtils}: {@code codUnitaOperativa == null ? EC : ...}).
+     * Sempre presente (una per dominio, mai assente) e porta l'anagrafica dell'ente creditore
+     * stesso, non quella di una sotto-struttura: per questo la sua risoluzione in scrittura
+     * ({@link #risolviIdUnitaOperativa}) non ha bisogno di alcun caso speciale, ne' nel legacy
+     * ne' qui — e' una UO reale e abilitata come ogni altra, semplicemente non scelta dal
+     * chiamante.
+     *
+     * <p>Diverso in lettura: mai significativa per il chiamante, perche' non rappresenta una
+     * sua scelta. Ogni superficie REST del legacy la sospende (verificato in oltre dieci
+     * converter/builder, es. {@code CtPaymentPABuilder}, {@code RptUtils}) invece di
+     * restituirla come se fosse una UO scelta. La migrazione a v3 non toccando
+     * {@code versamenti.id_unita_operativa}, ogni posizione nata da un versamento legacy senza
+     * UO esplicita continua a puntare a questa riga: senza la sospensione,
+     * {@link #risolviCodUnitaOperativa} la esporrebbe.</p>
+     */
+    private static final String COD_UNITA_OPERATIVA_EC = "EC";
+
     private final ApplicazioneRepository applicazioneRepository;
     private final DominioRepository dominioRepository;
     private final UnitaOperativaRepository unitaOperativaRepository;
@@ -241,6 +261,7 @@ public class PosizioneDebitoriaMapper {
     private String risolviCodUnitaOperativa(Long idUnitaOperativa) {
         return idUnitaOperativa == null ? null
                 : unitaOperativaRepository.findById(idUnitaOperativa).map(UnitaOperativaEntity::getCodUo)
+                        .filter(codUo -> !COD_UNITA_OPERATIVA_EC.equals(codUo))
                         .orElse(null);
     }
 

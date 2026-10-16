@@ -1327,6 +1327,44 @@ class PosizioneDebitoriaControllerTest {
     }
 
     @Test
+    @DisplayName("idUnitaOperativa non appare in risposta se e' l'unita' operativa sintetica \"EC\" (bug trovato "
+            + "il 2026-10-16: ogni superficie REST del legacy la sospende, qui non ancora)")
+    void nonRestituisceIdUnitaOperativaSeECSintetica() throws Exception {
+        DominioEntity dominio = dominioRepository.findByCodDominio("12345678901").orElseThrow();
+        salvaUnitaOperativa("EC", dominio, true);
+
+        String body = """
+                {
+                  "idPosizioneDebitoria": "pos-uo-ec",
+                  "idDominio": "12345678901",
+                  "idUnitaOperativa": "EC",
+                  "descrizione": "test",
+                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
+                  "opzioniPagamento": [ {
+                    "tipologia": "SOLUZIONE_UNICA",
+                    "pendenze": [ {
+                      "idPendenza": "pendenza-uo-ec",
+                      "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                      "importo": 16.00,
+                      "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-uo-ec", "importo": 16.00,
+                                  "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
+                    } ]
+                  } ]
+                }
+                """;
+
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}", "A2A-TEST")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.idUnitaOperativa").doesNotExist());
+
+        mockMvc.perform(get("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", "pos-uo-ec"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.idUnitaOperativa").doesNotExist());
+    }
+
+    @Test
     @DisplayName("GET restituisce 404 se la posizione non esiste")
     void getPosizioneDebitoriaRestituisce404SeNonEsiste() throws Exception {
         mockMvc.perform(get("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", "pos-inesistente"))
