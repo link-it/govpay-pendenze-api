@@ -8,6 +8,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
@@ -44,6 +45,7 @@ import tools.jackson.databind.ObjectMapper;
  * vedi Javadoc dell'interfaccia) fino al loro sviluppo.
  */
 @RestController
+@RequestMapping("${govpay.pendenze.api.v3.base-path:}")
 public class PosizioneDebitoriaController implements PosizioniDebitorieApi {
 
     /** Ordinamento fisso in modalita' cursore, coerente con govpay-console-api. */

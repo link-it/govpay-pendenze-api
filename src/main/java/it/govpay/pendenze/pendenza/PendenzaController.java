@@ -13,6 +13,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import it.govpay.common.metrics.ExternalCallMetricsRecorder;
@@ -64,6 +65,7 @@ import tools.jackson.databind.ObjectMapper;
  * loro sviluppo.
  */
 @RestController
+@RequestMapping("${govpay.pendenze.api.v3.base-path:}")
 public class PendenzaController implements PendenzeApi {
 
     /** Ordinamento fisso in modalita' cursore, coerente con govpay-console-api. */
