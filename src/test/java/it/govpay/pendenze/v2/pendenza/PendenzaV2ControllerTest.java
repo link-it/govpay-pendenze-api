@@ -211,6 +211,36 @@ class PendenzaV2ControllerTest {
         return utenza;
     }
 
+    /**
+     * Crea una seconda applicazione (utenza+ACL+{@code ApplicazioneEntity}), per i test che
+     * verificano il filtro sull'applicazione proprietaria (vedi Javadoc di
+     * {@code PendenzaV2Controller#getPendenzaByAvviso}).
+     */
+    private void creaAltraApplicazione(String principal, String password) {
+        UtenzaEntity altraUtenza = creaUtenza(principal, password);
+        applicazioneRepository.save(ApplicazioneEntity.builder()
+                .codApplicazione(principal)
+                .autoIuv(true)
+                .firmaRicevuta("N")
+                .trusted(true)
+                .idUtenza(altraUtenza.getId())
+                .build());
+    }
+
+    /**
+     * Sovrascrive per una singola richiesta le credenziali di default — vedi l'omologo in
+     * {@code PosizioneDebitoriaControllerTest} per il motivo (bug del lead, 2026-09-29:
+     * {@code .with(httpBasic(...))} da solo AGGIUNGE un secondo header {@code Authorization}
+     * invece di sostituirlo).
+     */
+    private static org.springframework.test.web.servlet.request.RequestPostProcessor comeApplicazione(
+            String principal, String password) {
+        return request -> {
+            request.removeHeader(org.springframework.http.HttpHeaders.AUTHORIZATION);
+            return httpBasic(principal, password).postProcessRequest(request);
+        };
+    }
+
     /** Stesso endpoint di scrittura v3 usato da {@code PendenzaControllerTest} — vedi Javadoc di classe. */
     private String creaPosizioneConPendenza(String idPosizioneDebitoria, String codDominio, String idPendenza)
             throws Exception {
@@ -322,5 +352,76 @@ class PendenzaV2ControllerTest {
                 .andExpect(status().isNotFound())
                 .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
                 .andExpect(jsonPath("$.status").value(404));
+    }
+
+    @Test
+    @DisplayName("GET /v2/pendenze/byAvviso/{idDominio}/{numeroAvviso} trova la pendenza senza idA2A nella richiesta")
+    void getPendenzaByAvvisoRestituisceIlDettaglio() throws Exception {
+        String numeroAvviso = creaPosizioneConPendenza("pos-v2-avviso-1", "12345678901", "pendenza-v2-avviso-1");
+
+        mockMvc.perform(get("/v2/pendenze/byAvviso/{idDominio}/{numeroAvviso}", "12345678901", numeroAvviso))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.idA2A").value("A2A-TEST"))
+                .andExpect(jsonPath("$.idPendenza").value("pendenza-v2-avviso-1"))
+                .andExpect(jsonPath("$.numeroAvviso").value(numeroAvviso));
+    }
+
+    @Test
+    @DisplayName("GET /v2/pendenze/byAvviso/{idDominio}/{numeroAvviso} restituisce 404 se numeroAvviso non esiste")
+    void getPendenzaByAvvisoRestituisce404SeNonEsiste() throws Exception {
+        // Formalmente valido (prima cifra 0|1|2|3), ma nessuna pendenza reale lo usa.
+        mockMvc.perform(get("/v2/pendenze/byAvviso/{idDominio}/{numeroAvviso}", "12345678901", "199999999999999999"))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(404));
+    }
+
+    @Test
+    @DisplayName("GET /v2/pendenze/byAvviso/{idDominio}/{numeroAvviso} restituisce 400 se la prima cifra "
+            + "non e' l'AuxDigit pagoPA valido (0|1|2|3), anche se la ricerca non troverebbe nulla comunque")
+    void getPendenzaByAvvisoRestituisce400SePrimaCifraNonValida() throws Exception {
+        mockMvc.perform(get("/v2/pendenze/byAvviso/{idDominio}/{numeroAvviso}", "12345678901", "999999999999999999"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    @DisplayName("GET /v2/pendenze/byAvviso/{idDominio}/{numeroAvviso} restituisce 403 se la pendenza "
+            + "appartiene a un'altra applicazione (filtro sull'applicazione, come il legacy)")
+    void getPendenzaByAvvisoRestituisce403SeApplicazioneDiversa() throws Exception {
+        creaAltraApplicazione("A2A-ALTRO", "altra-password");
+
+        String body = """
+                {
+                  "idPosizioneDebitoria": "pos-v2-avviso-altro-1",
+                  "idDominio": "12345678901",
+                  "descrizione": "test altra applicazione",
+                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y",
+                                           "anagrafica": "Mario Rossi" } ],
+                  "opzioniPagamento": [ {
+                    "tipologia": "SOLUZIONE_UNICA",
+                    "pendenze": [ {
+                      "idPendenza": "pendenza-v2-avviso-altro-1",
+                      "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                      "importo": 16.00,
+                      "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-altro-1", "importo": 16.00,
+                                  "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
+                    } ]
+                  } ]
+                }
+                """;
+        String risposta = mockMvc.perform(post("/posizioni-debitorie/{idA2A}", "A2A-ALTRO")
+                        .with(comeApplicazione("A2A-ALTRO", "altra-password"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String numeroAvviso = JsonPath.read(risposta, "$.opzioniPagamento[0].pendenze[0].numeroAvviso");
+
+        mockMvc.perform(get("/v2/pendenze/byAvviso/{idDominio}/{numeroAvviso}", "12345678901", numeroAvviso))
+                .andExpect(status().isForbidden())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(403));
     }
 }
