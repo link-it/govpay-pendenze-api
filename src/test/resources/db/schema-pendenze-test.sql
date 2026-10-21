@@ -307,7 +307,7 @@ CREATE TABLE IF NOT EXISTS tributi
 CREATE TABLE IF NOT EXISTS documenti
 (
 	cod_documento VARCHAR(35) NOT NULL,
-	descrizione VARCHAR(255) NOT NULL,
+	descrizione VARCHAR(1024) NOT NULL,
 	-- aggiunte additive per PosizioneDebitoria (assenti nel legacy)
 	data_pubblicazione DATE,
 	notifica_send BOOLEAN NOT NULL,
@@ -407,6 +407,7 @@ CREATE TABLE IF NOT EXISTS versamenti
 	debitore_fax VARCHAR(35),
 	tassonomia_avviso VARCHAR(35),
 	tassonomia VARCHAR(35),
+	cod_lotto VARCHAR(35),
 	cod_anno_tributario VARCHAR(35),
 	dati_allegati TEXT,
 	anomalie TEXT,
@@ -414,6 +415,9 @@ CREATE TABLE IF NOT EXISTS versamenti
 	numero_avviso VARCHAR(35),
 	ack BOOLEAN NOT NULL,
 	anomalo BOOLEAN NOT NULL,
+	divisione VARCHAR(35),
+	direzione VARCHAR(35),
+	id_sessione VARCHAR(35),
 	data_pagamento TIMESTAMP,
 	importo_pagato DOUBLE PRECISION NOT NULL,
 	importo_incassato DOUBLE PRECISION NOT NULL,
@@ -468,6 +472,7 @@ CREATE TABLE IF NOT EXISTS singoli_versamenti
 	tipo_bollo VARCHAR(2),
 	hash_documento VARCHAR(70),
 	provincia_residenza VARCHAR(2),
+	descrizione_causale_rpt VARCHAR(140),
 	tipo_contabilita VARCHAR(1),
 	codice_contabilita VARCHAR(255),
 	descrizione VARCHAR(256),
@@ -691,6 +696,11 @@ CREATE TABLE IF NOT EXISTS rpt
 	iuv VARCHAR(35) NOT NULL,
 	ccp VARCHAR(35) NOT NULL,
 	cod_dominio VARCHAR(35) NOT NULL,
+	cod_stazione VARCHAR(35),
+	cod_msg_richiesta VARCHAR(35),
+	tipo_versamento VARCHAR(35),
+	stato VARCHAR(35),
+	descrizione_stato TEXT,
 	xml_rt BYTEA,
 	xml_rpt BYTEA,
 	data_msg_ricevuta TIMESTAMP,
@@ -705,6 +715,26 @@ CREATE TABLE IF NOT EXISTS rpt
 	-- fk/pk keys constraints
 	CONSTRAINT fk_rpt_id_versamento FOREIGN KEY (id_versamento) REFERENCES versamenti(id),
 	CONSTRAINT pk_rpt PRIMARY KEY (id)
+);
+
+CREATE SEQUENCE IF NOT EXISTS seq_allegati start 1 increment 1 maxvalue 9223372036854775807 minvalue 1 cache 1 NO CYCLE;
+
+-- Solo nome/tipo/descrizione sono mappati da AllegatoEntity (it.govpay.pendenze.v2.pendenza,
+-- govpay-pendenze-api): raw_contenuto resta qui solo per fedelta' allo schema legacy, nessuna
+-- query/entity lo legge.
+CREATE TABLE IF NOT EXISTS allegati
+(
+	nome VARCHAR(255) NOT NULL,
+	tipo VARCHAR(255),
+	descrizione VARCHAR(255),
+	data_creazione TIMESTAMP NOT NULL,
+	raw_contenuto BYTEA,
+	-- fk/pk columns
+	id BIGINT DEFAULT nextval('seq_allegati') NOT NULL,
+	id_versamento BIGINT NOT NULL,
+	-- fk/pk keys constraints
+	CONSTRAINT fk_all_id_versamento FOREIGN KEY (id_versamento) REFERENCES versamenti(id),
+	CONSTRAINT pk_allegati PRIMARY KEY (id)
 );
 
 CREATE SEQUENCE IF NOT EXISTS seq_pagamenti start 1 increment 1 maxvalue 9223372036854775807 minvalue 1 cache 1 NO CYCLE;

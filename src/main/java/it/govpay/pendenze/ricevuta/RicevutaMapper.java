@@ -88,7 +88,7 @@ public class RicevutaMapper {
      * {@code VersioneRPT.toEnum(String)} nel legacy, che su un valore ignoto torna
      * silenziosamente a {@code SANP_230} invece di propagare un errore.</p>
      */
-    static TipoRicevuta mapVersioneATipo(String versione) {
+    public static TipoRicevuta mapVersioneATipo(String versione) {
         if (versione == null) {
             return TipoRicevuta.CT_RICEVUTA_TELEMATICA;
         }

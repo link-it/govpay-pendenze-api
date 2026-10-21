@@ -214,6 +214,14 @@
             <artifactId>jackson-databind-nullable</artifactId>
         </dependency>
 
+        <!-- Serializzazione JSON dei bean JAXB (RPT/RT) per il wrapper v2 — stesso modulo
+             usato dal monolite legacy (ConverterUtils), versione gestita dal BOM Jackson
+             di Spring Boot. -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.module</groupId>
+            <artifactId>jackson-module-jakarta-xmlbind-annotations</artifactId>
+        </dependency>
+
         <!-- Swagger Annotations -->
         <dependency>
             <groupId>io.swagger.core.v3</groupId>
