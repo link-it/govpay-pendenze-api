@@ -47,6 +47,7 @@ import it.govpay.common.repository.TipoVersamentoDominioRepository;
 import it.govpay.common.repository.TipoVersamentoRepository;
 import it.govpay.common.repository.TributoRepository;
 import it.govpay.common.repository.UnitaOperativaRepository;
+import it.govpay.pendenze.identificativo.IdentificatorePosizioneDebitoria;
 import it.govpay.pendenze.model.StatoPendenza;
 import it.govpay.pendenze.repository.PosizioneDebitoriaRepository;
 import it.govpay.pendenze.security.AclEntity;
@@ -318,7 +319,7 @@ class PosizioneDebitoriaControllerTest {
     void creaUnaPosizioneDebitoriaConUnaPendenzaInUnicaSoluzione() throws Exception {
         String body = """
                 {
-                  "idPosizioneDebitoria": "CERT2026-000058",
+                  "codDocumento": "CERT2026-000058",
                   "idDominio": "12345678901",
                   "descrizione": "Diritti di segreteria - certificato di residenza",
                   "soggettiDebitori": [
@@ -353,7 +354,8 @@ class PosizioneDebitoriaControllerTest {
                 .andExpect(status().isCreated())
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.idA2A").value("A2A-TEST"))
-                .andExpect(jsonPath("$.idPosizioneDebitoria").value("CERT2026-000058"))
+                .andExpect(jsonPath("$.idPosizioneDebitoria")
+                        .value(IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "CERT2026-000058")))
                 .andExpect(jsonPath("$.idDominio").value("12345678901"))
                 .andExpect(jsonPath("$.opzioniPagamento[0].tipologia").value("SOLUZIONE_UNICA"))
                 .andExpect(jsonPath("$.opzioniPagamento[0].stato").value("DISPONIBILE"))
@@ -381,7 +383,7 @@ class PosizioneDebitoriaControllerTest {
 
         String body = """
                 {
-                  "idPosizioneDebitoria": "pos-entrata-1",
+                  "codDocumento": "pos-entrata-1",
                   "idDominio": "12345678901",
                   "descrizione": "test",
                   "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
@@ -414,7 +416,7 @@ class PosizioneDebitoriaControllerTest {
 
         String body = """
                 {
-                  "idPosizioneDebitoria": "pos-entrata-motivo",
+                  "codDocumento": "pos-entrata-motivo",
                   "idDominio": "12345678901",
                   "descrizione": "test",
                   "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
@@ -470,7 +472,7 @@ class PosizioneDebitoriaControllerTest {
     void rifiutaConBadRequestSeVoceNulla() throws Exception {
         String body = """
                 {
-                  "idPosizioneDebitoria": "pos-voce-null",
+                  "codDocumento": "pos-voce-null",
                   "idDominio": "12345678901",
                   "descrizione": "test",
                   "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
@@ -504,7 +506,7 @@ class PosizioneDebitoriaControllerTest {
 
         String body = """
                 {
-                  "idPosizioneDebitoria": "pos-tributo-disabilitato",
+                  "codDocumento": "pos-tributo-disabilitato",
                   "idDominio": "12345678901",
                   "descrizione": "test",
                   "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
@@ -538,7 +540,7 @@ class PosizioneDebitoriaControllerTest {
 
         String body = """
                 {
-                  "idPosizioneDebitoria": "pos-iban-accredito-disabilitato",
+                  "codDocumento": "pos-iban-accredito-disabilitato",
                   "idDominio": "12345678901",
                   "descrizione": "test",
                   "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
@@ -574,7 +576,7 @@ class PosizioneDebitoriaControllerTest {
 
         String body = """
                 {
-                  "idPosizioneDebitoria": "pos-iban-appoggio-disabilitato",
+                  "codDocumento": "pos-iban-appoggio-disabilitato",
                   "idDominio": "12345678901",
                   "descrizione": "test",
                   "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
@@ -610,7 +612,7 @@ class PosizioneDebitoriaControllerTest {
 
         String body = """
                 {
-                  "idPosizioneDebitoria": "pos-uo-disabilitata",
+                  "codDocumento": "pos-uo-disabilitata",
                   "idDominio": "12345678901",
                   "idUnitaOperativa": "UO-DISABILITATA",
                   "descrizione": "test",
@@ -642,7 +644,7 @@ class PosizioneDebitoriaControllerTest {
     void rifiutaConNotFoundSeCodEntrataNonConfiguratoPerIlDominio() throws Exception {
         String body = """
                 {
-                  "idPosizioneDebitoria": "pos-entrata-ignota",
+                  "codDocumento": "pos-entrata-ignota",
                   "idDominio": "12345678901",
                   "descrizione": "test",
                   "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
@@ -671,7 +673,7 @@ class PosizioneDebitoriaControllerTest {
     void rifiutaConNotFoundSeIbanAccreditoNonCensito() throws Exception {
         String body = """
                 {
-                  "idPosizioneDebitoria": "pos-iban-ignoto",
+                  "codDocumento": "pos-iban-ignoto",
                   "idDominio": "12345678901",
                   "descrizione": "test",
                   "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
@@ -725,7 +727,7 @@ class PosizioneDebitoriaControllerTest {
 
         String body = """
                 {
-                  "idPosizioneDebitoria": "pos-prefisso-iuv",
+                  "codDocumento": "pos-prefisso-iuv",
                   "idDominio": "11111111111",
                   "descrizione": "test",
                   "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
@@ -757,7 +759,7 @@ class PosizioneDebitoriaControllerTest {
     void rifiutaGiorniNonIntero() throws Exception {
         String body = """
                 {
-                  "idPosizioneDebitoria": "pos-giorni-frazionario",
+                  "codDocumento": "pos-giorni-frazionario",
                   "idDominio": "12345678901",
                   "descrizione": "test",
                   "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
@@ -787,7 +789,7 @@ class PosizioneDebitoriaControllerTest {
     void rifiutaGiorniOltreIlLimite() throws Exception {
         String body = """
                 {
-                  "idPosizioneDebitoria": "pos-giorni-eccessivo",
+                  "codDocumento": "pos-giorni-eccessivo",
                   "idDominio": "12345678901",
                   "descrizione": "test",
                   "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
@@ -823,7 +825,7 @@ class PosizioneDebitoriaControllerTest {
     void rifiutaConForbiddenSeIdA2ANonCorrispondeAllApplicazioneAutenticata() throws Exception {
         String body = """
                 {
-                  "idPosizioneDebitoria": "pos-1",
+                  "codDocumento": "pos-1",
                   "idDominio": "12345678901",
                   "descrizione": "test",
                   "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
@@ -863,7 +865,7 @@ class PosizioneDebitoriaControllerTest {
 
         String body = """
                 {
-                  "idPosizioneDebitoria": "pos-1",
+                  "codDocumento": "pos-1",
                   "idDominio": "00000000000",
                   "descrizione": "test",
                   "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
@@ -911,7 +913,7 @@ class PosizioneDebitoriaControllerTest {
 
         String body = """
                 {
-                  "idPosizioneDebitoria": "pos-1",
+                  "codDocumento": "pos-1",
                   "idDominio": "12345678901",
                   "descrizione": "test",
                   "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
@@ -989,7 +991,7 @@ class PosizioneDebitoriaControllerTest {
 
         String body = """
                 {
-                  "idPosizioneDebitoria": "pos-non-trusted",
+                  "codDocumento": "pos-non-trusted",
                   "idDominio": "12345678901",
                   "descrizione": "test",
                   "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
@@ -1035,7 +1037,7 @@ class PosizioneDebitoriaControllerTest {
 
         String body = """
                 {
-                  "idPosizioneDebitoria": "pos-non-trusted-star",
+                  "codDocumento": "pos-non-trusted-star",
                   "idDominio": "12345678901",
                   "descrizione": "test",
                   "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
@@ -1085,7 +1087,7 @@ class PosizioneDebitoriaControllerTest {
 
         String body = """
                 {
-                  "idPosizioneDebitoria": "pos-non-trusted-grant",
+                  "codDocumento": "pos-non-trusted-grant",
                   "idDominio": "12345678901",
                   "descrizione": "test",
                   "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
@@ -1132,7 +1134,7 @@ class PosizioneDebitoriaControllerTest {
 
         String body = """
                 {
-                  "idPosizioneDebitoria": "pos-dominio-disabilitato",
+                  "codDocumento": "pos-dominio-disabilitato",
                   "idDominio": "99999999999",
                   "descrizione": "test",
                   "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
@@ -1170,7 +1172,7 @@ class PosizioneDebitoriaControllerTest {
 
         String body = """
                 {
-                  "idPosizioneDebitoria": "pos-tipo-globale-disabilitato",
+                  "codDocumento": "pos-tipo-globale-disabilitato",
                   "idDominio": "12345678901",
                   "descrizione": "test",
                   "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
@@ -1230,7 +1232,7 @@ class PosizioneDebitoriaControllerTest {
 
         String body = """
                 {
-                  "idPosizioneDebitoria": "pos-tipo-dominio-disabilitato",
+                  "codDocumento": "pos-tipo-dominio-disabilitato",
                   "idDominio": "88888888888",
                   "descrizione": "test",
                   "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
@@ -1257,7 +1259,7 @@ class PosizioneDebitoriaControllerTest {
     void rifiutaConConflictSeIdPosizioneDebitoriaGiaEsistente() throws Exception {
         String body = """
                 {
-                  "idPosizioneDebitoria": "pos-duplicata",
+                  "codDocumento": "pos-duplicata",
                   "idDominio": "12345678901",
                   "descrizione": "test",
                   "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
@@ -1292,7 +1294,7 @@ class PosizioneDebitoriaControllerTest {
     void getPosizioneDebitoriaTrovaLaPosizioneAppenaCreata() throws Exception {
         String body = """
                 {
-                  "idPosizioneDebitoria": "pos-get-1",
+                  "codDocumento": "pos-get-1",
                   "idDominio": "12345678901",
                   "descrizione": "test GET",
                   "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y", "anagrafica": "Paola Ferrari" } ],
@@ -1315,11 +1317,12 @@ class PosizioneDebitoriaControllerTest {
                 .andExpect(status().isCreated())
                 .andExpect(header().exists("Location"));
 
-        mockMvc.perform(get("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", "pos-get-1"))
+        mockMvc.perform(get("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-get-1")))
                 .andExpect(status().isOk())
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.idA2A").value("A2A-TEST"))
-                .andExpect(jsonPath("$.idPosizioneDebitoria").value("pos-get-1"))
+                .andExpect(jsonPath("$.idPosizioneDebitoria")
+                        .value(IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-get-1")))
                 .andExpect(jsonPath("$.descrizione").value("test GET"))
                 .andExpect(jsonPath("$.soggettiDebitori.length()").value(1))
                 .andExpect(jsonPath("$.soggettiDebitori[0].identificativo").value("FRRPLA90C41H501Y"))
@@ -1335,7 +1338,7 @@ class PosizioneDebitoriaControllerTest {
 
         String body = """
                 {
-                  "idPosizioneDebitoria": "pos-uo-ec",
+                  "codDocumento": "pos-uo-ec",
                   "idDominio": "12345678901",
                   "idUnitaOperativa": "EC",
                   "descrizione": "test",
@@ -1359,7 +1362,7 @@ class PosizioneDebitoriaControllerTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.idUnitaOperativa").doesNotExist());
 
-        mockMvc.perform(get("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", "pos-uo-ec"))
+        mockMvc.perform(get("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-uo-ec")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.idUnitaOperativa").doesNotExist());
     }
@@ -1376,7 +1379,7 @@ class PosizioneDebitoriaControllerTest {
     private void creaPosizioneMinimaConDebitore(String idPosizioneDebitoria, String idDebitore) throws Exception {
         String body = """
                 {
-                  "idPosizioneDebitoria": "%s",
+                  "codDocumento": "%s",
                   "idDominio": "12345678901",
                   "descrizione": "test ricerca",
                   "soggettiDebitori": [ { "tipo": "F", "identificativo": "%s" } ],
@@ -1418,7 +1421,9 @@ class PosizioneDebitoriaControllerTest {
                 .andExpect(jsonPath("$.pagination.totalPages").value(1))
                 .andExpect(jsonPath("$.results.length()").value(2))
                 .andExpect(jsonPath("$.results[*].idPosizioneDebitoria",
-                        org.hamcrest.Matchers.containsInAnyOrder("pos-find-1", "pos-find-2")));
+                        org.hamcrest.Matchers.containsInAnyOrder(
+                                IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-find-1"),
+                                IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-find-2"))));
     }
 
     @Test
@@ -1514,7 +1519,8 @@ class PosizioneDebitoriaControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.nextCursor").doesNotExist())
                 .andExpect(jsonPath("$.results.length()").value(1))
-                .andExpect(jsonPath("$.results[0].idPosizioneDebitoria").value("pos-cursore-1"));
+                .andExpect(jsonPath("$.results[0].idPosizioneDebitoria")
+                        .value(IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-cursore-1")));
     }
 
     @Test
@@ -1574,7 +1580,7 @@ class PosizioneDebitoriaControllerTest {
         creaPosizioneMinimaConDebitore("pos-patch-descrizione", "FRRPLA90C41H501Y");
 
         mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST",
-                        "pos-patch-descrizione")
+                        IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-patch-descrizione"))
                         .contentType(PATCH_MEDIA_TYPE)
                         .content("""
                                 [ { "op": "replace", "path": "/descrizione", "value": "nuova descrizione" } ]
@@ -1582,7 +1588,7 @@ class PosizioneDebitoriaControllerTest {
                 .andExpect(status().isOk());
 
         mockMvc.perform(get("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST",
-                        "pos-patch-descrizione"))
+                        IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-patch-descrizione")))
                 .andExpect(jsonPath("$.descrizione").value("nuova descrizione"));
     }
 
@@ -1591,22 +1597,22 @@ class PosizioneDebitoriaControllerTest {
     void patchReplaceERemoveDataPubblicazione() throws Exception {
         creaPosizioneMinimaConDebitore("pos-patch-datapub", "FRRPLA90C41H501Y");
 
-        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", "pos-patch-datapub")
+        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-patch-datapub"))
                         .contentType(PATCH_MEDIA_TYPE)
                         .content("""
                                 [ { "op": "replace", "path": "/dataPubblicazione", "value": "2026-06-15" } ]
                                 """))
                 .andExpect(status().isOk());
-        mockMvc.perform(get("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", "pos-patch-datapub"))
+        mockMvc.perform(get("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-patch-datapub")))
                 .andExpect(jsonPath("$.dataPubblicazione").value("2026-06-15"));
 
-        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", "pos-patch-datapub")
+        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-patch-datapub"))
                         .contentType(PATCH_MEDIA_TYPE)
                         .content("""
                                 [ { "op": "remove", "path": "/dataPubblicazione" } ]
                                 """))
                 .andExpect(status().isOk());
-        mockMvc.perform(get("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", "pos-patch-datapub"))
+        mockMvc.perform(get("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-patch-datapub")))
                 .andExpect(jsonPath("$.dataPubblicazione").doesNotExist());
     }
 
@@ -1617,12 +1623,12 @@ class PosizioneDebitoriaControllerTest {
         creaPosizioneMinimaConDebitore("pos-patch-notifica-send", "FRRPLA90C41H501Y");
         String numeroAvviso = com.jayway.jsonpath.JsonPath.read(
                 mockMvc.perform(get("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST",
-                                "pos-patch-notifica-send"))
+                                IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-patch-notifica-send")))
                         .andReturn().getResponse().getContentAsString(),
                 "$.opzioniPagamento[0].pendenze[0].numeroAvviso");
 
         mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST",
-                        "pos-patch-notifica-send")
+                        IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-patch-notifica-send"))
                         .contentType(PATCH_MEDIA_TYPE)
                         .content("""
                                 [ { "op": "replace", "path": "/notificaSend", "value": true } ]
@@ -1630,7 +1636,7 @@ class PosizioneDebitoriaControllerTest {
                 .andExpect(status().isOk());
 
         mockMvc.perform(get("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST",
-                        "pos-patch-notifica-send"))
+                        IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-patch-notifica-send")))
                 .andExpect(jsonPath("$.notificaSend").value(true))
                 .andExpect(jsonPath("$.navNotifica").value(numeroAvviso));
     }
@@ -1641,7 +1647,7 @@ class PosizioneDebitoriaControllerTest {
         creaPosizioneMinimaConDebitore("pos-patch-nav-non-corrisp", "FRRPLA90C41H501Y");
 
         mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST",
-                        "pos-patch-nav-non-corrisp")
+                        IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-patch-nav-non-corrisp"))
                         .contentType(PATCH_MEDIA_TYPE)
                         .content("""
                                 [ { "op": "replace", "path": "/navNotifica", "value": "999999999999999999" } ]
@@ -1657,7 +1663,7 @@ class PosizioneDebitoriaControllerTest {
         creaPosizioneMinimaConDebitore("pos-patch-remove-vietato", "FRRPLA90C41H501Y");
 
         mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST",
-                        "pos-patch-remove-vietato")
+                        IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-patch-remove-vietato"))
                         .contentType(PATCH_MEDIA_TYPE)
                         .content("""
                                 [ { "op": "remove", "path": "/descrizione" } ]
@@ -1666,7 +1672,7 @@ class PosizioneDebitoriaControllerTest {
                 .andExpect(jsonPath("$.status").value(400));
 
         mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST",
-                        "pos-patch-remove-vietato")
+                        IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-patch-remove-vietato"))
                         .contentType(PATCH_MEDIA_TYPE)
                         .content("""
                                 [ { "op": "remove", "path": "/notificaSend" } ]
@@ -1681,7 +1687,7 @@ class PosizioneDebitoriaControllerTest {
         creaPosizioneMinimaConDebitore("pos-patch-path-ignoto", "FRRPLA90C41H501Y");
 
         mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST",
-                        "pos-patch-path-ignoto")
+                        IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-patch-path-ignoto"))
                         .contentType(PATCH_MEDIA_TYPE)
                         .content("""
                                 [ { "op": "replace", "path": "/opzioniPagamento", "value": [] } ]
@@ -1697,7 +1703,7 @@ class PosizioneDebitoriaControllerTest {
         creaPosizioneMinimaConDebitore("pos-patch-tipo-sbagliato", "FRRPLA90C41H501Y");
 
         mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST",
-                        "pos-patch-tipo-sbagliato")
+                        IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-patch-tipo-sbagliato"))
                         .contentType(PATCH_MEDIA_TYPE)
                         .content("""
                                 [ { "op": "replace", "path": "/notificaSend", "value": "non-un-booleano" } ]
@@ -1712,7 +1718,7 @@ class PosizioneDebitoriaControllerTest {
         creaPosizioneMinimaConDebitore("pos-patch-value-assente", "FRRPLA90C41H501Y");
 
         mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST",
-                        "pos-patch-value-assente")
+                        IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-patch-value-assente"))
                         .contentType(PATCH_MEDIA_TYPE)
                         .content("""
                                 [ { "op": "replace", "path": "/descrizione" } ]
@@ -1738,7 +1744,7 @@ class PosizioneDebitoriaControllerTest {
     void patchSostituisceSoggettiDebitori() throws Exception {
         creaPosizioneMinimaConDebitore("pos-patch-soggetti", "FRRPLA90C41H501Y");
 
-        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", "pos-patch-soggetti")
+        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-patch-soggetti"))
                         .contentType(PATCH_MEDIA_TYPE)
                         .content("""
                                 [ { "op": "replace", "path": "/soggettiDebitori", "value": [
@@ -1747,7 +1753,7 @@ class PosizioneDebitoriaControllerTest {
                                 """))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(get("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", "pos-patch-soggetti"))
+        mockMvc.perform(get("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-patch-soggetti")))
                 .andExpect(jsonPath("$.soggettiDebitori.length()").value(1))
                 .andExpect(jsonPath("$.soggettiDebitori[0].identificativo").value("VRDGNN80A01H501W"));
     }
@@ -1758,7 +1764,7 @@ class PosizioneDebitoriaControllerTest {
         creaPosizioneMinimaConDebitore("pos-patch-soggetti-vuoti", "FRRPLA90C41H501Y");
 
         mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST",
-                        "pos-patch-soggetti-vuoti")
+                        IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-patch-soggetti-vuoti"))
                         .contentType(PATCH_MEDIA_TYPE)
                         .content("""
                                 [ { "op": "replace", "path": "/soggettiDebitori", "value": [] } ]
@@ -1773,7 +1779,7 @@ class PosizioneDebitoriaControllerTest {
         creaPosizioneMinimaConDebitore("pos-patch-body-assente", "FRRPLA90C41H501Y");
 
         mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST",
-                        "pos-patch-body-assente")
+                        IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-patch-body-assente"))
                         .contentType(PATCH_MEDIA_TYPE))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400));
@@ -1784,7 +1790,7 @@ class PosizioneDebitoriaControllerTest {
     void patchRifiutaElementoNulloNellArrayDiOperazioni() throws Exception {
         creaPosizioneMinimaConDebitore("pos-patch-op-null", "FRRPLA90C41H501Y");
 
-        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", "pos-patch-op-null")
+        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-patch-op-null"))
                         .contentType(PATCH_MEDIA_TYPE)
                         .content("[ null ]"))
                 .andExpect(status().isBadRequest())
@@ -1798,7 +1804,7 @@ class PosizioneDebitoriaControllerTest {
         creaPosizioneMinimaConDebitore("pos-patch-soggetti-null", "FRRPLA90C41H501Y");
 
         mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST",
-                        "pos-patch-soggetti-null")
+                        IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-patch-soggetti-null"))
                         .contentType(PATCH_MEDIA_TYPE)
                         .content("""
                                 [ { "op": "replace", "path": "/soggettiDebitori", "value": null } ]
@@ -1814,7 +1820,7 @@ class PosizioneDebitoriaControllerTest {
         creaPosizioneMinimaConDebitore("pos-patch-sogg-elem-null", "FRRPLA90C41H501Y");
 
         mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST",
-                        "pos-patch-sogg-elem-null")
+                        IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-patch-sogg-elem-null"))
                         .contentType(PATCH_MEDIA_TYPE)
                         .content("""
                                 [ { "op": "replace", "path": "/soggettiDebitori", "value": [ null ] } ]
@@ -1831,7 +1837,7 @@ class PosizioneDebitoriaControllerTest {
         String descrizione141 = "x".repeat(141);
 
         mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST",
-                        "pos-patch-descr-lunga")
+                        IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-patch-descr-lunga"))
                         .contentType(PATCH_MEDIA_TYPE)
                         .content("""
                                 [ { "op": "replace", "path": "/descrizione", "value": "%s" } ]
@@ -1862,7 +1868,7 @@ class PosizioneDebitoriaControllerTest {
 
         String body = """
                 {
-                  "idPosizioneDebitoria": "pos-1",
+                  "codDocumento": "pos-1",
                   "idDominio": "12345678901",
                   "descrizione": "test",
                   "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
@@ -1907,8 +1913,7 @@ class PosizioneDebitoriaControllerTest {
                 }
                 """;
 
-        mockMvc.perform(post("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento",
-                        "A2A-TEST", "pos-add-opzione")
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento", "A2A-TEST", IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-add-opzione"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isCreated())
@@ -1921,7 +1926,7 @@ class PosizioneDebitoriaControllerTest {
                 .andExpect(jsonPath("$.pendenze[0].numeroAvviso").value(notNullValue()))
                 .andExpect(jsonPath("$.pendenze[0].iuv").value(notNullValue()));
 
-        mockMvc.perform(get("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", "pos-add-opzione"))
+        mockMvc.perform(get("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-add-opzione")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.opzioniPagamento.length()").value(2));
     }
@@ -1956,8 +1961,7 @@ class PosizioneDebitoriaControllerTest {
     void addOpzionePagamentoRifiutaConBadRequestSeBodyAssente() throws Exception {
         creaPosizioneMinimaConDebitore("pos-opz-body-assente", "FRRPLA90C41H501Y");
 
-        mockMvc.perform(post("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento",
-                        "A2A-TEST", "pos-opz-body-assente")
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento", "A2A-TEST", IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-opz-body-assente"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("null"))
                 .andExpect(status().isBadRequest())
@@ -1999,8 +2003,7 @@ class PosizioneDebitoriaControllerTest {
                 }
                 """;
 
-        mockMvc.perform(post("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento",
-                        "A2A-TEST", "pos-opz-tipo-disab")
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento", "A2A-TEST", IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-opz-tipo-disab"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isBadRequest());
@@ -2036,8 +2039,7 @@ class PosizioneDebitoriaControllerTest {
                 }
                 """;
 
-        mockMvc.perform(post("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento",
-                        "A2A-TEST", "pos-opz-attivata")
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento", "A2A-TEST", IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-opz-attivata"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isConflict())
@@ -2073,8 +2075,7 @@ class PosizioneDebitoriaControllerTest {
                 }
                 """;
 
-        mockMvc.perform(post("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento",
-                        "A2A-TEST", "pos-opz-dominio-disab")
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento", "A2A-TEST", IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-opz-dominio-disab"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isBadRequest());
@@ -2103,8 +2104,7 @@ class PosizioneDebitoriaControllerTest {
                 }
                 """;
 
-        mockMvc.perform(post("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento",
-                        "A2A-TEST", "pos-opz-id-dup")
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento", "A2A-TEST", IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-opz-id-dup"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isConflict())
@@ -2112,7 +2112,11 @@ class PosizioneDebitoriaControllerTest {
                 .andExpect(jsonPath("$.status").value(409));
     }
 
-    private String idOpzioneDi(String idPosizioneDebitoria) throws Exception {
+    private String idOpzioneDi(String codDocumento) throws Exception {
+        // Tutti i chiamanti creano la posizione con creaPosizioneMinimaConDebitore, sempre
+        // sul dominio "12345678901" — vedi il suo corpo.
+        String idPosizioneDebitoria = IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901",
+                codDocumento);
         String risposta = mockMvc
                 .perform(get("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", idPosizioneDebitoria))
                 .andReturn().getResponse().getContentAsString();
@@ -2134,8 +2138,7 @@ class PosizioneDebitoriaControllerTest {
                 """;
 
         mockMvc.perform(post(
-                        "/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}/pendenze",
-                        "A2A-TEST", "pos-add-pendenza", idOpzione)
+                        "/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}/pendenze", "A2A-TEST", IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-add-pendenza"), idOpzione)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isCreated())
@@ -2144,7 +2147,7 @@ class PosizioneDebitoriaControllerTest {
                 .andExpect(jsonPath("$.numeroAvviso").value(notNullValue()))
                 .andExpect(jsonPath("$.iuv").value(notNullValue()));
 
-        mockMvc.perform(get("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", "pos-add-pendenza"))
+        mockMvc.perform(get("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-add-pendenza")))
                 .andExpect(jsonPath("$.opzioniPagamento[0].pendenze.length()").value(2))
                 .andExpect(jsonPath("$.opzioniPagamento[0].pendenze[1].idPendenza")
                         .value("pos-add-pendenza-seconda"));
@@ -2162,8 +2165,7 @@ class PosizioneDebitoriaControllerTest {
                 """;
 
         mockMvc.perform(post(
-                        "/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}/pendenze",
-                        "A2A-TEST", "pos-add-pendenza-404", java.util.UUID.randomUUID())
+                        "/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}/pendenze", "A2A-TEST", IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-add-pendenza-404"), java.util.UUID.randomUUID())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isNotFound())
@@ -2178,8 +2180,7 @@ class PosizioneDebitoriaControllerTest {
         String idOpzione = idOpzioneDi("pos-add-pend-body");
 
         mockMvc.perform(post(
-                        "/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}/pendenze",
-                        "A2A-TEST", "pos-add-pend-body", idOpzione)
+                        "/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}/pendenze", "A2A-TEST", IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-add-pend-body"), idOpzione)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("null"))
                 .andExpect(status().isBadRequest())
@@ -2193,8 +2194,7 @@ class PosizioneDebitoriaControllerTest {
         creaPosizioneMinimaConDebitore("pos-add-pendenza-non-disp", "FRRPLA90C41H501Y");
         String idOpzione = idOpzioneDi("pos-add-pendenza-non-disp");
         mockMvc.perform(patch(
-                        "/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}",
-                        "A2A-TEST", "pos-add-pendenza-non-disp", idOpzione)
+                        "/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}", "A2A-TEST", IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-add-pendenza-non-disp"), idOpzione)
                         .contentType(PATCH_MEDIA_TYPE)
                         .content("""
                                 [ { "op": "replace", "path": "/stato", "value": "ANNULLATA" } ]
@@ -2209,8 +2209,7 @@ class PosizioneDebitoriaControllerTest {
                 """;
 
         mockMvc.perform(post(
-                        "/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}/pendenze",
-                        "A2A-TEST", "pos-add-pendenza-non-disp", idOpzione)
+                        "/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}/pendenze", "A2A-TEST", IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-add-pendenza-non-disp"), idOpzione)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isConflict())
@@ -2225,7 +2224,7 @@ class PosizioneDebitoriaControllerTest {
     void addPendenzaRifiutaConBadRequestSeSuperaLaCardinalitaMassima() throws Exception {
         String body = """
                 {
-                  "idPosizioneDebitoria": "pos-add-pend-card",
+                  "codDocumento": "pos-add-pend-card",
                   "idDominio": "12345678901",
                   "descrizione": "test",
                   "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
@@ -2256,8 +2255,7 @@ class PosizioneDebitoriaControllerTest {
                 """;
 
         mockMvc.perform(post(
-                        "/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}/pendenze",
-                        "A2A-TEST", "pos-add-pend-card", idOpzione)
+                        "/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}/pendenze", "A2A-TEST", IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-add-pend-card"), idOpzione)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(bodyNuovaPendenza))
                 .andExpect(status().isBadRequest())
@@ -2280,8 +2278,7 @@ class PosizioneDebitoriaControllerTest {
                 """;
 
         mockMvc.perform(post(
-                        "/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}/pendenze",
-                        "A2A-TEST", "pos-add-pendenza-id-dup", idOpzione)
+                        "/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}/pendenze", "A2A-TEST", IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-add-pendenza-id-dup"), idOpzione)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isConflict())
@@ -2295,15 +2292,14 @@ class PosizioneDebitoriaControllerTest {
         creaPosizioneMinimaConDebitore("pos-annulla-opz", "FRRPLA90C41H501Y");
         String idOpzione = idOpzioneDi("pos-annulla-opz");
 
-        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}",
-                        "A2A-TEST", "pos-annulla-opz", idOpzione)
+        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}", "A2A-TEST", IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-annulla-opz"), idOpzione)
                         .contentType(PATCH_MEDIA_TYPE)
                         .content("""
                                 [ { "op": "replace", "path": "/stato", "value": "ANNULLATA" } ]
                                 """))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(get("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", "pos-annulla-opz"))
+        mockMvc.perform(get("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-annulla-opz")))
                 .andExpect(jsonPath("$.opzioniPagamento[0].stato").value("ANNULLATA"))
                 .andExpect(jsonPath("$.opzioniPagamento[0].pendenze[0].stato").value("ANNULLATO"));
     }
@@ -2314,23 +2310,21 @@ class PosizioneDebitoriaControllerTest {
     void updateOpzionePagamentoRipristinaConSuccesso() throws Exception {
         creaPosizioneMinimaConDebitore("pos-ripristina-opz", "FRRPLA90C41H501Y");
         String idOpzione = idOpzioneDi("pos-ripristina-opz");
-        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}",
-                        "A2A-TEST", "pos-ripristina-opz", idOpzione)
+        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}", "A2A-TEST", IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-ripristina-opz"), idOpzione)
                         .contentType(PATCH_MEDIA_TYPE)
                         .content("""
                                 [ { "op": "replace", "path": "/stato", "value": "ANNULLATA" } ]
                                 """))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}",
-                        "A2A-TEST", "pos-ripristina-opz", idOpzione)
+        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}", "A2A-TEST", IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-ripristina-opz"), idOpzione)
                         .contentType(PATCH_MEDIA_TYPE)
                         .content("""
                                 [ { "op": "replace", "path": "/stato", "value": "DISPONIBILE" } ]
                                 """))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(get("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", "pos-ripristina-opz"))
+        mockMvc.perform(get("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-ripristina-opz")))
                 .andExpect(jsonPath("$.opzioniPagamento[0].stato").value("DISPONIBILE"))
                 .andExpect(jsonPath("$.opzioniPagamento[0].pendenze[0].stato").value("NON_ESEGUITO"));
     }
@@ -2343,8 +2337,7 @@ class PosizioneDebitoriaControllerTest {
         posizioneDebitoriaService.registraEsitoPendenza("A2A-TEST", "pendenza-pos-ripristina-attivata",
                 StatoPendenza.ESEGUITO);
 
-        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}",
-                        "A2A-TEST", "pos-ripristina-attivata", idOpzione)
+        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}", "A2A-TEST", IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-ripristina-attivata"), idOpzione)
                         .contentType(PATCH_MEDIA_TYPE)
                         .content("""
                                 [ { "op": "replace", "path": "/stato", "value": "DISPONIBILE" } ]
@@ -2378,8 +2371,7 @@ class PosizioneDebitoriaControllerTest {
                   } ]
                 }
                 """;
-        String rispostaB = mockMvc.perform(post("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento",
-                        "A2A-TEST", "pos-rip-altb")
+        String rispostaB = mockMvc.perform(post("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento", "A2A-TEST", IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-rip-altb"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(bodyB))
                 .andExpect(status().isCreated())
@@ -2389,8 +2381,7 @@ class PosizioneDebitoriaControllerTest {
         // cascata: B -> ANNULLATA
         posizioneDebitoriaService.registraEsitoPendenza("A2A-TEST", "pendenza-pos-rip-altb", StatoPendenza.ESEGUITO);
 
-        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}",
-                        "A2A-TEST", "pos-rip-altb", idB)
+        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}", "A2A-TEST", IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-rip-altb"), idB)
                         .contentType(PATCH_MEDIA_TYPE)
                         .content("""
                                 [ { "op": "replace", "path": "/stato", "value": "DISPONIBILE" } ]
@@ -2406,8 +2397,7 @@ class PosizioneDebitoriaControllerTest {
         creaPosizioneMinimaConDebitore("pos-opz-path-ignoto", "FRRPLA90C41H501Y");
         String idOpzione = idOpzioneDi("pos-opz-path-ignoto");
 
-        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}",
-                        "A2A-TEST", "pos-opz-path-ignoto", idOpzione)
+        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}", "A2A-TEST", IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-opz-path-ignoto"), idOpzione)
                         .contentType(PATCH_MEDIA_TYPE)
                         .content("""
                                 [ { "op": "replace", "path": "/tipologia", "value": "PIANO_RATEALE" } ]
@@ -2428,8 +2418,7 @@ class PosizioneDebitoriaControllerTest {
         creaPosizioneMinimaConDebitore("pos-opz-value-attivata", "FRRPLA90C41H501Y");
         String idOpzione = idOpzioneDi("pos-opz-value-attivata");
 
-        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}",
-                        "A2A-TEST", "pos-opz-value-attivata", idOpzione)
+        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}", "A2A-TEST", IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-opz-value-attivata"), idOpzione)
                         .contentType(PATCH_MEDIA_TYPE)
                         .content("""
                                 [ { "op": "replace", "path": "/stato", "value": "ATTIVATA" } ]
@@ -2443,8 +2432,7 @@ class PosizioneDebitoriaControllerTest {
         creaPosizioneMinimaConDebitore("pos-opz-body-assente-2", "FRRPLA90C41H501Y");
         String idOpzione = idOpzioneDi("pos-opz-body-assente-2");
 
-        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}",
-                        "A2A-TEST", "pos-opz-body-assente-2", idOpzione)
+        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}", "A2A-TEST", IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-opz-body-assente-2"), idOpzione)
                         .contentType(PATCH_MEDIA_TYPE)
                         .content("null"))
                 .andExpect(status().isBadRequest());
@@ -2455,8 +2443,7 @@ class PosizioneDebitoriaControllerTest {
     void updateOpzionePagamentoRestituisce404SeOpzioneNonEsiste() throws Exception {
         creaPosizioneMinimaConDebitore("pos-opz-inesistente", "FRRPLA90C41H501Y");
 
-        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}",
-                        "A2A-TEST", "pos-opz-inesistente", java.util.UUID.randomUUID().toString())
+        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}", "A2A-TEST", IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-opz-inesistente"), java.util.UUID.randomUUID().toString())
                         .contentType(PATCH_MEDIA_TYPE)
                         .content("""
                                 [ { "op": "replace", "path": "/stato", "value": "ANNULLATA" } ]
@@ -2479,8 +2466,7 @@ class PosizioneDebitoriaControllerTest {
         creaPosizioneMinimaConDebitore("pos-opz-altra-2", "FRRPLA90C41H501Y");
         String idOpzioneDellAltra = idOpzioneDi("pos-opz-altra-2");
 
-        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}",
-                        "A2A-TEST", "pos-opz-altra-1", idOpzioneDellAltra)
+        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}", "A2A-TEST", IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-opz-altra-1"), idOpzioneDellAltra)
                         .contentType(PATCH_MEDIA_TYPE)
                         .content("""
                                 [ { "op": "replace", "path": "/stato", "value": "ANNULLATA" } ]
@@ -2488,7 +2474,7 @@ class PosizioneDebitoriaControllerTest {
                 .andExpect(status().isNotFound());
 
         // L'opzione dell'ALTRA posizione non deve essere stata toccata dal tentativo rifiutato.
-        mockMvc.perform(get("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", "pos-opz-altra-2"))
+        mockMvc.perform(get("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-opz-altra-2")))
                 .andExpect(jsonPath("$.opzioniPagamento[0].stato").value("DISPONIBILE"));
     }
 
@@ -2500,8 +2486,7 @@ class PosizioneDebitoriaControllerTest {
         posizioneDebitoriaService.registraEsitoPendenza("A2A-TEST", "pendenza-pos-opz-gia-attivata",
                 StatoPendenza.ESEGUITO);
 
-        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}",
-                        "A2A-TEST", "pos-opz-gia-attivata", idOpzione)
+        mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}", "A2A-TEST", IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-opz-gia-attivata"), idOpzione)
                         .contentType(PATCH_MEDIA_TYPE)
                         .content("""
                                 [ { "op": "replace", "path": "/stato", "value": "ANNULLATA" } ]

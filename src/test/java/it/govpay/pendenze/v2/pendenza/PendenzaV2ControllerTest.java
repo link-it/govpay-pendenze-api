@@ -246,7 +246,7 @@ class PendenzaV2ControllerTest {
             throws Exception {
         String body = """
                 {
-                  "idPosizioneDebitoria": "%s",
+                  "codDocumento": "%s",
                   "idDominio": "%s",
                   "descrizione": "test wrapper v2",
                   "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y",
@@ -367,6 +367,42 @@ class PendenzaV2ControllerTest {
     }
 
     @Test
+    @DisplayName("GET /v2/pendenze/byAvviso/{idDominio}/{numeroAvviso} restituisce 409, non 500, se il numeroAvviso "
+            + "corrisponde a piu' di una pendenza (caso reale: dati migrati da v2 dove le rate di un piano "
+            + "rateale con avviso cumulativo condividono legittimamente lo stesso NAV, nessun vincolo DB lo "
+            + "impedisce) — scelta esplicita in deroga alla fedelta' al legacy, che ha lo stesso problema mai "
+            + "gestito")
+    void getPendenzaByAvvisoRestituisce409SeNumeroAvvisoCorrispondeAPiuDiUnaPendenza() throws Exception {
+        String numeroAvviso = creaPosizioneConPendenza("pos-v2-avviso-condiviso-1", "12345678901",
+                "pendenza-v2-avviso-condiviso-1");
+
+        // Seconda pendenza "migrata" (senza opzionePagamento, come una riga v2 reale) con lo
+        // stesso idDominio+numeroAvviso della prima — persistita direttamente, bypassando le
+        // validazioni del servizio: e' esattamente cosi' che questa situazione puo' esistere in
+        // produzione (mai attraverso il percorso di scrittura v3-nativo, che la rifiuta).
+        Long idApplicazione = applicazioneRepository.findByCodApplicazione("A2A-TEST").orElseThrow().getId();
+        Long idDominio = dominioRepository.findByCodDominio("12345678901").orElseThrow().getId();
+        Long idTipoPendenza = tipoVersamentoDominioRepository
+                .findByDominioIdAndTipoVersamentoId(idDominio, tipoVersamento.getId()).orElseThrow().getId();
+        Pendenza pendenzaMigrata = new Pendenza();
+        pendenzaMigrata.setIdApplicazione(idApplicazione);
+        pendenzaMigrata.setIdDominio(idDominio);
+        pendenzaMigrata.setIdPendenza("pendenza-v2-avv-cond-migrata");
+        pendenzaMigrata.setIdTipoPendenza(idTipoPendenza);
+        pendenzaMigrata.setIdTipoVersamento(tipoVersamento.getId());
+        pendenzaMigrata.setImporto(10.00);
+        pendenzaMigrata.setNumeroAvviso(numeroAvviso);
+        pendenzaMigrata.setDataCreazione(java.time.OffsetDateTime.now());
+        pendenzaMigrata.setDataUltimoAggiornamento(java.time.OffsetDateTime.now());
+        pendenzaRepository.save(pendenzaMigrata);
+
+        mockMvc.perform(get("/v2/pendenze/byAvviso/{idDominio}/{numeroAvviso}", "12345678901", numeroAvviso))
+                .andExpect(status().isConflict())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(jsonPath("$.status").value(409));
+    }
+
+    @Test
     @DisplayName("GET /v2/pendenze/byAvviso/{idDominio}/{numeroAvviso} restituisce 404 se numeroAvviso non esiste")
     void getPendenzaByAvvisoRestituisce404SeNonEsiste() throws Exception {
         // Formalmente valido (prima cifra 0|1|2|3), ma nessuna pendenza reale lo usa.
@@ -394,7 +430,7 @@ class PendenzaV2ControllerTest {
 
         String body = """
                 {
-                  "idPosizioneDebitoria": "pos-v2-avviso-altro-1",
+                  "codDocumento": "pos-v2-avviso-altro-1",
                   "idDominio": "12345678901",
                   "descrizione": "test altra applicazione",
                   "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y",

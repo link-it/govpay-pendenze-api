@@ -3,6 +3,9 @@ package it.govpay.pendenze.v2.ricevuta;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import it.gov.pagopa.pagopa_api.pa.pafornode.PaGetPaymentRes;
+import it.gov.pagopa.pagopa_api.pa.pafornode.PaGetPaymentV2Response;
+import it.gov.pagopa.pagopa_api.pa.pafornode.StOutcome;
 import it.govpay.pendenze.api.model.TipoRicevuta;
 import it.govpay.pendenze.entity.Pendenza;
 import it.govpay.pendenze.entity.Rpt;
@@ -95,6 +98,77 @@ public class RppContenutoMapper {
         }
     }
 
+    /**
+     * Come {@link #toRpt}, ma per {@code GET /rpp/{idDominio}/{iuv}/{ccp}/rpt} dello YAML v2
+     * quando il client richiede {@code application/xml} invece di {@code application/json} —
+     * porting di {@code MessaggiPagoPARptUtils.getMessaggioRPT(rpt, FormatoRicevuta.XML, ...)}.
+     *
+     * <p><b>Non e' lo stesso contenuto del JSON</b> (asimmetria del legacy, replicata qui
+     * fedelmente): a conversione V1 disattivata, il JSON espone solo {@code .getData()} (il
+     * {@code CtPaymentPA}/{@code CtPaymentPAV2} "nudo"), mentre l'XML e' l'intero messaggio
+     * {@code paGetPaymentRes}/{@code paGetPaymentV2Response} (il wrapper pagoPA completo,
+     * {@code outcome} incluso) — quando {@code xmlRpt} e' presente, per fedelta' bit-a-bit col
+     * messaggio realmente scambiato col Nodo si ripropaga il byte[] originale invece di
+     * ri-marshallare il bean appena smarshallato (stesso contenuto, nessun rischio di differenze
+     * di whitespace/namespace). Quando invece la RPT va ricostruita dalla RT ({@code xmlRpt}
+     * assente, caso "standin"), non esiste un messaggio originale da ripropagare: si ricostruisce
+     * un wrapper minimale ({@code outcome=OK} + {@code data}), fedele nel contenuto ma non
+     * byte-identico a un eventuale messaggio mai esistito.</p>
+     *
+     * @throws RicevutaNonLeggibileException se l'XML (reale o ricostruito) non e' interpretabile
+     */
+    public byte[] toRptXml(Rpt rpt, Pendenza pendenza) {
+        TipoRicevuta tipoRpt = mapVersioneATipoRpt(rpt.getVersione());
+        byte[] xmlRpt = ricevutaRendicontazioneService.trovaXmlRichiestaPagamento(rpt.getId()).orElse(null);
+        try {
+            return switch (tipoRpt) {
+                case CT_RICEVUTA_TELEMATICA ->
+                    // Gia' nel formato V1, nessuna conversione: passthrough, xml_rpt sempre
+                    // presente per questo formato (vedi Javadoc di classe di Rpt).
+                    xmlRpt;
+                case CT_RECEIPT -> {
+                    if (conversioneV1Abilitata) {
+                        var data = xmlRpt != null
+                                ? JaxbUtils.toPaGetPaymentResRPT(xmlRpt).getData()
+                                : RicostruttoreRichiestaPagamento.ricostruisci(JaxbUtils.toPaSendRTReqRT(rpt.getXmlRt()),
+                                        pendenza, numeroGiorniValiditaPendenzaSenzaData);
+                        yield JaxbXmlMarshaller.toByte(richiestaPagamentoV1Mapper.toRpt(data, rpt, pendenza));
+                    }
+                    if (xmlRpt != null) {
+                        yield xmlRpt;
+                    }
+                    PaGetPaymentRes wrapper = new PaGetPaymentRes();
+                    wrapper.setOutcome(StOutcome.OK);
+                    wrapper.setData(RicostruttoreRichiestaPagamento.ricostruisci(JaxbUtils.toPaSendRTReqRT(rpt.getXmlRt()),
+                            pendenza, numeroGiorniValiditaPendenzaSenzaData));
+                    yield JaxbXmlMarshaller.toByte(wrapper);
+                }
+                case CT_RECEIPT_V2 -> {
+                    if (conversioneV1Abilitata) {
+                        var data = xmlRpt != null
+                                ? JaxbUtils.toPaGetPaymentV2ResponseRPT(xmlRpt).getData()
+                                : RicostruttoreRichiestaPagamento.ricostruisci(JaxbUtils.toPaSendRTV2RequestRT(rpt.getXmlRt()),
+                                        pendenza, numeroGiorniValiditaPendenzaSenzaData);
+                        yield JaxbXmlMarshaller.toByte(richiestaPagamentoV1Mapper.toRpt(data, rpt, pendenza));
+                    }
+                    if (xmlRpt != null) {
+                        yield xmlRpt;
+                    }
+                    PaGetPaymentV2Response wrapper = new PaGetPaymentV2Response();
+                    wrapper.setOutcome(StOutcome.OK);
+                    wrapper.setData(RicostruttoreRichiestaPagamento.ricostruisci(
+                            JaxbUtils.toPaSendRTV2RequestRT(rpt.getXmlRt()), pendenza,
+                            numeroGiorniValiditaPendenzaSenzaData));
+                    yield JaxbXmlMarshaller.toByte(wrapper);
+                }
+            };
+        } catch (JAXBException e) {
+            throw new RicevutaNonLeggibileException("La richiesta di pagamento [iur:" + rpt.getIur()
+                    + "] non e' interpretabile come XML " + tipoRpt.getValue() + " (versione legacy ["
+                    + rpt.getVersione() + "]).", e);
+        }
+    }
+
     public Object toRt(Rpt rpt, Pendenza pendenza) {
         TipoRicevuta tipoRt = RicevutaMapper.mapVersioneATipo(rpt.getVersione());
         if (rpt.getXmlRt() == null) {
@@ -115,6 +189,44 @@ public class RppContenutoMapper {
                 }
             };
             return jsonConverter.toAlberoGenerico(contenutoRt);
+        } catch (JAXBException e) {
+            throw new RicevutaNonLeggibileException("La ricevuta [iur:" + rpt.getIur()
+                    + "] non e' interpretabile come XML " + tipoRt.getValue() + " (versione legacy ["
+                    + rpt.getVersione() + "]).", e);
+        }
+    }
+
+    /**
+     * Come {@link #toRt}, ma per {@code GET /rpp/{idDominio}/{iuv}/{ccp}/rt} dello YAML v2
+     * quando il client richiede {@code application/xml} — porting di
+     * {@code MessaggiPagoPARtUtils.getMessaggioRT(rpt, FormatoRicevuta.XML, ...)}.
+     *
+     * <p>A differenza di {@link #toRptXml}, qui non c'e' asimmetria JSON/XML da ricostruire a
+     * conversione V1 disattivata: il legacy stesso restituisce sempre {@code rpt.getXmlRt()}
+     * (passthrough, mai ri-marshallato) — la RT, a differenza della RPT, non viene mai
+     * ricostruita (xml_rt assente significa "ricevuta non ancora acquisita", il chiamante lo
+     * scopre prima di arrivare qui, vedi il controller).</p>
+     *
+     * @throws RicevutaNonLeggibileException se, a conversione V1 abilitata, l'XML non e'
+     *                                        interpretabile
+     */
+    public byte[] toRtXml(Rpt rpt, Pendenza pendenza) {
+        TipoRicevuta tipoRt = RicevutaMapper.mapVersioneATipo(rpt.getVersione());
+        if (!conversioneV1Abilitata || tipoRt == TipoRicevuta.CT_RICEVUTA_TELEMATICA) {
+            return rpt.getXmlRt();
+        }
+        try {
+            return switch (tipoRt) {
+                case CT_RECEIPT -> {
+                    var receipt = JaxbUtils.toPaSendRTReqRT(rpt.getXmlRt()).getReceipt();
+                    yield JaxbXmlMarshaller.toByte(richiestaPagamentoV1Mapper.toRt(receipt, rpt, pendenza));
+                }
+                case CT_RECEIPT_V2 -> {
+                    var receipt = JaxbUtils.toPaSendRTV2RequestRT(rpt.getXmlRt()).getReceipt();
+                    yield JaxbXmlMarshaller.toByte(richiestaPagamentoV1Mapper.toRt(receipt, rpt, pendenza));
+                }
+                case CT_RICEVUTA_TELEMATICA -> throw new IllegalStateException("gia' gestito sopra");
+            };
         } catch (JAXBException e) {
             throw new RicevutaNonLeggibileException("La ricevuta [iur:" + rpt.getIur()
                     + "] non e' interpretabile come XML " + tipoRt.getValue() + " (versione legacy ["

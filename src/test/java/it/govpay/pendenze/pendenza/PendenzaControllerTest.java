@@ -52,6 +52,7 @@ import it.govpay.pendenze.repository.FlussoRendicontazioneRepository;
 import it.govpay.pendenze.repository.PendenzaRepository;
 import it.govpay.pendenze.repository.PosizioneDebitoriaRepository;
 import it.govpay.pendenze.repository.RendicontazioneRepository;
+import it.govpay.pendenze.identificativo.IdentificatorePosizioneDebitoria;
 import it.govpay.pendenze.repository.RptRepository;
 import it.govpay.pendenze.security.AclEntity;
 import it.govpay.pendenze.security.AclRepository;
@@ -272,7 +273,7 @@ class PendenzaControllerTest {
             throws Exception {
         String body = """
                 {
-                  "idPosizioneDebitoria": "%s",
+                  "codDocumento": "%s",
                   "idDominio": "%s",
                   "descrizione": "test ricerca pendenze",
                   "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y",
@@ -312,7 +313,7 @@ class PendenzaControllerTest {
             String idPendenza, String numeroAvviso) throws Exception {
         String body = """
                 {
-                  "idPosizioneDebitoria": "%s",
+                  "codDocumento": "%s",
                   "idDominio": "%s",
                   "descrizione": "test ricerca pendenze",
                   "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y",
@@ -353,7 +354,8 @@ class PendenzaControllerTest {
                 .andExpect(jsonPath("$.results[0].numeroAvviso").value(numeroAvviso))
                 .andExpect(jsonPath("$.results[0].idDominio").value("12345678901"))
                 .andExpect(jsonPath("$.results[0].opzionePagamento.tipologia").value("SOLUZIONE_UNICA"))
-                .andExpect(jsonPath("$.results[0].posizioneDebitoria.idPosizioneDebitoria").value("pos-nav-1"));
+                .andExpect(jsonPath("$.results[0].posizioneDebitoria.idPosizioneDebitoria")
+                        .value(IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-nav-1")));
     }
 
     @Test
@@ -727,7 +729,8 @@ class PendenzaControllerTest {
                 .andExpect(jsonPath("$.iuv").value(notNullValue()))
                 .andExpect(jsonPath("$.opzionePagamento.tipologia").value("SOLUZIONE_UNICA"))
                 .andExpect(jsonPath("$.opzionePagamento.stato").value("DISPONIBILE"))
-                .andExpect(jsonPath("$.posizioneDebitoria.idPosizioneDebitoria").value("pos-get-1"))
+                .andExpect(jsonPath("$.posizioneDebitoria.idPosizioneDebitoria")
+                        .value(IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-get-1")))
                 .andExpect(jsonPath("$.voci.length()").value(1))
                 .andExpect(jsonPath("$.voci[0].idVocePendenza").value("voce-pendenza-get-1"))
                 .andExpect(jsonPath("$.voci[0].codEntrata").value("DIRITTI_SEGRETERIA"))
@@ -912,7 +915,7 @@ class PendenzaControllerTest {
     void updatePendenzaSostituisceTutteLeCinqueVociSenzaSuperareIndiceMassimo() throws Exception {
         String body = """
                 {
-                  "idPosizioneDebitoria": "pos-patch-cinque-voci",
+                  "codDocumento": "pos-patch-cinque-voci",
                   "idDominio": "12345678901",
                   "descrizione": "test cinque voci",
                   "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
@@ -1508,7 +1511,7 @@ class PendenzaControllerTest {
     void getStampaPendenzaPdfRestituisce422PerPendenzaMbt() throws Exception {
         String body = """
                 {
-                  "idPosizioneDebitoria": "pos-stampa-pdf-mbt",
+                  "codDocumento": "pos-stampa-pdf-mbt",
                   "idDominio": "12345678901",
                   "descrizione": "test MBT",
                   "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
@@ -1549,7 +1552,7 @@ class PendenzaControllerTest {
     void getStampaPendenzaPdfRestituisce422PerAnagraficaDebitoreAssente() throws Exception {
         String body = """
                 {
-                  "idPosizioneDebitoria": "pos-stampa-pdf-no-anagrafica",
+                  "codDocumento": "pos-stampa-pdf-no-anagrafica",
                   "idDominio": "12345678901",
                   "descrizione": "test anagrafica assente",
                   "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],

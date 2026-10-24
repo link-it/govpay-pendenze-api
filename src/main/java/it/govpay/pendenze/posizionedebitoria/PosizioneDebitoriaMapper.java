@@ -76,6 +76,7 @@ import it.govpay.pendenze.entity.SoggettoDebitore;
 import it.govpay.pendenze.entity.VocePendenza;
 import it.govpay.pendenze.exception.TransizioneStatoNonAmmessaException;
 import it.govpay.pendenze.exception.ValidazioneNonSuperataException;
+import it.govpay.pendenze.identificativo.IdentificatorePosizioneDebitoria;
 import it.govpay.pendenze.model.DettaglioContabile;
 import it.govpay.pendenze.model.StatoVocePendenza;
 import it.govpay.pendenze.model.TipoRiferimentoVocePendenza;
@@ -229,6 +230,17 @@ public class PosizioneDebitoriaMapper {
     private String risolviCodDominio(Long idDominio) {
         return idDominio == null ? null
                 : dominioRepository.findById(idDominio).map(DominioEntity::getCodDominio).orElse(null);
+    }
+
+    /**
+     * {@code idPosizioneDebitoria} pubblico (IUPD, vedi Javadoc di
+     * {@code it.govpay.pendenze.entity.PosizioneDebitoria}): calcolato qui, non in libreria —
+     * stesso principio di {@link #risolviCodApplicazione}/{@link #risolviCodDominio}, questo
+     * mapper e' il confine che conosce le anagrafiche esterne.
+     */
+    private String idPosizioneDebitoriaPubblica(it.govpay.pendenze.entity.PosizioneDebitoria entity) {
+        return IdentificatorePosizioneDebitoria.comporre(risolviCodApplicazione(entity.getIdApplicazione()),
+                risolviCodDominio(entity.getIdDominio()), entity.getCodDocumento());
     }
 
     /**
@@ -443,7 +455,7 @@ public class PosizioneDebitoriaMapper {
 
         it.govpay.pendenze.entity.PosizioneDebitoria posizione = new it.govpay.pendenze.entity.PosizioneDebitoria();
         posizione.setIdApplicazione(idApplicazione);
-        posizione.setIdPosizioneDebitoria(dto.getIdPosizioneDebitoria());
+        posizione.setCodDocumento(dto.getCodDocumento());
         posizione.setIdDominio(idDominio);
         posizione.setIdUnitaOperativa(idUnitaOperativa);
         posizione.setDescrizione(dto.getDescrizione());
@@ -954,7 +966,7 @@ public class PosizioneDebitoriaMapper {
             it.govpay.pendenze.entity.PosizioneDebitoria entity) {
         it.govpay.pendenze.api.model.PosizioneDebitoria dto = new it.govpay.pendenze.api.model.PosizioneDebitoria();
         dto.setIdA2A(risolviCodApplicazione(entity.getIdApplicazione()));
-        dto.setIdPosizioneDebitoria(entity.getIdPosizioneDebitoria());
+        dto.setIdPosizioneDebitoria(idPosizioneDebitoriaPubblica(entity));
         dto.setIdDominio(risolviCodDominio(entity.getIdDominio()));
         dto.setIdUnitaOperativa(risolviCodUnitaOperativa(entity.getIdUnitaOperativa()));
         dto.setDescrizione(entity.getDescrizione());
@@ -980,7 +992,7 @@ public class PosizioneDebitoriaMapper {
         it.govpay.pendenze.api.model.PosizioneDebitoriaIndex dto =
                 new it.govpay.pendenze.api.model.PosizioneDebitoriaIndex();
         dto.setIdA2A(risolviCodApplicazione(entity.getIdApplicazione()));
-        dto.setIdPosizioneDebitoria(entity.getIdPosizioneDebitoria());
+        dto.setIdPosizioneDebitoria(idPosizioneDebitoriaPubblica(entity));
         dto.setIdDominio(risolviCodDominio(entity.getIdDominio()));
         dto.setIdUnitaOperativa(risolviCodUnitaOperativa(entity.getIdUnitaOperativa()));
         dto.setDescrizione(entity.getDescrizione());

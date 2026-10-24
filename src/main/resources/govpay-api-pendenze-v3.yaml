@@ -90,9 +90,10 @@ paths:
         debitori (anche in solido) e di una o più opzioni di pagamento
         alternative (es. unica soluzione, piano rateale), ciascuna con le
         proprie pendenze (rate).
-        Un secondo tentativo di creazione con lo stesso idPosizioneDebitoria
-        viene rifiutato (409): l'operazione crea la posizione debitoria
-        esattamente una volta e non aggiorna una posizione esistente. Se
+        Un secondo tentativo di creazione con lo stesso codDocumento per lo
+        stesso idA2A e lo stesso idDominio viene rifiutato (409): l'operazione
+        crea la posizione debitoria esattamente una volta e non aggiorna una
+        posizione esistente. Se
         `navNotifica` è indicato, deve corrispondere al `numeroAvviso` di
         una delle pendenze appena create: la richiesta è rifiutata con 400
         in caso contrario.
@@ -115,7 +116,7 @@ paths:
                   Caso più semplice e più frequente: un'unica pendenza da
                   pagare in un'unica soluzione
                 value:
-                  idPosizioneDebitoria: CERT2026-000058
+                  codDocumento: CERT2026-000058
                   idDominio: '12345678901'
                   descrizione: 'Diritti di segreteria - certificato di residenza'
                   soggettiDebitori:
@@ -139,7 +140,7 @@ paths:
                   Debito pagabile in un'unica soluzione oppure, in
                   alternativa, in 3 rate
                 value:
-                  idPosizioneDebitoria: IMU2026-000017
+                  codDocumento: IMU2026-000017
                   idDominio: '12345678901'
                   descrizione: 'IMU 2026 - immobile in via Garibaldi 5'
                   soggettiDebitori:
@@ -194,7 +195,7 @@ paths:
                   Sanzione con riduzione del 30% se pagata entro 5 giorni,
                   altrimenti a tariffa intera
                 value:
-                  idPosizioneDebitoria: VERBALE2026-000123
+                  codDocumento: VERBALE2026-000123
                   idDominio: '12345678901'
                   descrizione: 'Verbale n. 123/2026 - violazione art. 142 CdS'
                   soggettiDebitori:
@@ -254,7 +255,7 @@ paths:
         '404':
           $ref: '#/components/responses/404NotFound'
         '409':
-          description: Esiste già una posizione debitoria con questo idPosizioneDebitoria per questo idA2A
+          description: Esiste già una posizione debitoria con questo codDocumento per questo idA2A e questo idDominio
           content:
             application/problem+json:
               schema:
@@ -263,7 +264,7 @@ paths:
                 default:
                   value:
                     status: 409
-                    title: Esiste già una posizione debitoria con questo idPosizioneDebitoria per questo idA2A
+                    title: Esiste già una posizione debitoria con questo codDocumento per questo idA2A e questo idDominio
         '500':
           $ref: '#/components/responses/500ServiceUnavailable'
 
@@ -286,11 +287,14 @@ paths:
             pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
         - in: path
           name: idPosizioneDebitoria
-          description: Identificativo della posizione debitoria
+          description: >-
+            Identificativo pubblico della posizione debitoria (IUPD standard
+            pagoPA GPD: idA2A+idDominio+codDocumento concatenati senza
+            separatore) — vedi `PosizioneDebitoria.idPosizioneDebitoria`.
           required: true
           schema:
             type: string
-            pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
+            pattern: '(^[a-zA-Z0-9\-_]{1,81}$)'
       responses:
         '200':
           description: Informazioni dettagliate della posizione debitoria
@@ -330,11 +334,14 @@ paths:
             pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
         - in: path
           name: idPosizioneDebitoria
-          description: Identificativo della posizione debitoria
+          description: >-
+            Identificativo pubblico della posizione debitoria (IUPD standard
+            pagoPA GPD: idA2A+idDominio+codDocumento concatenati senza
+            separatore) — vedi `PosizioneDebitoria.idPosizioneDebitoria`.
           required: true
           schema:
             type: string
-            pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
+            pattern: '(^[a-zA-Z0-9\-_]{1,81}$)'
       requestBody:
         content:
           application/json-patch+json:
@@ -376,11 +383,14 @@ paths:
             pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
         - in: path
           name: idPosizioneDebitoria
-          description: Identificativo della posizione debitoria
+          description: >-
+            Identificativo pubblico della posizione debitoria (IUPD standard
+            pagoPA GPD: idA2A+idDominio+codDocumento concatenati senza
+            separatore) — vedi `PosizioneDebitoria.idPosizioneDebitoria`.
           required: true
           schema:
             type: string
-            pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
+            pattern: '(^[a-zA-Z0-9\-_]{1,81}$)'
       requestBody:
         content:
           application/json:
@@ -456,11 +466,14 @@ paths:
             pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
         - in: path
           name: idPosizioneDebitoria
-          description: Identificativo della posizione debitoria
+          description: >-
+            Identificativo pubblico della posizione debitoria (IUPD standard
+            pagoPA GPD: idA2A+idDominio+codDocumento concatenati senza
+            separatore) — vedi `PosizioneDebitoria.idPosizioneDebitoria`.
           required: true
           schema:
             type: string
-            pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
+            pattern: '(^[a-zA-Z0-9\-_]{1,81}$)'
         - in: path
           name: idOpzionePagamento
           description: Identificativo dell'opzione di pagamento
@@ -536,11 +549,14 @@ paths:
             pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
         - in: path
           name: idPosizioneDebitoria
-          description: Identificativo della posizione debitoria
+          description: >-
+            Identificativo pubblico della posizione debitoria (IUPD standard
+            pagoPA GPD: idA2A+idDominio+codDocumento concatenati senza
+            separatore) — vedi `PosizioneDebitoria.idPosizioneDebitoria`.
           required: true
           schema:
             type: string
-            pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
+            pattern: '(^[a-zA-Z0-9\-_]{1,81}$)'
         - in: path
           name: idOpzionePagamento
           description: Identificativo dell'opzione di pagamento
@@ -1330,19 +1346,23 @@ components:
     NuovaPosizioneDebitoria:
       type: object
       required:
-        - idPosizioneDebitoria
+        - codDocumento
         - idDominio
         - descrizione
         - soggettiDebitori
         - opzioniPagamento
       properties:
-        idPosizioneDebitoria:
+        codDocumento:
           type: string
           description: >-
-            Identificativo della posizione debitoria nel gestionale
-            proprietario. Deve essere univoco per idA2A: la richiesta viene
-            rifiutata con 409 se esiste già una posizione con questo
-            identificativo per lo stesso idA2A.
+            Identificativo della posizione debitoria scelto liberamente dal
+            gestionale proprietario. Deve essere univoco per idA2A+idDominio:
+            la richiesta viene rifiutata con 409 se esiste già una posizione
+            con questo identificativo per lo stesso idA2A e lo stesso
+            idDominio (due domini diversi possono invece riusare lo stesso
+            valore). Non coincide con `idPosizioneDebitoria` esposto in
+            lettura: quello è l'IUPD (standard pagoPA GPD), calcolato da
+            GovPay concatenando idA2A+idDominio+codDocumento.
           examples:
             - abcdef12345
           pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
@@ -1801,9 +1821,16 @@ components:
             - A2A-12345
         idPosizioneDebitoria:
           type: string
-          description: Identificativo della posizione debitoria nel gestionale responsabile
+          description: >-
+            Identificativo pubblico della posizione debitoria: l'IUPD
+            (standard pagoPA GPD), calcolato da GovPay concatenando, senza
+            separatore, idA2A+idDominio+codDocumento (idDominio sempre
+            esattamente 11 cifre). Usato nel path di questa e delle altre
+            risorse della posizione. Non è un valore scelto dal chiamante:
+            vedi `codDocumento` nello schema di creazione.
           examples:
-            - abcdef12345
+            - A2A-1234501234567890abcdef12345
+          maxLength: 81
         idDominio:
           type: string
           description: >-
@@ -1855,9 +1882,16 @@ components:
             - A2A-12345
         idPosizioneDebitoria:
           type: string
-          description: Identificativo della posizione debitoria nel gestionale responsabile
+          description: >-
+            Identificativo pubblico della posizione debitoria: l'IUPD
+            (standard pagoPA GPD), calcolato da GovPay concatenando, senza
+            separatore, idA2A+idDominio+codDocumento (idDominio sempre
+            esattamente 11 cifre). Usato nel path di questa e delle altre
+            risorse della posizione. Non è un valore scelto dal chiamante:
+            vedi `codDocumento` nello schema di creazione.
           examples:
-            - abcdef12345
+            - A2A-1234501234567890abcdef12345
+          maxLength: 81
         idDominio:
           type: string
           description: >-

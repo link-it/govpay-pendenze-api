@@ -292,11 +292,11 @@ public class PendenzaV2Mapper {
         OpzionePagamento opzione = entity.getOpzionePagamento();
         PosizioneDebitoria posizione = posizioneDi(entity);
         if (opzione == null || posizione == null
-                || posizione.getIdPosizioneDebitoria().startsWith(PREFISSO_DOCUMENTO_SINTETIZZATO)) {
+                || posizione.getCodDocumento().startsWith(PREFISSO_DOCUMENTO_SINTETIZZATO)) {
             return null;
         }
         Documento dto = new Documento();
-        dto.setIdentificativo(posizione.getIdPosizioneDebitoria());
+        dto.setIdentificativo(posizione.getCodDocumento());
         dto.setDescrizione(posizione.getDescrizione());
         switch (opzione.getTipologia()) {
             case PIANO_RATEALE -> dto.setRata(entity.getNumeroRata());

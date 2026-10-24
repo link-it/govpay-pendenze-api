@@ -26,6 +26,7 @@ import it.govpay.pendenze.avviso.AvvisoMbtException;
 import it.govpay.pendenze.avviso.StampeNotConfiguredException;
 import it.govpay.pendenze.avviso.StampeUnavailableException;
 import it.govpay.pendenze.exception.ModificaConcorrenteException;
+import it.govpay.pendenze.exception.RicercaNonUnivocaException;
 import it.govpay.pendenze.exception.RisorsaGiaEsistenteException;
 import it.govpay.pendenze.exception.RisorsaNonTrovataException;
 import it.govpay.pendenze.exception.TransizioneStatoNonAmmessaException;
@@ -166,6 +167,18 @@ public class ProblemExceptionHandler {
 
     @ExceptionHandler(RisorsaGiaEsistenteException.class)
     public ResponseEntity<Problem> handleGiaEsistente(RisorsaGiaEsistenteException ex, HttpServletRequest request) {
+        return build(HttpStatus.CONFLICT, ex.getMessage(), request, ex);
+    }
+
+    /**
+     * Sollevata da {@code PendenzaV2Controller#getPendenzaByAvviso} quando {@code idDominio}+
+     * {@code numeroAvviso} trovano piu' di una pendenza (tipicamente le rate di uno stesso
+     * piano rateale con avviso cumulativo) — la richiesta non e' scorretta, ma l'endpoint non
+     * puo' scegliere quale risultato restituire.
+     */
+    @ExceptionHandler(RicercaNonUnivocaException.class)
+    public ResponseEntity<Problem> handleRicercaNonUnivoca(RicercaNonUnivocaException ex,
+            HttpServletRequest request) {
         return build(HttpStatus.CONFLICT, ex.getMessage(), request, ex);
     }
 

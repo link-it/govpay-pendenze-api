@@ -74,7 +74,7 @@ class PendenzaV2MapperTest {
 
     private static Pendenza pendenzaBase(StatoPendenza stato, StatoPagamento statoPagamento, boolean anomalo) {
         PosizioneDebitoria posizione = new PosizioneDebitoria();
-        posizione.setIdPosizioneDebitoria("DOC-REALE-1");
+        posizione.setCodDocumento("DOC-REALE-1");
         posizione.setDescrizione("Sanzione CdS n. abc00000");
         SoggettoDebitore soggetto = new SoggettoDebitore();
         soggetto.setTipo(TipoSoggetto.F);
@@ -131,7 +131,7 @@ class PendenzaV2MapperTest {
     void documentoSintetizzatoOmesso() {
         confAnagraficaBase();
         Pendenza entity = pendenzaBase(StatoPendenza.NON_ESEGUITO, StatoPagamento.NON_PAGATO, false);
-        entity.getOpzionePagamento().getPosizioneDebitoria().setIdPosizioneDebitoria("MIGR-42");
+        entity.getOpzionePagamento().getPosizioneDebitoria().setCodDocumento("MIGR-42");
 
         var dto = mapper.toDto(entity, List.of(), List.of());
 

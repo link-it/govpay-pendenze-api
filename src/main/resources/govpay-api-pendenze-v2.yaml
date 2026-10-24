@@ -415,12 +415,12 @@ paths:
           schema:
             type: string
       responses:
-        '201':
+        '200':
           description: Dettaglio della richiesta di pagamento
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Rpp'          
+                $ref: '#/components/schemas/Rpp'
         '401':
           $ref: '#/components/responses/401NotAuthenticated'
         '403':
@@ -428,7 +428,7 @@ paths:
         '404':
           $ref: '#/components/responses/404NotFound'
         '500':
-          $ref: '#/components/responses/500ServiceUnavailable'           
+          $ref: '#/components/responses/500ServiceUnavailable'
   '/rpp/{idDominio}/{iuv}/{ccp}/rpt':
     get:
       summary: Acquisizione della richiesta di pagamento pagopa

@@ -81,13 +81,14 @@ public class PosizioneDebitoriaController implements PosizioniDebitorieApi {
 
         var comando = mapper.toComando(idA2A, nuovaPosizioneDebitoria);
         it.govpay.pendenze.entity.PosizioneDebitoria creata = posizioneDebitoriaService.crea(comando);
+        it.govpay.pendenze.api.model.PosizioneDebitoria dto = mapper.toDto(creata);
 
         URI location = ServletUriComponentsBuilder.fromCurrentContextPath()
                 .path(PosizioniDebitorieApi.PATH_GET_POSIZIONE_DEBITORIA)
-                .buildAndExpand(idA2A, creata.getIdPosizioneDebitoria())
+                .buildAndExpand(idA2A, dto.getIdPosizioneDebitoria())
                 .toUri();
 
-        return ResponseEntity.created(location).body(mapper.toDto(creata));
+        return ResponseEntity.created(location).body(dto);
     }
 
     /**
@@ -229,7 +230,9 @@ public class PosizioneDebitoriaController implements PosizioniDebitorieApi {
     private static final Map<String, String> CAMPI_ORDINABILI = Map.of(
             "dataCreazione", "dataCreazione",
             "dataPubblicazione", "dataPubblicazione",
-            "idPosizioneDebitoria", "idPosizioneDebitoria");
+            // idPosizioneDebitoria (nome esterno, l'IUPD) non e' una colonna: si ordina sulla
+            // sua parte persistita, codDocumento (vedi Javadoc di PosizioneDebitoria).
+            "idPosizioneDebitoria", "codDocumento");
 
     /**
      * {@code @Transactional} qui per lo stesso motivo di {@link #getPosizioneDebitoria}:
