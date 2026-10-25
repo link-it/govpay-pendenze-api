@@ -238,6 +238,28 @@ class UpdatePendenzaControllerTest {
     }
 
     @Test
+    @DisplayName("PATCH risponde 403 se l'applicazione non e' trusted e non e' autorizzata su dominio/"
+            + "tipoVersamento, PRIMA di applicare qualunque operazione")
+    void patchNonAutorizzataRispondeAccessoNegato() throws Exception {
+        creaPendenzaSoluzioneUnica("pend-403-1");
+
+        ApplicazioneEntity applicazione = applicazioneRepository.findByCodApplicazione(PRINCIPAL).orElseThrow();
+        applicazione.setTrusted(false);
+        applicazioneRepository.save(applicazione);
+
+        mockMvc.perform(patch("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-403-1")
+                .contentType("application/json-patch+json")
+                .content("""
+                        [ { "op": "REPLACE", "path": "/ack", "value": false } ]
+                        """))
+                .andExpect(status().isForbidden());
+
+        // ack e' true di default (vedi Pendenza#ack): se il controllo di autorizzazione non
+        // avesse bloccato la richiesta PRIMA di applicare la patch, questa asserzione fallirebbe.
+        Assertions.assertTrue(leggiPendenza("pend-403-1").isAck());
+    }
+
+    @Test
     @DisplayName("PATCH /descrizioneStato (REPLACE) aggiorna la pendenza (200)")
     void patchDescrizioneStatoAggiorna() throws Exception {
         creaPendenzaSoluzioneUnica("pend-ds-1");

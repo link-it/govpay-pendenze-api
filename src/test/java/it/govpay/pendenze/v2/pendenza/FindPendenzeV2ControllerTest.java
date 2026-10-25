@@ -207,12 +207,17 @@ class FindPendenzeV2ControllerTest {
 
     /** Stesso endpoint di scrittura v3 usato da {@code PendenzaV2ControllerTest}. */
     private String creaPendenza(String idPosizioneDebitoria, String idPendenza) throws Exception {
+        return creaPendenzaConDebitore(idPosizioneDebitoria, idPendenza, "FRRPLA90C41H501Y");
+    }
+
+    private String creaPendenzaConDebitore(String idPosizioneDebitoria, String idPendenza, String idDebitore)
+            throws Exception {
         String body = """
                 {
                   "codDocumento": "%s",
                   "idDominio": "12345678902",
                   "descrizione": "test findPendenze v2",
-                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y",
+                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "%s",
                                            "anagrafica": "Mario Rossi" } ],
                   "opzioniPagamento": [ {
                     "tipologia": "SOLUZIONE_UNICA",
@@ -225,7 +230,7 @@ class FindPendenzeV2ControllerTest {
                     } ]
                   } ]
                 }
-                """.formatted(idPosizioneDebitoria, idPendenza, idPendenza);
+                """.formatted(idPosizioneDebitoria, idDebitore, idPendenza, idPendenza);
 
         mockMvc.perform(post("/posizioni-debitorie/{idA2A}", PRINCIPAL)
                         .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
@@ -269,25 +274,19 @@ class FindPendenzeV2ControllerTest {
     }
 
     /**
-     * {@code Pendenza.srcDebitoreIdentificativo} (la colonna fisica su cui il legacy filtra
-     * {@code idDebitore}) NON viene mai popolata dal percorso di scrittura v3-nativo
-     * ({@code PosizioneDebitoriaService.crea}, verificato: resta sul valore sentinella
-     * {@code "VEDERE_SOGGETTI_DEBITORI"}, il vero debitore vive solo su
-     * {@code soggettiDebitori}) — per testare il filtro bisogna impostarla direttamente
-     * sull'entita', esattamente come per {@code direzione}/{@code divisione}/{@code stato} negli
-     * altri test. Questo e' un limite REALE del filtro per le pendenze create dal vero percorso
-     * v3 (utile solo per dati migrati direttamente dal legacy): fedelta' alla colonna del
-     * legacy, non un difetto del test.
+     * {@code idDebitore} filtra su QUALSIASI {@code SoggettoDebitore} della posizione (debitori
+     * "in solido" compresi), non piu' sul placeholder legacy
+     * {@code Pendenza.srcDebitoreIdentificativo} (sempre {@code "VEDERE_SOGGETTI_DEBITORI"} per
+     * le pendenze scritte dal percorso v3-nativo — un confronto diretto su quella colonna non
+     * troverebbe mai nulla qui). Decisione del committente: match su qualsiasi co-debitore.
      */
     @Test
-    @DisplayName("GET /v2/pendenze filtra per idDebitore case-insensitive (su srcDebitoreIdentificativo)")
+    @DisplayName("GET /v2/pendenze filtra per idDebitore case-insensitive (su un SoggettoDebitore qualsiasi)")
     void findPendenzeFiltroIdDebitoreCaseInsensitive() throws Exception {
-        creaPendenza("pos-find-3", "pendenza-find-3");
-        Pendenza pendenza = pendenzaCreata("pendenza-find-3");
-        pendenza.setSrcDebitoreIdentificativo("FRRPLA90C41H501Y");
-        pendenzaRepository.save(pendenza);
+        creaPendenzaConDebitore("pos-find-3", "pendenza-find-3", "RSSMRA80A01H501U");
+        creaPendenza("pos-find-3b", "pendenza-find-3b");
 
-        mockMvc.perform(get("/v2/pendenze").queryParam("idDebitore", "frrpla90c41h501y"))
+        mockMvc.perform(get("/v2/pendenze").queryParam("idDebitore", "rssmra80a01h501u"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.numRisultati").value(1))
                 .andExpect(jsonPath("$.risultati[0].idPendenza").value("pendenza-find-3"));
@@ -295,6 +294,74 @@ class FindPendenzeV2ControllerTest {
         mockMvc.perform(get("/v2/pendenze").queryParam("idDebitore", "ALTRO-DEBITORE"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.numRisultati").value(0));
+    }
+
+    /**
+     * Decisione del committente: {@code idDebitore} matcha QUALSIASI debitore "in solido" della
+     * posizione, non solo il soggetto pagatore (ordine 0).
+     */
+    @Test
+    @DisplayName("GET /v2/pendenze filtra per idDebitore anche su un co-debitore (non il pagatore principale)")
+    void findPendenzeFiltroIdDebitoreCoDebitore() throws Exception {
+        String body = """
+                {
+                  "codDocumento": "pos-find-codebitore",
+                  "idDominio": "12345678902",
+                  "descrizione": "test findPendenze v2 co-debitore",
+                  "soggettiDebitori": [
+                    { "tipo": "F", "identificativo": "FRRPLA90C41H501Y", "anagrafica": "Mario Rossi" },
+                    { "tipo": "F", "identificativo": "RSSMRA80A01H501U", "anagrafica": "Anna Rossi" }
+                  ],
+                  "opzioniPagamento": [ {
+                    "tipologia": "SOLUZIONE_UNICA",
+                    "pendenze": [ {
+                      "idPendenza": "pendenza-find-codebitore",
+                      "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                      "importo": 16.00,
+                      "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-codebitore",
+                                  "importo": 16.00, "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
+                    } ]
+                  } ]
+                }
+                """;
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}", PRINCIPAL)
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(get("/v2/pendenze").queryParam("idDebitore", "rssmra80a01h501u"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.numRisultati").value(1))
+                .andExpect(jsonPath("$.risultati[0].idPendenza").value("pendenza-find-codebitore"));
+    }
+
+    /**
+     * Replica il filtro legacy ({@code VersamentoFilter}, {@code mostraSpontaneiNonPagati}):
+     * esclude {@code tipo=SPONTANEO AND stato=NON_ESEGUITO} quando {@code false}/assente. Una
+     * pendenza {@code SPONTANEO} non e' creabile dal vero percorso v3 (sempre {@code DOVUTO}),
+     * ma {@code Pendenza} e' mappata sulla tabella legacy riusata in-place: simula un dato
+     * migrato mutando l'entity direttamente, stesso pattern degli altri test di questa classe
+     * (es. {@code direzione}/{@code divisione}).
+     */
+    @Test
+    @DisplayName("GET /v2/pendenze esclude di default gli spontanei non eseguiti (dati migrati)")
+    void findPendenzeMostraSpontaneiNonPagati() throws Exception {
+        creaPendenza("pos-find-spontaneo", "pendenza-find-spontaneo");
+        Pendenza pendenza = pendenzaCreata("pendenza-find-spontaneo");
+        pendenza.setTipo("SPONTANEO");
+        pendenza.setStato(StatoPendenza.NON_ESEGUITO);
+        pendenzaRepository.save(pendenza);
+
+        mockMvc.perform(get("/v2/pendenze"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.numRisultati").value(0));
+        mockMvc.perform(get("/v2/pendenze").queryParam("mostraSpontaneiNonPagati", "false"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.numRisultati").value(0));
+        mockMvc.perform(get("/v2/pendenze").queryParam("mostraSpontaneiNonPagati", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.numRisultati").value(1))
+                .andExpect(jsonPath("$.risultati[0].idPendenza").value("pendenza-find-spontaneo"));
     }
 
     @Test

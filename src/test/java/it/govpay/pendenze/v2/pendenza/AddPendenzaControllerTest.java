@@ -43,12 +43,14 @@ import it.govpay.common.entity.TipoTributoEntity;
 import it.govpay.common.entity.TipoVersamentoDominioEntity;
 import it.govpay.common.entity.TipoVersamentoEntity;
 import it.govpay.common.entity.TributoEntity;
+import it.govpay.common.entity.UnitaOperativaEntity;
 import it.govpay.common.repository.ApplicazioneRepository;
 import it.govpay.common.repository.DominioRepository;
 import it.govpay.common.repository.TipoTributoRepository;
 import it.govpay.common.repository.TipoVersamentoDominioRepository;
 import it.govpay.common.repository.TipoVersamentoRepository;
 import it.govpay.common.repository.TributoRepository;
+import it.govpay.common.repository.UnitaOperativaRepository;
 import it.govpay.pendenze.entity.OpzionePagamento;
 import it.govpay.pendenze.entity.Pendenza;
 import it.govpay.pendenze.entity.PosizioneDebitoria;
@@ -150,6 +152,9 @@ class AddPendenzaControllerTest {
 
     @Autowired
     private TributoRepository tributoRepository;
+
+    @Autowired
+    private UnitaOperativaRepository unitaOperativaRepository;
 
     @Autowired
     private PosizioneDebitoriaRepository posizioneDebitoriaRepository;
@@ -259,6 +264,7 @@ class AddPendenzaControllerTest {
         allegatoRepository.deleteAll();
         rptRepository.deleteAll();
         posizioneDebitoriaRepository.deleteAll();
+        unitaOperativaRepository.deleteAll();
         tipoVersamentoDominioRepository.deleteAll();
         tipoVersamentoRepository.deleteAll();
         tributoRepository.deleteAll();
@@ -404,6 +410,145 @@ class AddPendenzaControllerTest {
     }
 
     @Test
+    @DisplayName("update con un idDominio diverso da quello originale: 400, nessun cambio di beneficiario")
+    void aggiornamentoConDominioDiversoRifiutato() throws Exception {
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-dom-1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpoBase("originale", 16.00, "voce-dom-1")))
+                .andExpect(status().isCreated());
+
+        dominioRepository.save(DominioEntity.builder()
+                .codDominio("11111111111")
+                .ragioneSociale("Comune Diverso")
+                .abilitato(true)
+                .intermediato(false)
+                .scaricaFr(false)
+                .auxDigit(1)
+                .build());
+
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-dom-1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpoBase("originale", 16.00, "voce-dom-1").replace(ID_DOMINIO, "11111111111")))
+                .andExpect(status().isBadRequest());
+
+        Pendenza pendenza = pendenzaRepository.findByIdApplicazioneAndIdPendenzaAndOpzionePagamentoIsNotNull(
+                idApplicazione, "pend-dom-1").orElseThrow();
+        org.junit.jupiter.api.Assertions.assertEquals(idDominio, pendenza.getIdDominio());
+    }
+
+    @Test
+    @DisplayName("update con un idDominio inesistente: 404, non un 200 con dominio fantasma")
+    void aggiornamentoConDominioInesistenteRifiutato() throws Exception {
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-dom-2")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpoBase("originale", 16.00, "voce-dom-2")))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-dom-2")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpoBase("originale", 16.00, "voce-dom-2").replace(ID_DOMINIO, "00000000099")))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("voce con 'datiAllegati' (v2, senza equivalente v3): 400 invece di un successo con perdita "
+            + "silenziosa del dato")
+    void voceConDatiAllegatiRifiutata() throws Exception {
+        String corpo = """
+                {
+                  "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                  "idDominio": "%s",
+                  "causale": "test datiAllegati",
+                  "soggettoPagatore": { "tipo": "F", "identificativo": "RSSMRA80A01H501U", "anagrafica": "Mario Rossi" },
+                  "importo": 10.00,
+                  "voci": [ { "idVocePendenza": "voce-datiallegati-1", "importo": 10.00, "descrizione": "test",
+                              "codEntrata": "DIRITTI_SEGRETERIA", "datiAllegati": { "qualcosa": "reale" } } ]
+                }
+                """.formatted(ID_DOMINIO);
+
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-datiallegati-1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpo))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("voce con 'contabilita.quote' popolata (v2, senza equivalente v3 — la colonna fisica e' "
+            + "gia' presa da dettaglioContabile): 400")
+    void voceConContabilitaRifiutata() throws Exception {
+        String corpo = """
+                {
+                  "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                  "idDominio": "%s",
+                  "causale": "test contabilita",
+                  "soggettoPagatore": { "tipo": "F", "identificativo": "RSSMRA80A01H501U", "anagrafica": "Mario Rossi" },
+                  "importo": 10.00,
+                  "voci": [ { "idVocePendenza": "voce-contabilita-1", "importo": 10.00, "descrizione": "test",
+                              "codEntrata": "DIRITTI_SEGRETERIA",
+                              "contabilita": { "quote": [ { "importo": 5.00 } ] } } ]
+                }
+                """.formatted(ID_DOMINIO);
+
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-contabilita-1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpo))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("update con un nuovo allegato: REPLACE non APPEND, il precedente viene rimosso")
+    void allegatiSuAggiornamentoRimpiazzanoIPrecedenti() throws Exception {
+        String conAllegato1 = corpoConAllegato("originale", "primo.pdf", "cHJpbW8=");
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-alleg-1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(conAllegato1))
+                .andExpect(status().isCreated());
+
+        Pendenza pendenza = pendenzaRepository.findByIdApplicazioneAndIdPendenzaAndOpzionePagamentoIsNotNull(
+                idApplicazione, "pend-alleg-1").orElseThrow();
+        org.junit.jupiter.api.Assertions.assertEquals(1,
+                allegatoRepository.findByIdVersamentoOrderByIdAsc(pendenza.getId()).size());
+
+        String conAllegato2 = corpoConAllegato("aggiornata", "secondo.pdf", "c2Vjb25kbw==");
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-alleg-1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(conAllegato2))
+                .andExpect(status().isOk());
+
+        var allegatiRimasti = allegatoRepository.findByIdVersamentoOrderByIdAsc(pendenza.getId());
+        org.junit.jupiter.api.Assertions.assertEquals(1, allegatiRimasti.size());
+        org.junit.jupiter.api.Assertions.assertEquals("secondo.pdf", allegatiRimasti.get(0).getNome());
+    }
+
+    private String corpoConAllegato(String causale, String nomeAllegato, String contenutoBase64) {
+        return """
+                {
+                  "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                  "idDominio": "%s",
+                  "causale": "%s",
+                  "soggettoPagatore": { "tipo": "F", "identificativo": "RSSMRA80A01H501U", "anagrafica": "Mario Rossi" },
+                  "importo": 10.00,
+                  "voci": [ { "idVocePendenza": "voce-alleg-1", "importo": 10.00, "descrizione": "test",
+                              "codEntrata": "DIRITTI_SEGRETERIA" } ],
+                  "allegati": [ { "nome": "%s", "contenuto": "%s" } ]
+                }
+                """.formatted(ID_DOMINIO, causale, nomeAllegato, contenutoBase64);
+    }
+
+    @Test
+    @DisplayName("PUT risponde 403 se l'applicazione non e' trusted e non e' autorizzata su dominio/tipoVersamento")
+    void putNonAutorizzataRispondeAccessoNegato() throws Exception {
+        ApplicazioneEntity applicazione = applicazioneRepository.findByCodApplicazione(PRINCIPAL).orElseThrow();
+        applicazione.setTrusted(false);
+        applicazioneRepository.save(applicazione);
+
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-403-1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpoBase("tentativo non autorizzato", 10.00, "voce-403-1")))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
     @DisplayName("stampaAvviso=true: la risposta include un pdf non vuoto")
     void stampaAvvisoTrueRestituiscePdfNonVuoto() throws Exception {
         mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}?stampaAvviso=true", PRINCIPAL, "pend-pdf-1")
@@ -443,5 +588,114 @@ class AddPendenzaControllerTest {
                 "codEntrata": "DIRITTI_SEGRETERIA" } ]
                 }
                 """.formatted(ID_DOMINIO, causale, importo, identificativo, idVocePendenza, importo);
+    }
+
+    private void salvaUnitaOperativa(String codUo) {
+        DominioEntity dominio = dominioRepository.findById(idDominio).orElseThrow();
+        UnitaOperativaEntity unitaOperativa = new UnitaOperativaEntity();
+        unitaOperativa.setCodUo(codUo);
+        unitaOperativa.setAbilitato(true);
+        unitaOperativa.setDominio(dominio);
+        unitaOperativaRepository.save(unitaOperativa);
+    }
+
+    private String corpoConUnitaOperativa(String causale, double importo, String idVocePendenza,
+            String idUnitaOperativa) {
+        return """
+                {
+                  "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                  "idDominio": "%s",
+                  "idUnitaOperativa": "%s",
+                  "causale": "%s",
+                  "soggettoPagatore": { "tipo": "F", "identificativo": "RSSMRA80A01H501U", "anagrafica": "Mario Rossi" },
+                  "importo": %s,
+                  "voci": [ { "idVocePendenza": "%s", "importo": %s, "descrizione": "test", \
+                "codEntrata": "DIRITTI_SEGRETERIA" } ]
+                }
+                """.formatted(ID_DOMINIO, idUnitaOperativa, causale, importo, idVocePendenza, importo);
+    }
+
+    @Test
+    @DisplayName("update che omette 'idUnitaOperativa' su una pendenza associata a EC: 200, non un 400 per un "
+            + "falso cambio di beneficiario (il legacy interpreta l'omissione come EC)")
+    void aggiornamentoSenzaUnitaOperativaSuPendenzaEcNonRifiutato() throws Exception {
+        salvaUnitaOperativa("EC");
+
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-ec-1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpoConUnitaOperativa("originale", 16.00, "voce-ec-1", "EC")))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-ec-1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpoBase("aggiornata", 20.00, "voce-ec-1")))
+                .andExpect(status().isOk());
+
+        Pendenza pendenza = pendenzaRepository.findByIdApplicazioneAndIdPendenzaAndOpzionePagamentoIsNotNull(
+                idApplicazione, "pend-ec-1").orElseThrow();
+        org.junit.jupiter.api.Assertions.assertEquals(20.00, pendenza.getImporto());
+    }
+
+    @Test
+    @DisplayName("update che cambia davvero l'unita' operativa (non EC): 400, il rifiuto resta")
+    void aggiornamentoConUnitaOperativaDiversaRifiutato() throws Exception {
+        salvaUnitaOperativa("UO1");
+        salvaUnitaOperativa("UO2");
+
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-uo-1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpoConUnitaOperativa("originale", 16.00, "voce-uo-1", "UO1")))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-uo-1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpoConUnitaOperativa("tentativo", 16.00, "voce-uo-1", "UO2")))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("voce con 'contabilita.quote' esplicitamente null: trattata come assente (201), non una "
+            + "NullPointerException/500")
+    void voceConContabilitaQuoteNullNonLanciaNpe() throws Exception {
+        String corpo = """
+                {
+                  "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                  "idDominio": "%s",
+                  "causale": "test contabilita.quote null",
+                  "soggettoPagatore": { "tipo": "F", "identificativo": "RSSMRA80A01H501U", "anagrafica": "Mario Rossi" },
+                  "importo": 10.00,
+                  "voci": [ { "idVocePendenza": "voce-contabilita-null-1", "importo": 10.00, "descrizione": "test",
+                              "codEntrata": "DIRITTI_SEGRETERIA",
+                              "contabilita": { "quote": null } } ]
+                }
+                """.formatted(ID_DOMINIO);
+
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-contabilita-null-1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpo))
+                .andExpect(status().isCreated());
+    }
+
+    @Test
+    @DisplayName("voce con 'metadata.mapEntries' esplicitamente null: trattata come assente (201), non una "
+            + "NullPointerException/500")
+    void voceConMetadataMapEntriesNullNonLanciaNpe() throws Exception {
+        String corpo = """
+                {
+                  "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                  "idDominio": "%s",
+                  "causale": "test metadata.mapEntries null",
+                  "soggettoPagatore": { "tipo": "F", "identificativo": "RSSMRA80A01H501U", "anagrafica": "Mario Rossi" },
+                  "importo": 10.00,
+                  "voci": [ { "idVocePendenza": "voce-metadata-null-1", "importo": 10.00, "descrizione": "test",
+                              "codEntrata": "DIRITTI_SEGRETERIA",
+                              "metadata": { "mapEntries": null } } ]
+                }
+                """.formatted(ID_DOMINIO);
+
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-metadata-null-1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpo))
+                .andExpect(status().isCreated());
     }
 }

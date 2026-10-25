@@ -164,13 +164,16 @@ public class PendenzaV2Controller implements PendenzeApi {
      * il valore eventualmente passato come query param — stesso comportamento del legacy
      * ("filtro sull'applicazione e' ignorato, un'applicazione vede solo le sue pendenze").</p>
      *
-     * <p><b>{@code idPendenza}/{@code idPagamento}/{@code mostraSpontaneiNonPagati}/
-     * {@code maxRisultati} sono accettati ma non cablati a nessun filtro</b> — stessa
-     * disconnessione (bug) del legacy: {@code idPendenza}/{@code idPagamento} non sono mai
-     * passati al filtro SQL reale nel legacy nonostante siano dichiarati;
-     * {@code mostraSpontaneiNonPagati} e' un no-op qui perche' {@code Pendenza.tipo} e' sempre
-     * {@code DOVUTO} in questa libreria (mai {@code SPONTANEO}); {@code maxRisultati} (conteggio
-     * "capped") non ha equivalente v3-nativo, il conteggio quando richiesto e' sempre esatto.</p>
+     * <p><b>{@code idPendenza}/{@code idPagamento}/{@code maxRisultati} sono accettati ma non
+     * cablati a nessun filtro</b> — stessa disconnessione (bug) del legacy:
+     * {@code idPendenza}/{@code idPagamento} non sono mai passati al filtro SQL reale nel
+     * legacy nonostante siano dichiarati; {@code maxRisultati} (conteggio "capped") non ha
+     * equivalente v3-nativo, il conteggio quando richiesto e' sempre esatto.
+     * {@code mostraSpontaneiNonPagati} INVECE non e' un no-op (anche se le pendenze scritte dal
+     * percorso v3-nativo/wrapper hanno sempre {@code tipo=DOVUTO}): {@code Pendenza} e' mappata
+     * sulla tabella legacy {@code versamenti} RIUSATA in-place (M17), righe storiche con
+     * {@code tipo=SPONTANEO} restano visibili attraverso questa stessa entity — vedi Javadoc di
+     * {@link FiltriPendenze#escludiSpontaneiNonEseguiti}.</p>
      *
      * <p>Vedi Javadoc di {@link #traduciStato} per la traduzione di {@code stato} (il punto piu'
      * delicato, asimmetrie comprese) e di {@link #parseOrdinamento} per il formato di
@@ -201,7 +204,8 @@ public class PendenzaV2Controller implements PendenzeApi {
         FiltroStato filtroStato = traduciStato(stato);
         FiltriPendenze filtri = new FiltriPendenze(idDominioRisolto, idDebitore, direzione, divisione, dataDa,
                 dataA, filtroStato.statoVersamento(), filtroStato.statoVersamentoAlternativo(),
-                filtroStato.statoPagamento(), filtroStato.scaduta());
+                filtroStato.statoPagamento(), filtroStato.scaduta(),
+                !Boolean.TRUE.equals(mostraSpontaneiNonPagati));
 
         Sort sort = parseOrdinamento(ordinamento);
         Pageable pageable = OffsetPageRequest.of((long) (paginaEffettiva - 1) * limiteEffettivo, limiteEffettivo,
@@ -629,12 +633,14 @@ public class PendenzaV2Controller implements PendenzeApi {
         if (creata) {
             pendenzaFinale = nuovaPendenzaMapper.crea(idA2A, idPendenza, nuovaPendenza, applicazione);
         } else {
+            PosizioneDebitoria posizioneEsistente = esistente.get().getOpzionePagamento().getPosizioneDebitoria();
+            nuovaPendenzaMapper.validaBeneficiarioInvariato(nuovaPendenza, posizioneEsistente);
             AggiornamentoPendenza comando = nuovaPendenzaMapper.toAggiornamentoPendenza(idPendenza, nuovaPendenza,
-                    esistente.get().getIdDominio(), applicazione);
+                    posizioneEsistente.getIdDominio(), applicazione);
             pendenzaFinale = posizioneDebitoriaService.aggiornaPendenza(idA2A, idPendenza, comando);
         }
         nuovaPendenzaMapper.applicaCampiLegacy(pendenzaFinale, nuovaPendenza);
-        salvaAllegati(pendenzaFinale, nuovaPendenza.getAllegati());
+        salvaAllegati(pendenzaFinale, nuovaPendenza.getAllegati(), !creata);
 
         PendenzaCreata risposta = new PendenzaCreata(nuovaPendenza.getIdDominio(), pendenzaFinale.getNumeroAvviso());
         // UUID: deliberatamente sempre null (decisione di progetto) -- popolato solo da
@@ -701,6 +707,8 @@ public class PendenzaV2Controller implements PendenzeApi {
                 .findByIdApplicazioneAndIdPendenzaAndOpzionePagamentoIsNotNull(applicazione.getId(), idPendenza)
                 .orElseThrow(() -> new RisorsaNonTrovataException("nessuna pendenza con idPendenza [" + idPendenza
                         + "] per idA2A [" + idA2A + "]"));
+        nuovaPendenzaMapper.verificaAutorizzazioneDominioETipoVersamento(applicazione, pendenza.getIdDominio(),
+                pendenza.getIdTipoVersamento());
 
         for (PatchOp op : patchOp) {
             applicaPatch(idA2A, pendenza, op);
@@ -834,13 +842,17 @@ public class PendenzaV2Controller implements PendenzeApi {
     /**
      * Persiste nome/tipo/descrizione/dataCreazione di ogni allegato ({@code AllegatoEntity},
      * vedi il suo Javadoc per il perche' {@code contenuto} non viene scritto: gap noto, non
-     * un'omissione). <b>Semantica di aggiornamento non verificata contro il legacy</b>: qui
-     * gli allegati dichiarati in una PUT di aggiornamento vengono sempre AGGIUNTI, mai usati
-     * per rimpiazzare quelli gia' presenti — scelta conservativa (non distrugge mai dati
-     * esistenti) in assenza di una verifica puntuale del comportamento esatto del legacy su
-     * questo punto, segnalata come punto aperto nel report finale.
+     * un'omissione). <b>Su un aggiornamento (non una creazione), REPLACE non APPEND</b>: gli
+     * allegati gia' presenti vengono cancellati prima di inserire quelli della richiesta
+     * corrente (anche se vuota/assente — svuota gli allegati esistenti), stessa semantica del
+     * legacy ({@code VersamentiBD#updateVersamento}, righe 494-516: cancella tutti gli allegati
+     * del versamento, poi reinserisce quelli del body). In creazione non c'e' nulla da
+     * cancellare, il parametro e' ignorato in pratica.
      */
-    private void salvaAllegati(Pendenza pendenza, List<NuovoAllegatoPendenza> allegati) {
+    private void salvaAllegati(Pendenza pendenza, List<NuovoAllegatoPendenza> allegati, boolean aggiornamento) {
+        if (aggiornamento) {
+            allegatoRepository.deleteByIdVersamento(pendenza.getId());
+        }
         if (allegati == null || allegati.isEmpty()) {
             return;
         }

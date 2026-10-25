@@ -45,14 +45,19 @@ import it.govpay.pendenze.entity.VocePendenza;
 import it.govpay.pendenze.exception.ValidazioneNonSuperataException;
 import it.govpay.pendenze.model.TipologiaOpzionePagamento;
 import it.govpay.pendenze.repository.PosizioneDebitoriaRepository;
+import it.govpay.pendenze.security.UtenzaDominioEntity;
+import it.govpay.pendenze.security.UtenzaDominioRepository;
 import it.govpay.pendenze.security.UtenzaEntity;
 import it.govpay.pendenze.security.UtenzaRepository;
 import it.govpay.pendenze.security.UtenzaTipoVersamentoRepository;
 import it.govpay.pendenze.service.PosizioneDebitoriaService;
+import it.govpay.pendenze.v2.api.model.Contabilita;
+import it.govpay.pendenze.v2.api.model.Metadata;
 import it.govpay.pendenze.v2.api.model.NuovaPendenza;
 import it.govpay.pendenze.v2.api.model.NuovaVocePendenza;
 import it.govpay.pendenze.v2.api.model.NuovoDocumento;
 import it.govpay.pendenze.v2.api.model.Soggetto;
+import it.govpay.pendenze.web.AccessoNegatoException;
 import it.govpay.pendenze.web.AnagraficaNonTrovataException;
 
 /**
@@ -90,6 +95,13 @@ import it.govpay.pendenze.web.AnagraficaNonTrovataException;
 @Component
 public class NuovaPendenzaMapper {
 
+    /**
+     * Stesso significato gia' usato per nascondere l'UO nelle risposte ({@code PendenzaV2Mapper
+     * #risolviUnitaOperativaDto}): "EC" e' l'ente creditore stesso, non una vera unita'
+     * operativa.
+     */
+    private static final String COD_UNITA_OPERATIVA_EC = "EC";
+
     private final ApplicazioneRepository applicazioneRepository;
     private final DominioRepository dominioRepository;
     private final UnitaOperativaRepository unitaOperativaRepository;
@@ -99,6 +111,7 @@ public class NuovaPendenzaMapper {
     private final IbanAccreditoRepository ibanAccreditoRepository;
     private final UtenzaRepository utenzaRepository;
     private final UtenzaTipoVersamentoRepository utenzaTipoVersamentoRepository;
+    private final UtenzaDominioRepository utenzaDominioRepository;
     private final PosizioneDebitoriaRepository posizioneDebitoriaRepository;
     private final PosizioneDebitoriaService posizioneDebitoriaService;
     private final Clock clock;
@@ -115,6 +128,7 @@ public class NuovaPendenzaMapper {
             TipoTributoRepository tipoTributoRepository, TributoRepository tributoRepository,
             IbanAccreditoRepository ibanAccreditoRepository, UtenzaRepository utenzaRepository,
             UtenzaTipoVersamentoRepository utenzaTipoVersamentoRepository,
+            UtenzaDominioRepository utenzaDominioRepository,
             PosizioneDebitoriaRepository posizioneDebitoriaRepository,
             PosizioneDebitoriaService posizioneDebitoriaService, Clock clock) {
         this.applicazioneRepository = applicazioneRepository;
@@ -126,6 +140,7 @@ public class NuovaPendenzaMapper {
         this.ibanAccreditoRepository = ibanAccreditoRepository;
         this.utenzaRepository = utenzaRepository;
         this.utenzaTipoVersamentoRepository = utenzaTipoVersamentoRepository;
+        this.utenzaDominioRepository = utenzaDominioRepository;
         this.posizioneDebitoriaRepository = posizioneDebitoriaRepository;
         this.posizioneDebitoriaService = posizioneDebitoriaService;
         this.clock = clock;
@@ -179,23 +194,57 @@ public class NuovaPendenzaMapper {
         return tvd;
     }
 
-    private void verificaAutorizzazioneTipoVersamento(ApplicazioneEntity applicazione,
-            TipoVersamentoDominioEntity tipoVersamentoDominio) {
+    /**
+     * Verifica dominio E tipo versamento insieme — replica {@code AuthorizationManager
+     * #isTipoVersamentoDominioAuthorized} del legacy ({@code PendenzeDAO#patch}, riga 591,
+     * stesso controllo anche su {@code createOrUpdate}/{@code leggiPendenza}): un'applicazione
+     * non "trusted" deve essere autorizzata SIA sul dominio SIA sul tipo versamento, altrimenti
+     * 403 ({@link AccessoNegatoException}, non 400 — il legacy lancia qui
+     * {@code NotAuthorizedException}). Unico punto usato da {@link #crea}/
+     * {@link #toAggiornamentoPendenza} (PUT) e da {@code PendenzaV2Controller#updatePendenza}
+     * (PATCH, chiamato direttamente su {@code idDominio}/{@code idTipoVersamento} della
+     * pendenza esistente, prima di qualunque operazione — stesso ordine del legacy).
+     * Un'applicazione "trusted" bypassa entrambi i controlli, stesso principio del legacy.
+     */
+    public void verificaAutorizzazioneDominioETipoVersamento(ApplicazioneEntity applicazione, Long idDominio,
+            Long idTipoVersamento) {
         if (Boolean.TRUE.equals(applicazione.getTrusted())) {
             return;
         }
         UtenzaEntity utenza = utenzaRepository.findById(applicazione.getIdUtenza())
                 .orElseThrow(() -> new IllegalStateException("applicazione [id:" + applicazione.getId()
                         + "] non ha un'utenza valida (idUtenza [" + applicazione.getIdUtenza() + "])"));
-        if (Boolean.TRUE.equals(utenza.getAutorizzazioneTipiVersStar())) {
-            return;
+        if (!Boolean.TRUE.equals(utenza.getAutorizzazioneDominiStar()) && !autorizzataSulDominio(utenza, idDominio)) {
+            throw new AccessoNegatoException("l'applicazione [" + applicazione.getCodApplicazione()
+                    + "] non e' autorizzata al dominio [id:" + idDominio + "]");
         }
-        Long idTipoVersamento = tipoVersamentoDominio.getTipoVersamento().getId();
-        if (!utenzaTipoVersamentoRepository.existsByIdUtenzaAndIdTipoVersamento(utenza.getId(), idTipoVersamento)) {
-            throw new ValidazioneNonSuperataException("l'applicazione [" + applicazione.getCodApplicazione()
-                    + "] non e' autorizzata alla gestione del tipo pendenza ["
-                    + tipoVersamentoDominio.getTipoVersamento().getCodTipoVersamento() + "]");
+        if (!Boolean.TRUE.equals(utenza.getAutorizzazioneTipiVersStar())
+                && !utenzaTipoVersamentoRepository.existsByIdUtenzaAndIdTipoVersamento(utenza.getId(),
+                        idTipoVersamento)) {
+            throw new AccessoNegatoException("l'applicazione [" + applicazione.getCodApplicazione()
+                    + "] non e' autorizzata alla gestione del tipo pendenza [id:" + idTipoVersamento + "]");
         }
+    }
+
+    /**
+     * Stessa risoluzione di {@code ProfiloMapper#risolviDomini}, duplicata deliberatamente
+     * (vedi Javadoc di classe): una riga di {@code utenze_domini} ha {@code idDominio} oppure
+     * {@code idUo} (mai entrambi) — quando e' una UO il dominio autorizzato e' quello del
+     * padre.
+     */
+    private boolean autorizzataSulDominio(UtenzaEntity utenza, Long idDominio) {
+        for (UtenzaDominioEntity riga : utenzaDominioRepository.findByIdUtenza(utenza.getId())) {
+            if (idDominio.equals(riga.getIdDominio())) {
+                return true;
+            }
+            if (riga.getIdUo() != null) {
+                Optional<UnitaOperativaEntity> uo = unitaOperativaRepository.findById(riga.getIdUo());
+                if (uo.isPresent() && idDominio.equals(uo.get().getDominio().getId())) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private static String codificaIuvEffettiva(TipoVersamentoDominioEntity tvd) {
@@ -344,7 +393,7 @@ public class NuovaPendenzaMapper {
     private DatiPendenza toDatiPendenza(String idPendenza, NuovaPendenza dto, Long idDominio,
             ApplicazioneEntity applicazione) {
         TipoVersamentoDominioEntity tvd = risolviTipoVersamentoDominio(dto.getIdTipoPendenza(), idDominio);
-        verificaAutorizzazioneTipoVersamento(applicazione, tvd);
+        verificaAutorizzazioneDominioETipoVersamento(applicazione, idDominio, tvd.getTipoVersamento().getId());
         List<DatiVocePendenza> voci = toDatiVoci(dto.getVoci(), idDominio);
         return new DatiPendenza(idPendenza, tvd.getId(), tvd.getTipoVersamento().getId(), codificaIuvEffettiva(tvd),
                 dto.getImporto(), dto.getNumeroAvviso(), null, aInizioGiorno(dto.getDataValidita()),
@@ -367,7 +416,8 @@ public class NuovaPendenzaMapper {
      * davvero la modifica. <b>{@code documento}/{@code soggettoPagatore} del body non sono
      * letti qui</b>: deviazione consapevole dal legacy (vedi Javadoc di classe) — se il
      * chiamante li dichiara diversi dall'originale, sono semplicemente ignorati, non un
-     * errore.
+     * errore. <b>{@code idDominio}/{@code idUnitaOperativa} invece NON sono ignorati</b>: vedi
+     * {@link #validaBeneficiarioInvariato}, da chiamare dal controller PRIMA di questo metodo.
      */
     public AggiornamentoPendenza toAggiornamentoPendenza(String idPendenza, NuovaPendenza dto, Long idDominio,
             ApplicazioneEntity applicazione) {
@@ -375,11 +425,56 @@ public class NuovaPendenzaMapper {
             throw new ValidazioneNonSuperataException("'voci' deve contenere almeno un elemento");
         }
         TipoVersamentoDominioEntity tvd = risolviTipoVersamentoDominio(dto.getIdTipoPendenza(), idDominio);
-        verificaAutorizzazioneTipoVersamento(applicazione, tvd);
+        verificaAutorizzazioneDominioETipoVersamento(applicazione, idDominio, tvd.getTipoVersamento().getId());
         List<DatiVocePendenza> voci = toDatiVoci(dto.getVoci(), idDominio);
         return new AggiornamentoPendenza(idPendenza, tvd.getId(), tvd.getTipoVersamento().getId(),
                 codificaIuvEffettiva(tvd), dto.getImporto(), dto.getNumeroAvviso(),
                 aInizioGiorno(dto.getDataValidita()), aInizioGiorno(dto.getDataScadenza()), voci);
+    }
+
+    /**
+     * Rifiuta un aggiornamento che proverebbe a cambiare il beneficiario (dominio + unita'
+     * operativa) di una pendenza esistente — stessa validazione del legacy
+     * ({@code VersamentoUtils#validazioneSemanticaAggiornamento}, righe 167-172: confronto su
+     * {@code idUo}, che implica il dominio — un'unita' operativa appartiene a un solo dominio —
+     * {@code GovPayException(VER_004)}). A differenza della decisione sul Javadoc di classe
+     * ({@code documento}/{@code soggettoPagatore} ignorati): qui non si tratta di un campo
+     * ridondante ignorabile, ma del contenitore ({@link PosizioneDebitoria}) a cui la pendenza
+     * appartiene — cambiarlo silenziosamente (o peggio, ignorarlo lasciando la risposta
+     * riferita al valore richiesto invece che a quello reale) produce una risposta incoerente.
+     * Va chiamato dal controller PRIMA di {@link #toAggiornamentoPendenza}, con la
+     * {@link PosizioneDebitoria} della pendenza esistente (non quella — eventualmente
+     * inesistente o diversa — dichiarata nel body).
+     */
+    public void validaBeneficiarioInvariato(NuovaPendenza dto, PosizioneDebitoria posizioneEsistente) {
+        Long idDominioRichiesto = risolviIdDominioAbilitato(dto.getIdDominio());
+        if (!idDominioRichiesto.equals(posizioneEsistente.getIdDominio())) {
+            throw new ValidazioneNonSuperataException("non e' consentito modificare il dominio di una pendenza "
+                    + "esistente (richiesto [" + dto.getIdDominio() + "], originale [id:"
+                    + posizioneEsistente.getIdDominio() + "])");
+        }
+        Long idUnitaOperativaRichiesta = risolviIdUnitaOperativa(idDominioRichiesto, dto.getIdUnitaOperativa());
+        if (!Objects.equals(normalizzaUnitaOperativaEc(idUnitaOperativaRichiesta),
+                normalizzaUnitaOperativaEc(posizioneEsistente.getIdUnitaOperativa()))) {
+            throw new ValidazioneNonSuperataException("non e' consentito modificare l'unita' operativa di una "
+                    + "pendenza esistente");
+        }
+    }
+
+    /**
+     * {@code null} e l'id della UO "EC" sono equivalenti per questo confronto: il legacy
+     * interpreta l'omissione di {@code idUnitaOperativa} come EC (l'ente creditore stesso), e
+     * questo wrapper la nasconde comunque nelle risposte ({@code PendenzaV2Mapper
+     * #risolviUnitaOperativaDto}) — un aggiornamento che omette il campo su una pendenza gia'
+     * associata a EC non e' un cambio di beneficiario, va ammesso.
+     */
+    private Long normalizzaUnitaOperativaEc(Long idUnitaOperativa) {
+        if (idUnitaOperativa == null) {
+            return null;
+        }
+        boolean ec = unitaOperativaRepository.findById(idUnitaOperativa).map(UnitaOperativaEntity::getCodUo)
+                .map(COD_UNITA_OPERATIVA_EC::equals).orElse(false);
+        return ec ? null : idUnitaOperativa;
     }
 
     // ── Voci (comuni a creazione e aggiornamento) ───────────────────────────────────────
@@ -407,6 +502,7 @@ public class NuovaPendenzaMapper {
      * lista), per evitare un 500 non gestito al posto di un 400 controllato.
      */
     private DatiVocePendenza toDatiVocePendenza(NuovaVocePendenza v, Long idDominioPosizione) {
+        verificaCampiVoceSenzaEquivalenteV3(v);
         Long idDominioEffettivo = v.getIdDominio() != null ? risolviIdDominioAbilitato(v.getIdDominio())
                 : idDominioPosizione;
         Long idTributo = null;
@@ -435,10 +531,35 @@ public class NuovaPendenzaMapper {
         return new DatiVocePendenza(v.getIdVocePendenza(), v.getImporto(), v.getDescrizione(), idDominioEffettivo,
                 idTributo, idIbanAccredito, idIbanAppoggio, null, tipoBollo, hashDocumento, provinciaResidenza,
                 List.of());
-        // NOTA: v.getDatiAllegati()/v.getContabilita()/v.getMetadata() (v2) non hanno alcun
-        // campo equivalente in DatiVocePendenza/VocePendenza (v3): gap noto, nessuna colonna
-        // li riceve (concetti non sovrapponibili a VocePendenza.dettaglioContabile, che e' una
-        // struttura tipizzata diversa, specifica di v3).
+    }
+
+    /**
+     * {@code voci[].datiAllegati}/{@code contabilita}/{@code metadata} (v2) non hanno alcun
+     * campo equivalente in {@code DatiVocePendenza}/{@code VocePendenza} (v3) —
+     * {@code VocePendenza.dettaglioContabile} mappa la STESSA colonna fisica
+     * {@code contabilita} ma per un concetto diverso e tipizzato (riconciliazione pagoPA
+     * v3-nativa, non il JSON libero v2): non e' nemmeno disponibile come passthrough, a
+     * differenza di {@code Pendenza.datiAllegati}/{@code proprieta} (livello pendenza, non
+     * voce). Decisione del committente: una richiesta che popola uno di questi campi con dati
+     * reali va rifiutata esplicitamente (400) — non accettata con successo e perduta
+     * silenziosamente.
+     */
+    private void verificaCampiVoceSenzaEquivalenteV3(NuovaVocePendenza v) {
+        if (v.getDatiAllegati() != null) {
+            throw new ValidazioneNonSuperataException("la voce [" + v.getIdVocePendenza() + "] indica "
+                    + "'datiAllegati': nessun campo equivalente in questo modello v3, non puo' essere persistito");
+        }
+        Contabilita contabilita = v.getContabilita();
+        if (contabilita != null && ((contabilita.getQuote() != null && !contabilita.getQuote().isEmpty())
+                || contabilita.getProprietaCustom() != null)) {
+            throw new ValidazioneNonSuperataException("la voce [" + v.getIdVocePendenza() + "] indica "
+                    + "'contabilita': nessun campo equivalente in questo modello v3, non puo' essere persistito");
+        }
+        Metadata metadata = v.getMetadata();
+        if (metadata != null && metadata.getMapEntries() != null && !metadata.getMapEntries().isEmpty()) {
+            throw new ValidazioneNonSuperataException("la voce [" + v.getIdVocePendenza() + "] indica "
+                    + "'metadata': nessun campo equivalente in questo modello v3, non puo' essere persistito");
+        }
     }
 
     // ── Campi "solo legacy" senza comando dedicato: diretti sull'entity gestita ─────────

@@ -357,9 +357,12 @@ class FindRppControllerTest {
             + "srcDebitoreIdentificativo)")
     void filtraPerIdPendenzaEIdDebitore() throws Exception {
         Pendenza p1 = creaPendenza("pos-find-rpp-pend-1", "pend-find-rpp-pend-1");
-        Pendenza p2 = creaPendenza("pos-find-rpp-pend-2", "pend-find-rpp-pend-2");
-        p2.setSrcDebitoreIdentificativo("RSSMRA80A01H501U");
-        pendenzaRepository.save(p2);
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}", PRINCIPAL)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(corpoPosizioneConDebitore("pos-find-rpp-pend-2", "pend-find-rpp-pend-2",
+                                "RSSMRA80A01H501U")))
+                .andExpect(status().isCreated());
+        Pendenza p2 = trovaPendenza(PRINCIPAL, "pend-find-rpp-pend-2");
         creaRpt(p1, DOMINIO, "IUV700000001", "CCP700000001", T0, T0, 0);
         creaRpt(p2, DOMINIO, "IUV700000002", "CCP700000002", T0, T0, 0);
 
@@ -480,12 +483,16 @@ class FindRppControllerTest {
     }
 
     private static String corpoPosizione(String codDocumento, String idPendenza) {
+        return corpoPosizioneConDebitore(codDocumento, idPendenza, "FRRPLA90C41H501Y");
+    }
+
+    private static String corpoPosizioneConDebitore(String codDocumento, String idPendenza, String idDebitore) {
         return """
                 {
                   "codDocumento": "%s",
                   "idDominio": "%s",
                   "descrizione": "test wrapper v2 find rpp",
-                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y",
+                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "%s",
                                            "anagrafica": "Mario Rossi" } ],
                   "opzioniPagamento": [ {
                     "tipologia": "SOLUZIONE_UNICA",
@@ -498,7 +505,7 @@ class FindRppControllerTest {
                     } ]
                   } ]
                 }
-                """.formatted(codDocumento, DOMINIO, idPendenza, idPendenza);
+                """.formatted(codDocumento, DOMINIO, idDebitore, idPendenza, idPendenza);
     }
 
     private Pendenza creaPendenza(String codDocumento, String idPendenza) throws Exception {
