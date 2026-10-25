@@ -6,16 +6,23 @@ import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.core.io.Resource;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.util.UriComponentsBuilder;
 
@@ -25,6 +32,7 @@ import it.govpay.common.metrics.ExternalCallMetricsRecorder;
 import it.govpay.common.repository.ApplicazioneRepository;
 import it.govpay.common.repository.DominioRepository;
 import it.govpay.pendenze.avviso.AvvisoAnagraficaAssenteException;
+import it.govpay.pendenze.avviso.AvvisoDocumentoNonDisponibileException;
 import it.govpay.pendenze.avviso.AvvisoMbtException;
 import it.govpay.pendenze.avviso.AvvisoPdfPayloadMapper;
 import it.govpay.pendenze.avviso.StampeClient;
@@ -35,16 +43,20 @@ import it.govpay.pendenze.criteri.PaginaRisultati;
 import it.govpay.pendenze.criteri.PaginaSenzaConteggio;
 import it.govpay.pendenze.entity.OpzionePagamento;
 import it.govpay.pendenze.entity.Pendenza;
+import it.govpay.pendenze.entity.PosizioneDebitoria;
 import it.govpay.pendenze.entity.Rpt;
 import it.govpay.pendenze.exception.RicercaNonUnivocaException;
 import it.govpay.pendenze.exception.RisorsaNonTrovataException;
 import it.govpay.pendenze.exception.TransizioneStatoNonAmmessaException;
 import it.govpay.pendenze.exception.ValidazioneNonSuperataException;
+import it.govpay.pendenze.model.TipologiaOpzionePagamento;
 import it.govpay.pendenze.repository.PendenzaRepository;
+import it.govpay.pendenze.repository.PosizioneDebitoriaRepository;
 import it.govpay.pendenze.repository.RptRepository;
 import it.govpay.pendenze.security.AclAuthorizer;
 import it.govpay.pendenze.security.CurrentApplicazioneService;
 import it.govpay.pendenze.service.PosizioneDebitoriaService;
+import it.govpay.pendenze.v2.api.model.LinguaSecondaria;
 import it.govpay.pendenze.v2.api.model.NuovaPendenza;
 import it.govpay.pendenze.v2.api.model.NuovoAllegatoPendenza;
 import it.govpay.pendenze.v2.api.model.PatchOp;
@@ -55,6 +67,7 @@ import it.govpay.pendenze.v2.api.model.RppIndex;
 import it.govpay.pendenze.v2.api.model.StatoPendenza;
 import it.govpay.pendenze.v2.api.rest.PendenzeApi;
 import it.govpay.pendenze.v2.ricevuta.RppMapper;
+import it.govpay.pendenze.web.NotAcceptableMediaTypeException;
 import it.govpay.pendenze.web.SelezioneCampi;
 import it.govpay.stampe.client.model.PaymentNotice;
 import jakarta.servlet.http.HttpServletRequest;
@@ -62,7 +75,8 @@ import tools.jackson.databind.ObjectMapper;
 
 /**
  * Implementa {@link PendenzeApi}: per ora {@link #findPendenze}/{@link #getPendenza}/
- * {@link #getPendenzaByAvviso}, le altre operazioni restano sul default generato (501) fino
+ * {@link #getPendenzaByAvviso}/{@link #addPendenza}/{@link #updatePendenza}/
+ * {@link #getAvvisiDocumento}, le altre operazioni restano sul default generato (501) fino
  * al loro sviluppo — stesso approccio incrementale di
  * {@code it.govpay.pendenze.pendenza.PendenzaController} (v3).
  *
@@ -95,6 +109,7 @@ public class PendenzaV2Controller implements PendenzeApi {
 
     private final PosizioneDebitoriaService posizioneDebitoriaService;
     private final PendenzaRepository pendenzaRepository;
+    private final PosizioneDebitoriaRepository posizioneDebitoriaRepository;
     private final DominioRepository dominioRepository;
     private final ApplicazioneRepository applicazioneRepository;
     private final RptRepository rptRepository;
@@ -111,7 +126,8 @@ public class PendenzaV2Controller implements PendenzeApi {
     private final ExternalCallMetricsRecorder externalCallMetricsRecorder;
 
     public PendenzaV2Controller(PosizioneDebitoriaService posizioneDebitoriaService,
-            PendenzaRepository pendenzaRepository, DominioRepository dominioRepository,
+            PendenzaRepository pendenzaRepository, PosizioneDebitoriaRepository posizioneDebitoriaRepository,
+            DominioRepository dominioRepository,
             ApplicazioneRepository applicazioneRepository, RptRepository rptRepository,
             AllegatoRepository allegatoRepository, PendenzaV2Mapper pendenzaV2Mapper,
             NuovaPendenzaMapper nuovaPendenzaMapper, RppMapper rppMapper,
@@ -121,6 +137,7 @@ public class PendenzaV2Controller implements PendenzeApi {
             ExternalCallMetricsRecorder externalCallMetricsRecorder) {
         this.posizioneDebitoriaService = posizioneDebitoriaService;
         this.pendenzaRepository = pendenzaRepository;
+        this.posizioneDebitoriaRepository = posizioneDebitoriaRepository;
         this.dominioRepository = dominioRepository;
         this.applicazioneRepository = applicazioneRepository;
         this.rptRepository = rptRepository;
@@ -434,6 +451,133 @@ public class PendenzaV2Controller implements PendenzeApi {
             throw new ValidazioneNonSuperataException("numeroAvviso [" + numeroAvviso + "] fornito non valido: "
                     + "prima cifra non e' [0|1|2|3]");
         }
+    }
+
+    /**
+     * Avviso PDF cumulativo di tutte le rate pagabili di un documento — porting di
+     * {@code DocumentiController.getAvvisiDocumento}/{@code AvvisiDAO.getDocumento} del legacy.
+     * Il documento e' la {@link PosizioneDebitoria} con {@code codDocumento = numeroDocumento}
+     * (nessuna traduzione) dell'applicazione AUTENTICATA: {@code idA2A} non e' nella richiesta
+     * e la ricerca e' scoped all'applicazione corrente fin dall'inizio, come nel legacy ("un'
+     * applicazione vede solo i suoi documenti") — un documento di un'altra applicazione e'
+     * semplicemente 404, non 403. Dominio o documento inesistente: 404.
+     *
+     * <p><b>{@code numeriAvviso} e' validato ma MAI applicato come filtro</b> — bug legacy
+     * replicato fedelmente (vedi memoria {@code feedback_wrapper_v2_fedelta_legacy}): il
+     * controller legacy valida ogni elemento con {@code IuvUtils.toIuv} ma non lo copia mai su
+     * {@code GetDocumentoAvvisiDTO}, quindi {@code Documento.getVersamentiPagabili} lo riceve
+     * sempre {@code null} e il PDF include sempre tutte le rate pagabili. Qui resta la stessa
+     * validazione ({@link #validaFormatoNumeroAvviso}, 400 se la prima cifra non e' un
+     * AuxDigit; le 18 cifre le valida gia' lo schema) e lo stesso mancato filtro.</p>
+     *
+     * <p><b>Content negotiation</b>: come nel legacy, solo un {@code Accept} che CONTIENE
+     * {@code application/pdf} (controllo testuale naive, stesso di {@code RppV2Controller})
+     * ottiene il PDF; qualunque altro valore — compresi {@code Accept} assente e
+     * {@code *}{@code /*} — e' un 406. {@code produces = MediaType.ALL_VALUE} sovrascrive la
+     * produces-list generata ({@code pdf}/{@code problem+json}), che altrimenti lascerebbe
+     * passare {@code problem+json}, {@code *}{@code /*} e l'Accept assente: la negoziazione di
+     * Spring da sola non riproduce il 406 legacy.</p>
+     *
+     * <p><b>Rate pagabili</b>: le pendenze {@code NON_ESEGUITO} dell'unica opzione di
+     * pagamento del documento, per {@code numeroRata} crescente (il legacy ordina anche per
+     * {@code giorniSoglia}/{@code tipoSoglia}, senza equivalente v3). Un documento con un
+     * numero di opzioni diverso da uno e' un 400 esplicito (stesso vincolo di
+     * {@link NuovaPendenzaMapper}: questo wrapper gestisce solo i documenti con un'unica
+     * opzione, quelli che crea lui stesso). Nessuna rata pagabile: 422, come il legacy
+     * ({@code UnprocessableEntityException} in {@code getBytesAvvisoDocumento}). Una sola rata
+     * MBT o con anagrafica debitore assente fa fallire l'intero avviso con lo stesso 422 di
+     * {@link #addPendenza}.</p>
+     *
+     * <p><b>Layout</b>: un'opzione {@code PIANO_RATEALE} produce sempre
+     * {@code PaymentNotice.instalments} (una rata per pendenza), anche se resta una sola rata
+     * pagabile. Un'opzione non rateale con una sola pendenza pagabile produce invece il
+     * normale avviso a rata unica ({@code full}), come il legacy per le pendenze senza
+     * {@code numeroRata} (pagina singola). Un'opzione non rateale con piu' pendenze pagabili
+     * (il legacy stamperebbe una pagina singola per ciascuna) finisce anch'essa in
+     * {@code instalments}: un unico {@code POST /standard} di govpay-stampe non produce piu'
+     * avvisi distinti e questo progetto non ha una libreria per unire PDF.</p>
+     *
+     * <p><b>{@code linguaSecondaria} diversa da {@code false}: 422</b>, comportamento
+     * definitivo di questo endpoint, non un rinvio. L'avviso bilingue di govpay-stampe
+     * richiede {@code second_language.title} (la causale tradotta) e lo schema di questo
+     * endpoint non ha un parametro {@code causaleTradotta} (a differenza di
+     * {@code GET /pendenze/{idA2A}/{idPendenza}/stampa}, v3) da cui ricavarla: un avviso
+     * bilingue con l'oggetto del pagamento non tradotto sarebbe incompleto, e non va prodotto
+     * silenziosamente in sola lingua italiana.</p>
+     *
+     * <p>Il PDF viene bufferizzato e restituito come {@link ByteArrayResource}, non scritto in
+     * streaming su {@code HttpServletResponse}: in caso di errore di govpay-stampe la risposta
+     * resta un problem+json pulito, invece di un PDF troncato con status 200 gia' inviato.
+     * Nome file come nel legacy: {@code <idDominio>_<numeroDocumento>.pdf}.</p>
+     */
+    @Override
+    @Transactional(readOnly = true)
+    @RequestMapping(method = RequestMethod.GET, value = PendenzeApi.PATH_GET_AVVISI_DOCUMENTO,
+            produces = MediaType.ALL_VALUE)
+    public ResponseEntity<Resource> getAvvisiDocumento(String idDominio, String numeroDocumento,
+            LinguaSecondaria linguaSecondaria, List<String> numeriAvviso) {
+        aclAuthorizer.richiedeLettura();
+        ApplicazioneEntity applicazioneCorrente = currentApplicazioneService.get();
+        if (numeriAvviso != null) {
+            numeriAvviso.forEach(this::validaFormatoNumeroAvviso);
+        }
+        String accept = currentRequest.getHeader(HttpHeaders.ACCEPT);
+        if (accept == null || !accept.toLowerCase(Locale.ROOT).contains(MediaType.APPLICATION_PDF_VALUE)) {
+            throw new NotAcceptableMediaTypeException("Documento di pagamento non disponibile nel formato indicato "
+                    + "nell'header Accept, ricevuto: '" + (accept == null ? "" : accept)
+                    + "', consentito: 'application/pdf'");
+        }
+
+        PosizioneDebitoria documento = dominioRepository.findByCodDominio(idDominio)
+                .flatMap(dominio -> posizioneDebitoriaRepository.findByIdApplicazioneAndIdDominioAndCodDocumento(
+                        applicazioneCorrente.getId(), dominio.getId(), numeroDocumento))
+                .orElseThrow(() -> new RisorsaNonTrovataException("nessun documento con idDominio [" + idDominio
+                        + "] e numeroDocumento [" + numeroDocumento + "]"));
+
+        if (linguaSecondaria != null && linguaSecondaria != LinguaSecondaria.FALSE) {
+            throw new AvvisoDocumentoNonDisponibileException("Avviso bilingue non disponibile per questo endpoint: "
+                    + "nessun parametro causaleTradotta nello schema, l'oggetto del pagamento non sarebbe tradotto.");
+        }
+
+        List<OpzionePagamento> opzioni = documento.getOpzioniPagamento();
+        if (opzioni.size() != 1) {
+            throw new ValidazioneNonSuperataException("il documento [" + numeroDocumento + "] ha " + opzioni.size()
+                    + " opzioni di pagamento: questo wrapper gestisce solo documenti con esattamente un'opzione "
+                    + "(quelli creati da questa stessa API)");
+        }
+        OpzionePagamento opzione = opzioni.get(0);
+        List<Pendenza> ratePagabili = opzione.getPendenze().stream()
+                .filter(p -> p.getStato() == it.govpay.pendenze.model.StatoPendenza.NON_ESEGUITO)
+                .sorted(Comparator.comparingInt(Pendenza::getNumeroRata))
+                .toList();
+        if (ratePagabili.isEmpty()) {
+            throw new AvvisoDocumentoNonDisponibileException("Non sono state trovate pendenze da includere nella "
+                    + "stampa del documento [IDA2A: " + applicazioneCorrente.getCodApplicazione() + " | CodDocumento: "
+                    + numeroDocumento + "].");
+        }
+        for (Pendenza rata : ratePagabili) {
+            if (AvvisoPdfPayloadMapper.isPendenzaMbt(rata)) {
+                throw new AvvisoMbtException(
+                        "Stampa Documento non disponibile: sono presenti dei pagamenti di Marca da Bollo");
+            }
+            if (AvvisoPdfPayloadMapper.isAnagraficaDebitoreAssente(rata)) {
+                throw new AvvisoAnagraficaAssenteException(
+                        "Avviso PDF non disponibile: anagrafica del debitore assente.");
+            }
+        }
+
+        PaymentNotice payload = opzione.getTipologia() != TipologiaOpzionePagamento.PIANO_RATEALE
+                && ratePagabili.size() == 1
+                        ? avvisoPdfPayloadMapper.toPaymentNotice(ratePagabili.get(0), null, null, null, null)
+                        : avvisoPdfPayloadMapper.toPaymentNoticeRate(ratePagabili);
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        externalCallMetricsRecorder.record("stampe", "payment_notice",
+                () -> stampeClient.streamPaymentNotice(payload, output));
+        return ResponseEntity.ok()
+                .contentType(MediaType.APPLICATION_PDF)
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        "attachment; filename=\"" + idDominio + "_" + documento.getCodDocumento() + ".pdf\"")
+                .body(new ByteArrayResource(output.toByteArray()));
     }
 
     private it.govpay.pendenze.v2.api.model.Pendenza costruisciDto(Pendenza entity) {

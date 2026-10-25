@@ -1,5 +1,8 @@
 package it.govpay.pendenze.avviso;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -18,6 +21,7 @@ import it.govpay.stampe.client.model.Amount;
 import it.govpay.stampe.client.model.Creditor;
 import it.govpay.stampe.client.model.Debtor;
 import it.govpay.stampe.client.model.Iban;
+import it.govpay.stampe.client.model.Instalment;
 import it.govpay.stampe.client.model.Languages;
 import it.govpay.stampe.client.model.NoticeMetadataSecondLanguage;
 import it.govpay.stampe.client.model.PaymentNotice;
@@ -64,12 +68,60 @@ public class AvvisoPdfPayloadMapper {
 
     public PaymentNotice toPaymentNotice(Pendenza pendenza, LinguaSecondaria linguaSecondaria,
             String causaleTradotta, String informativaImporto, String informativaImportoTradotta) {
-        DominioEntity dominio = dominioRepository.findById(pendenza.getIdDominio())
+        DominioEntity dominio = dominioDi(pendenza);
+        PaymentNotice notice = intestazione(pendenza, dominio);
+        IbanAccreditoEntity postale = ibanPostale(pendenza);
+        notice.setPostal(postale != null);
+        notice.setFull(mapFullAmount(pendenza, dominio, postale));
+        notice.setInformativaImporto(informativaImporto);
+        Languages secondaria = toClientLanguage(linguaSecondaria);
+        if (secondaria != null) {
+            notice.setSecondLanguage(buildSecondLanguage(secondaria, causaleTradotta, informativaImportoTradotta));
+        }
+        return notice;
+    }
+
+    /**
+     * Avviso cumulativo di piu' rate dello stesso documento ({@code PaymentNotice.instalments},
+     * una {@link Instalment} per pendenza, nell'ordine ricevuto; {@code full} resta
+     * {@code null}). Il chiamante passa le rate gia' filtrate e ordinate, e ha gia' verificato
+     * per ciascuna i guard {@link #isPendenzaMbt}/{@link #isAnagraficaDebitoreAssente}.
+     *
+     * <p>Creditore, debitore, oggetto del pagamento e logo vengono dalla prima rata: le rate
+     * di uno stesso documento condividono per costruzione dominio e posizione debitoria
+     * (quindi debitore e descrizione). L'IBAN postale invece si risolve per ogni rata, dalla
+     * sua prima voce, come nel caso singolo; {@code postal} segue la prima rata. Solo
+     * italiano: nessuna lingua secondaria ne' informativa importo personalizzata.</p>
+     *
+     * @param rate pendenze da includere, non vuota
+     */
+    public PaymentNotice toPaymentNoticeRate(List<Pendenza> rate) {
+        if (rate == null || rate.isEmpty()) {
+            throw new IllegalArgumentException("almeno una rata richiesta per l'avviso cumulativo");
+        }
+        Pendenza prima = rate.get(0);
+        DominioEntity dominio = dominioDi(prima);
+        PaymentNotice notice = intestazione(prima, dominio);
+        notice.setPostal(ibanPostale(prima) != null);
+        notice.setFull(null);
+        List<Instalment> instalments = new ArrayList<>(rate.size());
+        for (Pendenza rata : rate) {
+            instalments.add(mapInstalment(rata, dominio, ibanPostale(rata)));
+        }
+        notice.setInstalments(instalments);
+        return notice;
+    }
+
+    private DominioEntity dominioDi(Pendenza pendenza) {
+        return dominioRepository.findById(pendenza.getIdDominio())
                 .orElseThrow(() -> new IllegalStateException(
                         "idDominio [" + pendenza.getIdDominio() + "] della pendenza non risolve a nessun dominio "
                                 + "censito: incoerenza del dato, il vincolo di integrita' referenziale dovrebbe "
                                 + "impedirlo"));
+    }
 
+    /** Parte comune a rata unica e avviso cumulativo: lingua, creditore, debitore, oggetto, logo. */
+    private PaymentNotice intestazione(Pendenza pendenza, DominioEntity dominio) {
         PaymentNotice notice = new PaymentNotice();
         notice.setLanguage(Languages.IT);
         notice.setCreditor(mapCreditor(dominio));
@@ -79,15 +131,7 @@ public class AvvisoPdfPayloadMapper {
         // della posizione debitoria (stesso valore gia' usato per Avviso.descrizione nel ramo
         // JSON, vedi AvvisoMapper).
         notice.setTitle(descrizioneDi(pendenza));
-        IbanAccreditoEntity postale = ibanPostale(pendenza);
-        notice.setPostal(postale != null);
         notice.setFirstLogo(logoDi(dominio));
-        notice.setFull(mapFullAmount(pendenza, dominio, postale));
-        notice.setInformativaImporto(informativaImporto);
-        Languages secondaria = toClientLanguage(linguaSecondaria);
-        if (secondaria != null) {
-            notice.setSecondLanguage(buildSecondLanguage(secondaria, causaleTradotta, informativaImportoTradotta));
-        }
         return notice;
     }
 
@@ -245,6 +289,20 @@ public class AvvisoPdfPayloadMapper {
             amount.setIban(mapIban(postale));
         }
         return amount;
+    }
+
+    /** Stessi campi di {@link #mapFullAmount}, piu' {@code instalment_number} dalla rata. */
+    private static Instalment mapInstalment(Pendenza pendenza, DominioEntity dominio, IbanAccreditoEntity postale) {
+        Instalment instalment = new Instalment();
+        instalment.setAmount(pendenza.getImporto());
+        instalment.setNoticeNumber(pendenza.getNumeroAvviso());
+        instalment.setQrcode(AvvisoMapper.buildQrcode(pendenza, dominio));
+        instalment.setDueDate(AvvisoMapper.resolveDataScadenza(pendenza));
+        instalment.setInstalmentNumber(pendenza.getNumeroRata());
+        if (postale != null) {
+            instalment.setIban(mapIban(postale));
+        }
+        return instalment;
     }
 
     /**
