@@ -199,6 +199,7 @@ class PendenzaV2ControllerTest {
         utenza.setPrincipalOriginale(principal);
         utenza.setAbilitato(true);
         utenza.setAutorizzazioneTipiVersStar(false);
+        utenza.setAutorizzazioneDominiStar(false);
         utenza.setPassword(passwordEncoder.encode(password));
         utenza = utenzaRepository.save(utenza);
 

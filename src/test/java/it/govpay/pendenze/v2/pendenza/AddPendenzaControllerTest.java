@@ -1,0 +1,447 @@
+package it.govpay.pendenze.v2.pendenza;
+
+import static org.hamcrest.Matchers.blankOrNullString;
+import static org.hamcrest.Matchers.not;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import java.io.IOException;
+import java.io.OutputStream;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
+
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.boot.webmvc.test.autoconfigure.MockMvcBuilderCustomizer;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
+
+import com.sun.net.httpserver.HttpServer;
+
+import it.govpay.common.auth.GovpayPasswordEncoder;
+import it.govpay.common.entity.ApplicazioneEntity;
+import it.govpay.common.entity.DominioEntity;
+import it.govpay.common.entity.TipoTributoEntity;
+import it.govpay.common.entity.TipoVersamentoDominioEntity;
+import it.govpay.common.entity.TipoVersamentoEntity;
+import it.govpay.common.entity.TributoEntity;
+import it.govpay.common.repository.ApplicazioneRepository;
+import it.govpay.common.repository.DominioRepository;
+import it.govpay.common.repository.TipoTributoRepository;
+import it.govpay.common.repository.TipoVersamentoDominioRepository;
+import it.govpay.common.repository.TipoVersamentoRepository;
+import it.govpay.common.repository.TributoRepository;
+import it.govpay.pendenze.entity.OpzionePagamento;
+import it.govpay.pendenze.entity.Pendenza;
+import it.govpay.pendenze.entity.PosizioneDebitoria;
+import it.govpay.pendenze.model.StatoPendenza;
+import it.govpay.pendenze.model.TipologiaOpzionePagamento;
+import it.govpay.pendenze.repository.PendenzaRepository;
+import it.govpay.pendenze.repository.PosizioneDebitoriaRepository;
+import it.govpay.pendenze.repository.RptRepository;
+import it.govpay.pendenze.security.AclEntity;
+import it.govpay.pendenze.security.AclRepository;
+import it.govpay.pendenze.security.UtenzaEntity;
+import it.govpay.pendenze.security.UtenzaRepository;
+
+/**
+ * Verifica {@code PUT /v2/pendenze/{idA2A}/{idPendenza}} ({@code addPendenza}) a livello di
+ * integrazione (contesto Spring completo, DB H2 con lo schema reale) — stesso impianto di
+ * {@link PendenzaV2ControllerTest}/{@code it.govpay.pendenze.posizionedebitoria.PosizioneDebitoriaControllerTest},
+ * duplicato in una classe propria per isolare il fixture del microservizio govpay-stampe (un
+ * server HTTP embedded, vedi {@link #avviaStampeStub()}), non condiviso dagli altri test di
+ * questo package.
+ */
+@SpringBootTest
+@AutoConfigureMockMvc
+@ActiveProfiles("test")
+@Import(AddPendenzaControllerTest.BasicAuthDiDefaultConfig.class)
+class AddPendenzaControllerTest {
+
+    private static final String PRINCIPAL = "A2A-TEST";
+    private static final String PASSWORD = "test-password";
+    private static final String ID_DOMINIO = "12345678901";
+
+    @TestConfiguration
+    static class BasicAuthDiDefaultConfig {
+        @Bean
+        MockMvcBuilderCustomizer basicAuthDiDefaultCustomizer() {
+            return builder -> builder.defaultRequest(
+                    MockMvcRequestBuilders.get("/").with(httpBasic(PRINCIPAL, PASSWORD)));
+        }
+    }
+
+    /** Stub minimale (JDK {@link HttpServer}, nessuna dipendenza di test aggiuntiva) del
+     *  microservizio govpay-stampe: risponde a {@code POST /standard} con pochi byte fissi,
+     *  solo per verificare che {@code addPendenza} propaghi un {@code pdf} non vuoto quando
+     *  {@code stampaAvviso=true} — non e' un PDF valido, il contenuto esatto non e'
+     *  rilevante per questa classe di test (nessun parsing lato GovPay). */
+    private static HttpServer stampeStub;
+    private static final byte[] FINTO_PDF = "%PDF-finto-per-test".getBytes(StandardCharsets.UTF_8);
+
+    @BeforeAll
+    static void avviaStampeStub() throws IOException {
+        stampeStub = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
+        stampeStub.createContext("/standard", exchange -> {
+            exchange.getResponseHeaders().add("Content-Type", "application/pdf");
+            exchange.sendResponseHeaders(200, FINTO_PDF.length);
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(FINTO_PDF);
+            }
+        });
+        stampeStub.start();
+    }
+
+    @AfterAll
+    static void fermaStampeStub() {
+        stampeStub.stop(0);
+    }
+
+    @DynamicPropertySource
+    static void registraBaseUrlStampe(DynamicPropertyRegistry registry) {
+        registry.add("app.stampe.base-url",
+                () -> "http://localhost:" + stampeStub.getAddress().getPort());
+    }
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @Autowired
+    private ApplicazioneRepository applicazioneRepository;
+
+    @Autowired
+    private UtenzaRepository utenzaRepository;
+
+    @Autowired
+    private AclRepository aclRepository;
+
+    @Autowired
+    private GovpayPasswordEncoder passwordEncoder;
+
+    @Autowired
+    private DominioRepository dominioRepository;
+
+    @Autowired
+    private TipoVersamentoRepository tipoVersamentoRepository;
+
+    @Autowired
+    private TipoVersamentoDominioRepository tipoVersamentoDominioRepository;
+
+    @Autowired
+    private TipoTributoRepository tipoTributoRepository;
+
+    @Autowired
+    private TributoRepository tributoRepository;
+
+    @Autowired
+    private PosizioneDebitoriaRepository posizioneDebitoriaRepository;
+
+    @Autowired
+    private PendenzaRepository pendenzaRepository;
+
+    @Autowired
+    private RptRepository rptRepository;
+
+    @Autowired
+    private AllegatoRepository allegatoRepository;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
+
+    private Long idApplicazione;
+    private Long idDominio;
+
+    /**
+     * Ogni chiamata a un repository Spring Data apre e chiude la propria transazione
+     * (default di {@code SimpleJpaRepository}): l'entity restituita e' gia' "detached"
+     * quando il metodo ritorna, quindi leggere qui una collezione/proxy LAZY
+     * (es. {@code Pendenza.getOpzionePagamento()}) solleverebbe
+     * {@code LazyInitializationException}. Usato SOLO per le asserzioni di questa classe di
+     * test, mai per avvolgere la chiamata {@code mockMvc.perform(...)} stessa: avvolgere
+     * anche quella maschererebbe un eventuale bug reale di confine transazionale nel
+     * controller/mapper sotto test (stesso principio di "nessun {@code @Transactional} di
+     * classe" documentato in {@link PendenzaV2ControllerTest}).
+     */
+    private <T> T inTransazioneDiLettura(java.util.function.Supplier<T> azione) {
+        TransactionTemplate template = new TransactionTemplate(transactionManager);
+        template.setReadOnly(true);
+        return template.execute(status -> azione.get());
+    }
+
+    @BeforeEach
+    void creaAnagrafiche() {
+        UtenzaEntity utenza = new UtenzaEntity();
+        utenza.setPrincipal(PRINCIPAL);
+        utenza.setPrincipalOriginale(PRINCIPAL);
+        utenza.setAbilitato(true);
+        utenza.setAutorizzazioneTipiVersStar(false);
+        utenza.setAutorizzazioneDominiStar(false);
+        utenza.setPassword(passwordEncoder.encode(PASSWORD));
+        utenza = utenzaRepository.save(utenza);
+
+        AclEntity acl = new AclEntity();
+        acl.setServizio("API Pendenze");
+        acl.setDiritti("RW");
+        acl.setIdUtenza(utenza.getId());
+        aclRepository.save(acl);
+
+        ApplicazioneEntity applicazione = applicazioneRepository.save(ApplicazioneEntity.builder()
+                .codApplicazione(PRINCIPAL)
+                .autoIuv(true)
+                .firmaRicevuta("N")
+                .trusted(true)
+                .idUtenza(utenza.getId())
+                .build());
+        idApplicazione = applicazione.getId();
+
+        DominioEntity dominio = dominioRepository.save(DominioEntity.builder()
+                .codDominio(ID_DOMINIO)
+                .ragioneSociale("Comune di Test")
+                .abilitato(true)
+                .intermediato(false)
+                .scaricaFr(false)
+                .auxDigit(1)
+                .build());
+        idDominio = dominio.getId();
+
+        TipoVersamentoEntity tipoVersamento = new TipoVersamentoEntity();
+        tipoVersamento.setCodTipoVersamento("DIRITTI_SEGRETERIA");
+        tipoVersamento.setDescrizione("Diritti di segreteria");
+        tipoVersamento.setAbilitato(true);
+        tipoVersamento.setPagaTerzi(false);
+        tipoVersamento.setBoAbilitato(false);
+        tipoVersamento.setPagAbilitato(false);
+        tipoVersamento.setAvvMailPromAvvAbilitato(false);
+        tipoVersamento.setAvvMailPromRicAbilitato(false);
+        tipoVersamento.setAvvMailPromScadAbilitato(false);
+        tipoVersamento.setAvvAppIoPromAvvAbilitato(false);
+        tipoVersamento.setAvvAppIoPromRicAbilitato(false);
+        tipoVersamento.setAvvAppIoPromScadAbilitato(false);
+        tipoVersamentoRepository.save(tipoVersamento);
+
+        TipoTributoEntity tipoTributo = new TipoTributoEntity();
+        tipoTributo.setCodTributo("DIRITTI_SEGRETERIA");
+        tipoTributo.setDescrizione("Diritti di segreteria");
+        tipoTributoRepository.save(tipoTributo);
+
+        TipoVersamentoDominioEntity override = new TipoVersamentoDominioEntity();
+        override.setTipoVersamento(tipoVersamento);
+        override.setDominio(dominio);
+        tipoVersamentoDominioRepository.save(override);
+
+        TributoEntity tributo = new TributoEntity();
+        tributo.setAbilitato(true);
+        tributo.setDominio(dominio);
+        tributo.setTipoTributo(tipoTributo);
+        tributoRepository.save(tributo);
+    }
+
+    @AfterEach
+    void pulisci() {
+        allegatoRepository.deleteAll();
+        rptRepository.deleteAll();
+        posizioneDebitoriaRepository.deleteAll();
+        tipoVersamentoDominioRepository.deleteAll();
+        tipoVersamentoRepository.deleteAll();
+        tributoRepository.deleteAll();
+        tipoTributoRepository.deleteAll();
+        dominioRepository.deleteAll();
+        applicazioneRepository.deleteAll();
+        aclRepository.deleteAll();
+        utenzaRepository.deleteAll();
+    }
+
+    private String corpoBase(String causale, double importo, String idVocePendenza) {
+        return """
+                {
+                  "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                  "idDominio": "%s",
+                  "causale": "%s",
+                  "soggettoPagatore": { "tipo": "F", "identificativo": "RSSMRA80A01H501U", "anagrafica": "Mario Rossi" },
+                  "importo": %s,
+                  "voci": [ { "idVocePendenza": "%s", "importo": %s, "descrizione": "test", \
+                "codEntrata": "DIRITTI_SEGRETERIA" } ]
+                }
+                """.formatted(ID_DOMINIO, causale, importo, idVocePendenza, importo);
+    }
+
+    @Test
+    @DisplayName("creazione senza 'documento': sintetizza un documento e crea un'opzione SOLUZIONE_UNICA (201)")
+    void creaSenzaDocumentoSintetizzaSoluzioneUnica() throws Exception {
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-su-1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpoBase("pagamento senza documento", 16.00, "voce-su-1")))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.idDominio").value(ID_DOMINIO))
+                .andExpect(jsonPath("$.numeroAvviso").value(not(blankOrNullString())));
+
+        inTransazioneDiLettura(() -> {
+            Pendenza pendenza = pendenzaRepository.findByIdApplicazioneAndIdPendenzaAndOpzionePagamentoIsNotNull(
+                    idApplicazione, "pend-su-1").orElseThrow();
+            OpzionePagamento opzione = pendenza.getOpzionePagamento();
+            org.junit.jupiter.api.Assertions.assertEquals(TipologiaOpzionePagamento.SOLUZIONE_UNICA,
+                    opzione.getTipologia());
+            PosizioneDebitoria posizione = opzione.getPosizioneDebitoria();
+            // UUID senza trattini (32 hex), nessun prefisso "MIGR-" (riservato alla migrazione).
+            org.junit.jupiter.api.Assertions.assertEquals(32, posizione.getCodDocumento().length());
+            org.junit.jupiter.api.Assertions.assertFalse(posizione.getCodDocumento().contains("-"));
+            return null;
+        });
+    }
+
+    @Test
+    @DisplayName("creazione con documento+rata=1: crea un'opzione PIANO_RATEALE (201)")
+    void creaConDocumentoERataUnoCreaPianoRateale() throws Exception {
+        String corpo = corpoConDocumento("pagamento rateale", 10.00, "voce-pr-1", "DOC-PR-1", 1);
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-pr-1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpo))
+                .andExpect(status().isCreated());
+
+        inTransazioneDiLettura(() -> {
+            Pendenza pendenza = pendenzaRepository.findByIdApplicazioneAndIdPendenzaAndOpzionePagamentoIsNotNull(
+                    idApplicazione, "pend-pr-1").orElseThrow();
+            org.junit.jupiter.api.Assertions.assertEquals(TipologiaOpzionePagamento.PIANO_RATEALE,
+                    pendenza.getOpzionePagamento().getTipologia());
+            org.junit.jupiter.api.Assertions.assertEquals(1, pendenza.getNumeroRata());
+            org.junit.jupiter.api.Assertions.assertEquals("DOC-PR-1",
+                    pendenza.getOpzionePagamento().getPosizioneDebitoria().getCodDocumento());
+            return null;
+        });
+    }
+
+    @Test
+    @DisplayName("seconda chiamata con documento+rata=2 sullo stesso documento: si aggiunge alla stessa opzione")
+    void secondaRataSiAggiungeAllaStessaOpzione() throws Exception {
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-pr-2a")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpoConDocumento("rata 1", 10.00, "voce-pr-2a", "DOC-PR-2", 1)))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-pr-2b")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpoConDocumento("rata 2", 10.00, "voce-pr-2b", "DOC-PR-2", 2)))
+                .andExpect(status().isCreated());
+
+        inTransazioneDiLettura(() -> {
+            PosizioneDebitoria posizione = posizioneDebitoriaRepository
+                    .findByIdApplicazioneAndIdDominioAndCodDocumento(idApplicazione, idDominio, "DOC-PR-2")
+                    .orElseThrow();
+            org.junit.jupiter.api.Assertions.assertEquals(1, posizione.getOpzioniPagamento().size());
+            OpzionePagamento opzione = posizione.getOpzioniPagamento().get(0);
+            org.junit.jupiter.api.Assertions.assertEquals(2, opzione.getPendenze().size());
+            return null;
+        });
+    }
+
+    @Test
+    @DisplayName("update di una pendenza NON_ESEGUITO esistente: 200, non 201")
+    void updatePendenzaNonEseguitaRestituisce200() throws Exception {
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-upd-1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpoBase("originale", 16.00, "voce-upd-1")))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-upd-1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpoBase("aggiornata", 20.00, "voce-upd-1")))
+                .andExpect(status().isOk());
+
+        Pendenza pendenza = pendenzaRepository.findByIdApplicazioneAndIdPendenzaAndOpzionePagamentoIsNotNull(
+                idApplicazione, "pend-upd-1").orElseThrow();
+        org.junit.jupiter.api.Assertions.assertEquals(20.00, pendenza.getImporto());
+    }
+
+    @Test
+    @DisplayName("update su una pendenza gia' ESEGUITA: 409")
+    void updatePendenzaEseguitaRestituisce409() throws Exception {
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-eseg-1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpoBase("originale", 16.00, "voce-eseg-1")))
+                .andExpect(status().isCreated());
+
+        Pendenza pendenza = pendenzaRepository.findByIdApplicazioneAndIdPendenzaAndOpzionePagamentoIsNotNull(
+                idApplicazione, "pend-eseg-1").orElseThrow();
+        pendenza.setStato(StatoPendenza.ESEGUITO);
+        pendenzaRepository.save(pendenza);
+
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-eseg-1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpoBase("tentativo di aggiornamento", 20.00, "voce-eseg-1")))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    @DisplayName("mismatch di tipologia (documento SOLUZIONE_UNICA, poi chiamata con rata): 400")
+    void mismatchTipologiaRestituisce400() throws Exception {
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-mis-1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpoConDocumentoSenzaRata("prima pendenza", 10.00, "voce-mis-1", "DOC-MIS-1")))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-mis-2")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpoConDocumento("seconda pendenza con rata", 10.00, "voce-mis-2", "DOC-MIS-1", 1)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("stampaAvviso=true: la risposta include un pdf non vuoto")
+    void stampaAvvisoTrueRestituiscePdfNonVuoto() throws Exception {
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}?stampaAvviso=true", PRINCIPAL, "pend-pdf-1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpoBase("con stampa avviso", 16.00, "voce-pdf-1")))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.pdf").value(not(blankOrNullString())));
+    }
+
+    private String corpoConDocumento(String causale, double importo, String idVocePendenza, String identificativo,
+            int rata) {
+        return """
+                {
+                  "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                  "idDominio": "%s",
+                  "causale": "%s",
+                  "soggettoPagatore": { "tipo": "F", "identificativo": "RSSMRA80A01H501U", "anagrafica": "Mario Rossi" },
+                  "importo": %s,
+                  "documento": { "identificativo": "%s", "descrizione": "Documento di test", "rata": %s },
+                  "voci": [ { "idVocePendenza": "%s", "importo": %s, "descrizione": "test", \
+                "codEntrata": "DIRITTI_SEGRETERIA" } ]
+                }
+                """.formatted(ID_DOMINIO, causale, importo, identificativo, rata, idVocePendenza, importo);
+    }
+
+    private String corpoConDocumentoSenzaRata(String causale, double importo, String idVocePendenza,
+            String identificativo) {
+        return """
+                {
+                  "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                  "idDominio": "%s",
+                  "causale": "%s",
+                  "soggettoPagatore": { "tipo": "F", "identificativo": "RSSMRA80A01H501U", "anagrafica": "Mario Rossi" },
+                  "importo": %s,
+                  "documento": { "identificativo": "%s", "descrizione": "Documento di test" },
+                  "voci": [ { "idVocePendenza": "%s", "importo": %s, "descrizione": "test", \
+                "codEntrata": "DIRITTI_SEGRETERIA" } ]
+                }
+                """.formatted(ID_DOMINIO, causale, importo, identificativo, idVocePendenza, importo);
+    }
+}

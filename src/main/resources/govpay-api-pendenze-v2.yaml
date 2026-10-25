@@ -92,12 +92,17 @@ paths:
           description: Indica quando notificare l'avviso di pagamento
           required: false
           schema:
-            oneOf:
-             - type: string
-               enum: 
-                - MAI
-             - type: string
-               format: date           
+            # NOTA: era un oneOf[string enum "MAI", string format:date]. Un oneOf non
+            # discriminato di due rami entrambi 'type: string' non da' al generatore
+            # (openapi-generator / SpringCodegen) alcuna informazione utile in piu' di un
+            # semplice 'type: string': genera un'interfaccia marker vuota
+            # (AddPendenzaDataAvvisaturaParameter) senza implementazioni concrete e senza
+            # un Converter Spring registrato, quindi il binding del query param non
+            # funziona affatto out-of-the-box. Semplificato a 'string' semplice: il
+            # parsing "MAI" vs data e' fatto a mano nel mapper applicativo
+            # (it.govpay.pendenze.v2.pendenza.NuovaPendenzaMapper), che e' comunque dove
+            # andrebbe fatto anche con l'interfaccia marker.
+            type: string
       requestBody:
         content:
           application/json:
@@ -978,10 +983,15 @@ components:
     Bollo:
       description: Definisce i dati di un bollo telematico
       type: object
-      required:
-        - tipoBollo
-        - hashDocumento
-        - provinciaResidenza
+      # NOTA: 'required' rimosso deliberatamente (vedi lo stesso commento su RataDocumento/
+      # VincoloDocumento piu' sotto in questo file): e' uno dei tre rami del oneOf non
+      # discriminato TipoRiferimentoVocePendenza (RiferimentoEntrata | Entrata | Bollo). Il
+      # generatore appiattisce i tre rami in un'UNICA classe Java (NuovaVocePendenza) con
+      # tutti i campi dei tre rami, e issa ogni 'required' di branch con l'AND logico sulla
+      # classe appiattita: con tutti e tre i 'required' presenti, NESSUNA voce reale (che ha
+      # sempre e solo UNO dei tre rami) supererebbe la bean validation generata. La scelta "a
+      # tributo (RiferimentoEntrata) vs IBAN diretto (Entrata) vs bollo (Bollo)" e' quindi
+      # validata a mano nel mapper applicativo (it.govpay.pendenze.v2.pendenza.NuovaPendenzaMapper).
       properties:
         tipoBollo:
           description: Tipologia di Bollo digitale
@@ -1049,10 +1059,7 @@ components:
     Entrata:
       description: Definisce i dettagli di una entrata.
       type: object
-      required:
-        - ibanAccredito
-        - tipoContabilita
-        - codiceContabilita
+      # Vedi il commento su 'Bollo' qui sopra: stesso motivo, stesso fix.
       properties:
         ibanAccredito:
           type: string
@@ -1730,8 +1737,17 @@ components:
           example: 'articolo'
     RataDocumento:
       type: object
-      required: 
-        - rata
+      # NOTA: 'rata' NON e' dichiarato 'required' qui nonostante lo sia concettualmente
+      # all'interno del singolo ramo RataDocumento del oneOf TipoRiferimentoDocumento.
+      # Il generatore (openapi-generator / SpringCodegen) appiattisce i rami di un oneOf
+      # non discriminato (RataDocumento | VincoloDocumento) in un'UNICA classe Java con
+      # tutti i campi di entrambi i rami, e issa i rispettivi 'required' sulla classe
+      # appiattita con l'AND logico (@NotNull su entrambi 'rata' e 'soglia'), anziche'
+      # con l'XOR del oneOf. Questo renderebbe impossibile un NuovoDocumento valido con
+      # SOLO rata (piano rateale) o SOLO soglia (soluzione unica con vincolo) o NESSUNO
+      # dei due (soluzione unica semplice) — esattamente i casi reali di addPendenza v2.
+      # La scelta "quale dei due e' presente" e' quindi validata a mano nel mapper
+      # applicativo (it.govpay.pendenze.v2.pendenza.NuovaPendenzaMapper), non qui.
       properties:
         rata:
           type: integer
@@ -1742,8 +1758,7 @@ components:
     RiferimentoEntrata:
       description: Definisce i dettagli di incasso tramite riferimento in anagrafica GovPay.
       type: object
-      required:
-        - codEntrata
+      # Vedi il commento su 'Bollo' qui sopra: stesso motivo, stesso fix.
       properties:
         codEntrata:
           type: string
@@ -2296,8 +2311,9 @@ components:
               $ref: '#/components/schemas/Dominio'
     VincoloDocumento:
       type: object
-      required: 
-        - soglia
+      # Vedi commento su RataDocumento: stesso motivo, 'soglia' non e' dichiarato
+      # 'required' qui per evitare che il generatore lo issi come @NotNull sempre
+      # presente sulla classe NuovoDocumento appiattita.
       properties:
         soglia:
           $ref: "#/components/schemas/VincoloPagamento"

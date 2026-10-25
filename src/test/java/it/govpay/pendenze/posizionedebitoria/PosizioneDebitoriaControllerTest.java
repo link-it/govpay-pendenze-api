@@ -286,6 +286,7 @@ class PosizioneDebitoriaControllerTest {
         // "star" ai tipi versamento): le applicazioni "trusted" bypassano comunque il
         // controllo, vedi PosizioneDebitoriaMapper#verificaAutorizzazioneTipoVersamento.
         utenza.setAutorizzazioneTipiVersStar(false);
+        utenza.setAutorizzazioneDominiStar(false);
         utenza.setPassword(passwordEncoder.encode(password));
         utenza = utenzaRepository.save(utenza);
 

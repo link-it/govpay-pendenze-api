@@ -1,13 +1,18 @@
 package it.govpay.pendenze.v2.pendenza;
 
+import java.io.ByteArrayOutputStream;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -16,22 +21,34 @@ import org.springframework.web.util.UriComponentsBuilder;
 
 import it.govpay.common.entity.ApplicazioneEntity;
 import it.govpay.common.entity.DominioEntity;
+import it.govpay.common.metrics.ExternalCallMetricsRecorder;
 import it.govpay.common.repository.ApplicazioneRepository;
 import it.govpay.common.repository.DominioRepository;
+import it.govpay.pendenze.avviso.AvvisoAnagraficaAssenteException;
+import it.govpay.pendenze.avviso.AvvisoMbtException;
+import it.govpay.pendenze.avviso.AvvisoPdfPayloadMapper;
+import it.govpay.pendenze.avviso.StampeClient;
+import it.govpay.pendenze.comando.AggiornamentoPendenza;
 import it.govpay.pendenze.criteri.FiltriPendenze;
 import it.govpay.pendenze.criteri.OffsetPageRequest;
 import it.govpay.pendenze.criteri.PaginaRisultati;
 import it.govpay.pendenze.criteri.PaginaSenzaConteggio;
+import it.govpay.pendenze.entity.OpzionePagamento;
 import it.govpay.pendenze.entity.Pendenza;
 import it.govpay.pendenze.entity.Rpt;
 import it.govpay.pendenze.exception.RicercaNonUnivocaException;
 import it.govpay.pendenze.exception.RisorsaNonTrovataException;
+import it.govpay.pendenze.exception.TransizioneStatoNonAmmessaException;
 import it.govpay.pendenze.exception.ValidazioneNonSuperataException;
 import it.govpay.pendenze.repository.PendenzaRepository;
 import it.govpay.pendenze.repository.RptRepository;
 import it.govpay.pendenze.security.AclAuthorizer;
 import it.govpay.pendenze.security.CurrentApplicazioneService;
 import it.govpay.pendenze.service.PosizioneDebitoriaService;
+import it.govpay.pendenze.v2.api.model.NuovaPendenza;
+import it.govpay.pendenze.v2.api.model.NuovoAllegatoPendenza;
+import it.govpay.pendenze.v2.api.model.PatchOp;
+import it.govpay.pendenze.v2.api.model.PendenzaCreata;
 import it.govpay.pendenze.v2.api.model.Pendenze;
 import it.govpay.pendenze.v2.api.model.PendenzaIndex;
 import it.govpay.pendenze.v2.api.model.RppIndex;
@@ -39,6 +56,7 @@ import it.govpay.pendenze.v2.api.model.StatoPendenza;
 import it.govpay.pendenze.v2.api.rest.PendenzeApi;
 import it.govpay.pendenze.v2.ricevuta.RppMapper;
 import it.govpay.pendenze.web.SelezioneCampi;
+import it.govpay.stampe.client.model.PaymentNotice;
 import jakarta.servlet.http.HttpServletRequest;
 import tools.jackson.databind.ObjectMapper;
 
@@ -82,18 +100,25 @@ public class PendenzaV2Controller implements PendenzeApi {
     private final RptRepository rptRepository;
     private final AllegatoRepository allegatoRepository;
     private final PendenzaV2Mapper pendenzaV2Mapper;
+    private final NuovaPendenzaMapper nuovaPendenzaMapper;
     private final RppMapper rppMapper;
     private final AclAuthorizer aclAuthorizer;
     private final CurrentApplicazioneService currentApplicazioneService;
     private final ObjectMapper objectMapper;
     private final HttpServletRequest currentRequest;
+    private final AvvisoPdfPayloadMapper avvisoPdfPayloadMapper;
+    private final StampeClient stampeClient;
+    private final ExternalCallMetricsRecorder externalCallMetricsRecorder;
 
     public PendenzaV2Controller(PosizioneDebitoriaService posizioneDebitoriaService,
             PendenzaRepository pendenzaRepository, DominioRepository dominioRepository,
             ApplicazioneRepository applicazioneRepository, RptRepository rptRepository,
-            AllegatoRepository allegatoRepository, PendenzaV2Mapper pendenzaV2Mapper, RppMapper rppMapper,
+            AllegatoRepository allegatoRepository, PendenzaV2Mapper pendenzaV2Mapper,
+            NuovaPendenzaMapper nuovaPendenzaMapper, RppMapper rppMapper,
             AclAuthorizer aclAuthorizer, CurrentApplicazioneService currentApplicazioneService,
-            ObjectMapper objectMapper, HttpServletRequest currentRequest) {
+            ObjectMapper objectMapper, HttpServletRequest currentRequest,
+            AvvisoPdfPayloadMapper avvisoPdfPayloadMapper, StampeClient stampeClient,
+            ExternalCallMetricsRecorder externalCallMetricsRecorder) {
         this.posizioneDebitoriaService = posizioneDebitoriaService;
         this.pendenzaRepository = pendenzaRepository;
         this.dominioRepository = dominioRepository;
@@ -101,11 +126,15 @@ public class PendenzaV2Controller implements PendenzeApi {
         this.rptRepository = rptRepository;
         this.allegatoRepository = allegatoRepository;
         this.pendenzaV2Mapper = pendenzaV2Mapper;
+        this.nuovaPendenzaMapper = nuovaPendenzaMapper;
         this.rppMapper = rppMapper;
         this.aclAuthorizer = aclAuthorizer;
         this.currentApplicazioneService = currentApplicazioneService;
         this.objectMapper = objectMapper;
         this.currentRequest = currentRequest;
+        this.avvisoPdfPayloadMapper = avvisoPdfPayloadMapper;
+        this.stampeClient = stampeClient;
+        this.externalCallMetricsRecorder = externalCallMetricsRecorder;
     }
 
     /**
@@ -412,5 +441,277 @@ public class PendenzaV2Controller implements PendenzeApi {
         List<RppIndex> rpp = rpts.stream().map(rpt -> rppMapper.toRppIndex(rpt, entity)).toList();
         List<AllegatoEntity> allegati = allegatoRepository.findByIdVersamentoOrderByIdAsc(entity.getId());
         return pendenzaV2Mapper.toDto(entity, rpp, allegati);
+    }
+
+    /**
+     * Upsert: crea la pendenza se {@code idPendenza} non esiste ancora (201), altrimenti la
+     * aggiorna (200) — stessa semantica e stessi due status del controller legacy
+     * ({@code PendenzeController.pendenzeIdA2AIdPendenzaPUT},
+     * {@code createOrUpdate.isCreated() ? 201 : 200}). La decisione fra i due rami usa la
+     * STESSA query di risoluzione di {@code PosizioneDebitoriaService#aggiornaPendenza}
+     * (una pendenza senza {@code opzionePagamento}, es. un orfano di migrazione, NON conta
+     * come "esistente" per questo endpoint: non e' aggiornabile da questo comando, un
+     * tentativo con lo stesso {@code idPendenza} tenta la creazione e urta sul vincolo di
+     * unicita' {@code unique_versamenti_1}, risultando in 409 — edge case non gestito
+     * diversamente, segnalato nel report).
+     *
+     * <p>Vedi Javadoc di {@link NuovaPendenzaMapper} per le decisioni di progetto (documento
+     * sintetico, scelta della tipologia, validazione della rata, cosa viene ignorato in
+     * aggiornamento). {@code dataAvvisatura}: nessun equivalente v3 esiste oggi per
+     * persistere "quando notificare l'avviso" (gap noto, nessuna colonna/tabella trovata in
+     * govpay-common-pendenze) — il valore e' solo validato nel formato ({@code "MAI"} o una
+     * data ISO), mai applicato. {@code stampaAvviso}: riusa la stessa generazione PDF di
+     * {@code PendenzaController#getStampaPendenza} (v3-nativo), con gli stessi due guard
+     * (bollo MBT, anagrafica debitore assente) che qui diventano un 422 sull'intera
+     * richiesta se il chiamante ha esplicitamente domandato il PDF.</p>
+     */
+    @Override
+    @Transactional
+    public ResponseEntity<PendenzaCreata> addPendenza(String idA2A, String idPendenza, Boolean stampaAvviso,
+            String dataAvvisatura, NuovaPendenza nuovaPendenza) {
+        aclAuthorizer.richiedeScrittura();
+        currentApplicazioneService.verificaIdA2A(idA2A);
+        if (nuovaPendenza == null) {
+            throw new ValidazioneNonSuperataException("body della richiesta mancante");
+        }
+        validaDataAvvisatura(dataAvvisatura);
+
+        ApplicazioneEntity applicazione = nuovaPendenzaMapper.risolviApplicazione(idA2A);
+        Optional<Pendenza> esistente = pendenzaRepository
+                .findByIdApplicazioneAndIdPendenzaAndOpzionePagamentoIsNotNull(applicazione.getId(), idPendenza);
+
+        boolean creata = esistente.isEmpty();
+        Pendenza pendenzaFinale;
+        if (creata) {
+            pendenzaFinale = nuovaPendenzaMapper.crea(idA2A, idPendenza, nuovaPendenza, applicazione);
+        } else {
+            AggiornamentoPendenza comando = nuovaPendenzaMapper.toAggiornamentoPendenza(idPendenza, nuovaPendenza,
+                    esistente.get().getIdDominio(), applicazione);
+            pendenzaFinale = posizioneDebitoriaService.aggiornaPendenza(idA2A, idPendenza, comando);
+        }
+        nuovaPendenzaMapper.applicaCampiLegacy(pendenzaFinale, nuovaPendenza);
+        salvaAllegati(pendenzaFinale, nuovaPendenza.getAllegati());
+
+        PendenzaCreata risposta = new PendenzaCreata(nuovaPendenza.getIdDominio(), pendenzaFinale.getNumeroAvviso());
+        // UUID: deliberatamente sempre null (decisione di progetto) -- popolato solo da
+        // flussi di pagamento online/sessione (portale/app), mai da una creazione/
+        // aggiornamento da gestionale via addPendenza.
+        if (Boolean.TRUE.equals(stampaAvviso)) {
+            risposta.setPdf(generaPdfAvviso(pendenzaFinale));
+        }
+        return ResponseEntity.status(creata ? HttpStatus.CREATED : HttpStatus.OK).body(risposta);
+    }
+
+    /**
+     * JSON-Patch sui 4 path legacy ({@code /stato}, {@code /descrizioneStato}, {@code /ack},
+     * {@code /nota} — stesso elenco di {@code PendenzeDAO.OPERAZIONI_CONSENTITE_PENDENZE}).
+     * Ogni {@link PatchOp} e' applicato nell'ordine della richiesta alla stessa pendenza
+     * gestita, in un'unica transazione (fedele al legacy: nessun commit intermedio fra le
+     * singole operazioni).
+     *
+     * <p>{@code /descrizioneStato} e {@code /nota} scrivono entrambi sulla STESSA colonna
+     * {@code descrizioneStato} — replica fedele di un quirk legacy: {@code PendenzeDAO.patch},
+     * path {@code PATH_NOTA}, estrae {@code value.oggetto} e lo scrive con
+     * {@code setDescrizioneStato}, la stessa chiamata di {@code patchDescrizioneStato}. Il
+     * parametro {@code motivazione} che {@code patch()} estrae dal sibling
+     * {@code /descrizioneStato} per passarlo a {@code patchStato} non e' invece mai letto
+     * dentro quel metodo (dead code legacy): non replicato, non ha alcun effetto da
+     * riprodurre. "Ultima scrittura vince" se entrambi i path appaiono nella stessa richiesta
+     * — stesso comportamento del legacy.</p>
+     *
+     * <p>{@code /ack} e {@code /descrizioneStato}/{@code /nota} non hanno un comando dedicato
+     * in {@code govpay-common-pendenze} (nessuna precondizione di stato nel legacy per questi
+     * tre path): stesso principio gia' applicato per i campi solo-legacy di
+     * {@link NuovaPendenzaMapper#applicaCampiLegacy} — setter diretti sull'entity gestita
+     * trovata da {@link #pendenzaRepository}, nella transazione corrente.</p>
+     *
+     * <p><b>{@code /stato}</b>: solo i due target che il legacy ammette ({@code ANNULLATA} →
+     * {@code annulla}, {@code NON_ESEGUITA} → {@code ripristina}; ogni altro valore, incluso
+     * {@code SCADUTA} — che nel legacy non e' nemmeno un vero {@code StatoVersamento}, solo un
+     * filtro calcolato — e' un 400, come nel legacy). A differenza del legacy, pero', la v3
+     * nativa non annulla/ripristina piu' una singola pendenza: lo fa solo a livello di
+     * {@code OpzionePagamento}, con cascata su tutte le sue pendenze (chiusura deliberata del
+     * gap "stati misti nella stessa opzione", vedi {@code PosizioneDebitoriaService
+     * #registraEsitoPendenza}, nota 2026-10-22). Questo wrapper non aggira quella scelta
+     * scrivendo lo stato direttamente sull'entity (ricreerebbe esattamente l'artefatto che la
+     * libreria ha chiuso): se l'opzione della pendenza contiene PIU' di una pendenza (es. una
+     * rata di un piano rateale), questa richiesta — che e' per costruzione su una singola
+     * pendenza — risponde 409, invece di annullare/ripristinare anche le pendenze sorelle non
+     * menzionate dal chiamante. Se l'opzione ha una sola pendenza, il comportamento coincide
+     * con quello del legacy. Il wrapper eredita anche le guardie v3 senza equivalente legacy
+     * (es. {@code ripristina} rifiuta se un'altra opzione della stessa posizione e'
+     * {@code ATTIVATA} — il legacy non ha mai avuto questo controllo, non avendo il concetto
+     * di opzione): nessuna di queste viene scavalcata, per lo stesso motivo.</p>
+     */
+    @Override
+    @Transactional
+    public ResponseEntity<Void> updatePendenza(String idA2A, String idPendenza, List<PatchOp> patchOp) {
+        aclAuthorizer.richiedeScrittura();
+        currentApplicazioneService.verificaIdA2A(idA2A);
+        if (patchOp == null || patchOp.isEmpty()) {
+            throw new ValidazioneNonSuperataException("corpo della richiesta mancante o vuoto");
+        }
+
+        ApplicazioneEntity applicazione = nuovaPendenzaMapper.risolviApplicazione(idA2A);
+        Pendenza pendenza = pendenzaRepository
+                .findByIdApplicazioneAndIdPendenzaAndOpzionePagamentoIsNotNull(applicazione.getId(), idPendenza)
+                .orElseThrow(() -> new RisorsaNonTrovataException("nessuna pendenza con idPendenza [" + idPendenza
+                        + "] per idA2A [" + idA2A + "]"));
+
+        for (PatchOp op : patchOp) {
+            applicaPatch(idA2A, pendenza, op);
+        }
+        return ResponseEntity.ok().build();
+    }
+
+    private void applicaPatch(String idA2A, Pendenza pendenza, PatchOp op) {
+        if (op == null || op.getPath() == null) {
+            throw new ValidazioneNonSuperataException("operazione di patch non valida");
+        }
+        switch (op.getPath()) {
+            case "/stato" -> patchStato(idA2A, pendenza, op);
+            case "/descrizioneStato" -> patchDescrizioneStato(pendenza, op);
+            case "/ack" -> patchAck(pendenza, op);
+            case "/nota" -> patchNota(pendenza, op);
+            default -> throw new ValidazioneNonSuperataException("path [" + op.getPath() + "] non valido");
+        }
+    }
+
+    private void patchDescrizioneStato(Pendenza pendenza, PatchOp op) {
+        validaOp(op, PatchOp.OpEnum.REPLACE);
+        if (!(op.getValue() instanceof String valore) || valore.isEmpty()) {
+            throw new ValidazioneNonSuperataException("valore non valido per il path [" + op.getPath() + "]");
+        }
+        pendenza.setDescrizioneStato(valore);
+    }
+
+    private void patchNota(Pendenza pendenza, PatchOp op) {
+        validaOp(op, PatchOp.OpEnum.ADD);
+        if (!(op.getValue() instanceof Map<?, ?> valore)) {
+            throw new ValidazioneNonSuperataException("valore non valido per il path [" + op.getPath() + "]");
+        }
+        Object oggetto = valore.get("oggetto");
+        pendenza.setDescrizioneStato(oggetto == null ? null : oggetto.toString());
+    }
+
+    private void patchAck(Pendenza pendenza, PatchOp op) {
+        validaOp(op, PatchOp.OpEnum.REPLACE);
+        pendenza.setAck(op.getValue() instanceof Boolean valore && valore);
+    }
+
+    private void patchStato(String idA2A, Pendenza pendenza, PatchOp op) {
+        validaOp(op, PatchOp.OpEnum.REPLACE);
+        StatoPendenza nuovoStato = parseStatoPendenza(op.getValue());
+        if (nuovoStato != StatoPendenza.ANNULLATA && nuovoStato != StatoPendenza.NON_ESEGUITA) {
+            throw new ValidazioneNonSuperataException(
+                    "non e' consentito aggiornare lo stato di una pendenza a [" + op.getValue() + "]");
+        }
+
+        OpzionePagamento opzione = pendenza.getOpzionePagamento();
+        if (opzione.getPendenze().size() > 1) {
+            throw new TransizioneStatoNonAmmessaException("la pendenza [" + pendenza.getIdPendenza() + "] "
+                    + "appartiene a un'opzione di pagamento con piu' di una pendenza: l'annullamento/ripristino "
+                    + "per singola pendenza non e' supportato in questo caso (la v3 nativa annulla/ripristina "
+                    + "solo l'intera opzione, con cascata su tutte le sue pendenze)");
+        }
+
+        String idPosizioneDebitoria = posizioneDebitoriaService
+                .idPosizioneDebitoriaPubblica(opzione.getPosizioneDebitoria());
+        if (nuovoStato == StatoPendenza.ANNULLATA) {
+            posizioneDebitoriaService.annulla(idA2A, idPosizioneDebitoria, opzione.getIdOpzionePagamento());
+        } else {
+            posizioneDebitoriaService.ripristina(idA2A, idPosizioneDebitoria, opzione.getIdOpzionePagamento());
+        }
+    }
+
+    private void validaOp(PatchOp op, PatchOp.OpEnum opAmmessa) {
+        if (op.getOp() != opAmmessa) {
+            throw new ValidazioneNonSuperataException(
+                    "operazione [" + op.getOp() + "] non valida per il path [" + op.getPath() + "]");
+        }
+    }
+
+    /** Come {@code StatoPendenza.fromValue} legacy: {@code null} per un valore non riconosciuto,
+     *  non un'eccezione (a differenza della versione generata da questo progetto, che lancia
+     *  {@code IllegalArgumentException} su un valore ignoto). */
+    private StatoPendenza parseStatoPendenza(Object valore) {
+        if (!(valore instanceof String testo)) {
+            return null;
+        }
+        try {
+            return StatoPendenza.fromValue(testo);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    /**
+     * {@code "MAI"} o una data ISO-8601 (stesso oneOf dello YAML originale, qui validato a
+     * mano perche' il parametro e' stato semplificato a {@code string} — vedi il commento
+     * nello YAML v2 su questo parametro): nessuno dei due valori ha pero' un effetto
+     * persistito oggi (gap noto, vedi Javadoc di {@link #addPendenza}), questo controllo
+     * serve solo a rifiutare un valore sintatticamente non valido con lo stesso 400 che il
+     * contratto originale avrebbe dato.
+     */
+    private void validaDataAvvisatura(String dataAvvisatura) {
+        if (dataAvvisatura == null || "MAI".equals(dataAvvisatura)) {
+            return;
+        }
+        try {
+            LocalDate.parse(dataAvvisatura);
+        } catch (DateTimeParseException e) {
+            throw new ValidazioneNonSuperataException(
+                    "'dataAvvisatura' deve essere \"MAI\" oppure una data in formato ISO-8601 (AAAA-MM-GG): ["
+                            + dataAvvisatura + "]");
+        }
+    }
+
+    /**
+     * Stessa generazione PDF di {@code PendenzaController#getStampaPendenza} (v3-nativo),
+     * catturata su un buffer invece che in streaming diretto sulla risposta HTTP (qui il PDF
+     * e' un campo base64 dentro un body JSON, non l'intera risposta) e senza equivalente v2
+     * di {@code linguaSecondaria}/causale e informativa tradotte (nessun parametro
+     * corrispondente in questo endpoint: avviso sempre in italiano).
+     */
+    private String generaPdfAvviso(Pendenza pendenza) {
+        if (AvvisoPdfPayloadMapper.isPendenzaMbt(pendenza)) {
+            throw new AvvisoMbtException("Avviso PDF non disponibile per pendenze con Marca da Bollo Telematica.");
+        }
+        if (AvvisoPdfPayloadMapper.isAnagraficaDebitoreAssente(pendenza)) {
+            throw new AvvisoAnagraficaAssenteException("Avviso PDF non disponibile: anagrafica del debitore assente.");
+        }
+        PaymentNotice payload = avvisoPdfPayloadMapper.toPaymentNotice(pendenza, null, null, null, null);
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        externalCallMetricsRecorder.record("stampe", "payment_notice",
+                () -> stampeClient.streamPaymentNotice(payload, output));
+        return Base64.getEncoder().encodeToString(output.toByteArray());
+    }
+
+    /**
+     * Persiste nome/tipo/descrizione/dataCreazione di ogni allegato ({@code AllegatoEntity},
+     * vedi il suo Javadoc per il perche' {@code contenuto} non viene scritto: gap noto, non
+     * un'omissione). <b>Semantica di aggiornamento non verificata contro il legacy</b>: qui
+     * gli allegati dichiarati in una PUT di aggiornamento vengono sempre AGGIUNTI, mai usati
+     * per rimpiazzare quelli gia' presenti — scelta conservativa (non distrugge mai dati
+     * esistenti) in assenza di una verifica puntuale del comportamento esatto del legacy su
+     * questo punto, segnalata come punto aperto nel report finale.
+     */
+    private void salvaAllegati(Pendenza pendenza, List<NuovoAllegatoPendenza> allegati) {
+        if (allegati == null || allegati.isEmpty()) {
+            return;
+        }
+        OffsetDateTime adesso = OffsetDateTime.now();
+        for (NuovoAllegatoPendenza allegato : allegati) {
+            if (allegato == null) {
+                continue;
+            }
+            AllegatoEntity entity = new AllegatoEntity();
+            entity.setIdVersamento(pendenza.getId());
+            entity.setNome(allegato.getNome());
+            entity.setTipo(allegato.getTipo());
+            entity.setDescrizione(allegato.getDescrizione());
+            entity.setDataCreazione(adesso);
+            allegatoRepository.save(entity);
+        }
     }
 }
