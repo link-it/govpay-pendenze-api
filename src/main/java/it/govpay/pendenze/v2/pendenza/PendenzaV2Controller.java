@@ -776,10 +776,9 @@ public class PendenzaV2Controller implements PendenzeApi {
      *
      * <p>Vedi Javadoc di {@link NuovaPendenzaMapper} per le decisioni di progetto (documento
      * sintetico, scelta della tipologia, validazione della rata, cosa viene ignorato in
-     * aggiornamento). {@code dataAvvisatura}: nessun equivalente v3 esiste oggi per
-     * persistere "quando notificare l'avviso" (gap noto, nessuna colonna/tabella trovata in
-     * govpay-common-pendenze) — il valore e' solo validato nel formato ({@code "MAI"} o una
-     * data ISO), mai applicato. {@code stampaAvviso}: riusa la stessa generazione PDF di
+     * aggiornamento). {@code dataAvvisatura}: campo deprecato — il valore e' solo validato nel
+     * formato ({@code "MAI"} o una data ISO), mai persistito né altrimenti applicato.
+     * {@code stampaAvviso}: riusa la stessa generazione PDF di
      * {@code PendenzaController#getStampaPendenza} (v3-nativo), con gli stessi due guard
      * (bollo MBT, anagrafica debitore assente) che qui diventano un 422 sull'intera
      * richiesta se il chiamante ha esplicitamente domandato il PDF.</p>
@@ -806,6 +805,7 @@ public class PendenzaV2Controller implements PendenzeApi {
         } else {
             PosizioneDebitoria posizioneEsistente = esistente.get().getOpzionePagamento().getPosizioneDebitoria();
             nuovaPendenzaMapper.validaBeneficiarioInvariato(nuovaPendenza, posizioneEsistente);
+            posizioneEsistente.setDescrizione(NuovaPendenzaMapper.risolviDescrizioneDocumento(nuovaPendenza));
             AggiornamentoPendenza comando = nuovaPendenzaMapper.toAggiornamentoPendenza(idPendenza, nuovaPendenza,
                     posizioneEsistente.getIdDominio(), applicazione);
             pendenzaFinale = posizioneDebitoriaService.aggiornaPendenza(idA2A, idPendenza, comando);

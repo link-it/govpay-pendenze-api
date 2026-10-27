@@ -306,10 +306,8 @@ public class NuovaPendenzaMapper {
         Integer rataRichiesta = documentoEsplicito ? documento.getRata() : null;
         VincoloPagamento soglia = documentoEsplicito ? documento.getSoglia() : null;
         String codDocumento;
-        String descrizioneDocumento;
         if (documentoEsplicito) {
             codDocumento = documento.getIdentificativo();
-            descrizioneDocumento = documento.getDescrizione();
         } else {
             // Decisione #1: v3 non ammette una Pendenza senza PosizioneDebitoria/
             // OpzionePagamento. UUID random SENZA trattini (32 hex, entro cod_documento
@@ -318,12 +316,8 @@ public class NuovaPendenzaMapper {
             // Deliberatamente diverso dal prefisso "MIGR-" usato dalla migrazione (riservato
             // a quel percorso, vedi PendenzaV2Mapper.PREFISSO_DOCUMENTO_SINTETIZZATO).
             codDocumento = UUID.randomUUID().toString().replace("-", "");
-            // 'documenti.descrizione' e' NOT NULL nello schema: nessuna descrizione del
-            // documento arriva dal chiamante quando 'documento' e' del tutto assente dalla
-            // richiesta. Scelta pragmatica (non una decisione architetturale, solo un
-            // fallback a basso rischio): si riusa la causale della pendenza stessa.
-            descrizioneDocumento = dto.getCausale();
         }
+        String descrizioneDocumento = risolviDescrizioneDocumento(dto);
 
         Optional<PosizioneDebitoria> posizioneEsistente = posizioneDebitoriaRepository
                 .findByIdApplicazioneAndIdDominioAndCodDocumento(applicazione.getId(), idDominio, codDocumento);
@@ -333,7 +327,8 @@ public class NuovaPendenzaMapper {
         if (posizioneEsistente.isPresent()) {
             // Decisione #3: un documento esplicito che coincide con uno gia' esistente
             // aggiunge una pendenza all'opzione esistente, non crea una nuova posizione.
-            return aggiungiAPosizioneEsistente(idA2A, posizioneEsistente.get(), rataRichiesta, soglia, datiPendenza);
+            return aggiungiAPosizioneEsistente(idA2A, posizioneEsistente.get(), rataRichiesta, soglia, datiPendenza,
+                    descrizioneDocumento);
         }
 
         TipologiaEGiorni tipologiaEGiorni = risolviTipologia(rataRichiesta, soglia);
@@ -359,9 +354,24 @@ public class NuovaPendenzaMapper {
      * creazione del documento, e che la rata dichiarata (se {@code PIANO_RATEALE}) coincida
      * con la prossima posizione attesa — errore esplicito (400), nessuna rinumerazione
      * silenziosa (stessa decisione del 2026-10-20 sulla validazione della rata dichiarata).
+     * {@code descrizioneDocumento} sovrascrive sempre quella della posizione esistente — vince
+     * l'ultima richiesta (decisione del committente del 2026-10-27, in deroga alla #3: qui
+     * {@code documento}/{@code causale} NON sono ignorati come gli altri campi "solo alla
+     * creazione").
      */
+    /**
+     * {@code documento.descrizione} se {@code documento} e' presente, altrimenti {@code causale}
+     * — 'documenti.descrizione' e' {@code NOT NULL} nello schema, e {@code causale} e' sempre
+     * obbligatoria su {@code NuovaPendenza}, quindi garantisce sempre un valore.
+     */
+    static String risolviDescrizioneDocumento(NuovaPendenza dto) {
+        NuovoDocumento documento = dto.getDocumento();
+        return documento != null ? documento.getDescrizione() : dto.getCausale();
+    }
+
     private Pendenza aggiungiAPosizioneEsistente(String idA2A, PosizioneDebitoria posizione, Integer rataRichiesta,
-            VincoloPagamento soglia, DatiPendenza datiPendenza) {
+            VincoloPagamento soglia, DatiPendenza datiPendenza, String descrizioneDocumento) {
+        posizione.setDescrizione(descrizioneDocumento);
         List<OpzionePagamento> opzioni = posizione.getOpzioniPagamento();
         if (opzioni.size() != 1) {
             throw new ValidazioneNonSuperataException("il documento [" + posizione.getCodDocumento() + "] ha "
@@ -481,11 +491,16 @@ public class NuovaPendenzaMapper {
     /**
      * Converte il PUT in {@link AggiornamentoPendenza} per
      * {@link PosizioneDebitoriaService#aggiornaPendenza}, che e' l'unico punto che applica
-     * davvero la modifica. <b>{@code documento}/{@code soggettoPagatore} del body non sono
-     * letti qui</b>: deviazione consapevole dal legacy (vedi Javadoc di classe) — se il
-     * chiamante li dichiara diversi dall'originale, sono semplicemente ignorati, non un
-     * errore. <b>{@code idDominio}/{@code idUnitaOperativa} invece NON sono ignorati</b>: vedi
-     * {@link #validaBeneficiarioInvariato}, da chiamare dal controller PRIMA di questo metodo.
+     * davvero la modifica. <b>{@code documento.identificativo}/{@code soggettoPagatore} del
+     * body non sono letti qui</b>: deviazione consapevole dal legacy (vedi Javadoc di classe)
+     * — se il chiamante li dichiara diversi dall'originale, sono semplicemente ignorati, non
+     * un errore. <b>{@code documento.descrizione}/{@code causale} fanno eccezione</b>
+     * (decisione del committente del 2026-10-27): sovrascrivono sempre la descrizione della
+     * posizione esistente — vedi {@link PendenzaV2Controller#addPendenza}, che applica questa
+     * sovrascrittura separatamente, non tramite questo comando (che non porta campi della
+     * posizione). <b>{@code idDominio}/{@code idUnitaOperativa} invece NON sono ignorati</b>:
+     * vedi {@link #validaBeneficiarioInvariato}, da chiamare dal controller PRIMA di questo
+     * metodo.
      */
     public AggiornamentoPendenza toAggiornamentoPendenza(String idPendenza, NuovaPendenza dto, Long idDominio,
             ApplicazioneEntity applicazione) {

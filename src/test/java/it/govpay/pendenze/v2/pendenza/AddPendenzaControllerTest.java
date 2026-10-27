@@ -359,6 +359,74 @@ class AddPendenzaControllerTest {
     }
 
     @Test
+    @DisplayName("una seconda rata con 'documento.descrizione' diversa sovrascrive quella della posizione "
+            + "esistente (decisione del committente del 2026-10-27: vince l'ultima, non resta piu' fissata alla "
+            + "creazione)")
+    void secondaRataConDescrizioneDiversaSovrascriveQuellaDellaPosizione() throws Exception {
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-descr-1a")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpoConDocumentoEDescrizione("rata 1", 10.00, "voce-descr-1a", "DOC-DESCR-1",
+                        "descrizione originale", 1)))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-descr-1b")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpoConDocumentoEDescrizione("rata 2", 10.00, "voce-descr-1b", "DOC-DESCR-1",
+                        "descrizione aggiornata", 2)))
+                .andExpect(status().isCreated());
+
+        inTransazioneDiLettura(() -> {
+            PosizioneDebitoria posizione = posizioneDebitoriaRepository
+                    .findByIdApplicazioneAndIdDominioAndCodDocumento(idApplicazione, idDominio, "DOC-DESCR-1")
+                    .orElseThrow();
+            org.junit.jupiter.api.Assertions.assertEquals("descrizione aggiornata", posizione.getDescrizione());
+            return null;
+        });
+    }
+
+    @Test
+    @DisplayName("un secondo PUT sulla STESSA pendenza (aggiornamento) con causale diversa e nessun 'documento' "
+            + "sovrascrive la descrizione della posizione (sintetica) con la nuova causale")
+    void aggiornamentoStessaPendenzaConCausaleDiversaSovrascriveDescrizionePosizioneSintetica() throws Exception {
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-descr-2")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpoBase("causale originale", 10.00, "voce-descr-2")))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-descr-2")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpoBase("causale aggiornata", 10.00, "voce-descr-2")))
+                .andExpect(status().isOk());
+
+        inTransazioneDiLettura(() -> {
+            Pendenza pendenza = pendenzaRepository
+                    .findByIdApplicazioneAndIdPendenzaAndOpzionePagamentoIsNotNull(idApplicazione, "pend-descr-2")
+                    .orElseThrow();
+            org.junit.jupiter.api.Assertions.assertEquals("causale aggiornata",
+                    pendenza.getOpzionePagamento().getPosizioneDebitoria().getDescrizione());
+            return null;
+        });
+    }
+
+    /** Stesso corpo di {@link #corpoConDocumento}, con una {@code documento.descrizione} parametrica. */
+    private String corpoConDocumentoEDescrizione(String causale, double importo, String idVocePendenza,
+            String identificativo, String descrizioneDocumento, int rata) {
+        return """
+                {
+                  "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                  "idDominio": "%s",
+                  "causale": "%s",
+                  "soggettoPagatore": { "tipo": "F", "identificativo": "RSSMRA80A01H501U", "anagrafica": "Mario Rossi" },
+                  "importo": %s,
+                  "documento": { "identificativo": "%s", "descrizione": "%s", "rata": %s },
+                  "voci": [ { "idVocePendenza": "%s", "importo": %s, "descrizione": "test", \
+                "codEntrata": "DIRITTI_SEGRETERIA" } ]
+                }
+                """.formatted(ID_DOMINIO, causale, importo, identificativo, descrizioneDocumento, rata,
+                idVocePendenza, importo);
+    }
+
+    @Test
     @DisplayName("creazione con documento+soglia ENTRO: crea un'opzione SOLUZIONE_UNICA_ENTRO (201), giorni dalla soglia")
     void creaConDocumentoESogliaEntroCreaSoluzioneUnicaEntro() throws Exception {
         String corpo = corpoConSoglia("sanzione ridotta", 70.00, "voce-entro-1", "DOC-ENTRO-1", "ENTRO", 5);
