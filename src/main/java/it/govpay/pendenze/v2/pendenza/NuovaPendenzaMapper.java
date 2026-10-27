@@ -57,6 +57,8 @@ import it.govpay.pendenze.v2.api.model.NuovaPendenza;
 import it.govpay.pendenze.v2.api.model.NuovaVocePendenza;
 import it.govpay.pendenze.v2.api.model.NuovoDocumento;
 import it.govpay.pendenze.v2.api.model.Soggetto;
+import it.govpay.pendenze.v2.api.model.TipoSogliaVincoloPagamento;
+import it.govpay.pendenze.v2.api.model.VincoloPagamento;
 import it.govpay.pendenze.web.AccessoNegatoException;
 import it.govpay.pendenze.web.AnagraficaNonTrovataException;
 
@@ -73,10 +75,13 @@ import it.govpay.pendenze.web.AnagraficaNonTrovataException;
  * <ul>
  * <li><b>{@code documento} assente</b>: sintetizza un {@code codDocumento} = UUID random
  * senza trattini (32 hex), generato SOLO in creazione — mai ricalcolato in update.</li>
- * <li><b>Tipologia dell'opzione</b>: {@code documento.rata} assente -&gt; {@code SOLUZIONE_UNICA};
- * presente -&gt; {@code PIANO_RATEALE}, con la rata dichiarata validata contro la posizione
- * attesa (1 alla prima chiamata per un documento nuovo, conteggio attuale+1 per le
- * successive) — errore esplicito (400), non rinumerazione silenziosa.</li>
+ * <li><b>Tipologia dell'opzione</b>: {@code documento.rata} presente -&gt; {@code PIANO_RATEALE}
+ * (rata dichiarata validata contro la posizione attesa, 1 alla prima chiamata per un
+ * documento nuovo, conteggio attuale+1 per le successive — errore esplicito 400, non
+ * rinumerazione silenziosa); {@code documento.soglia} presente -&gt; {@code SOLUZIONE_UNICA_ENTRO}/
+ * {@code _OLTRE}/{@code _RIDOTTO}/{@code _SCONTATO} secondo {@code soglia.tipo} ({@code giorni}
+ * dalla soglia solo per {@code ENTRO}/{@code OLTRE}); nessuno dei due -&gt; {@code SOLUZIONE_UNICA}.
+ * {@code rata} e {@code soglia} insieme: 400.</li>
  * <li><b>{@code documento.identificativo} che coincide con un documento esistente</b>:
  * aggiunge una pendenza all'opzione esistente ({@link PosizioneDebitoriaService#aggiungiPendenza}),
  * non crea una nuova posizione. Un mismatch di tipologia rispetto a quella decisa alla
@@ -299,6 +304,7 @@ public class NuovaPendenzaMapper {
         NuovoDocumento documento = dto.getDocumento();
         boolean documentoEsplicito = documento != null;
         Integer rataRichiesta = documentoEsplicito ? documento.getRata() : null;
+        VincoloPagamento soglia = documentoEsplicito ? documento.getSoglia() : null;
         String codDocumento;
         String descrizioneDocumento;
         if (documentoEsplicito) {
@@ -327,23 +333,17 @@ public class NuovaPendenzaMapper {
         if (posizioneEsistente.isPresent()) {
             // Decisione #3: un documento esplicito che coincide con uno gia' esistente
             // aggiunge una pendenza all'opzione esistente, non crea una nuova posizione.
-            return aggiungiAPosizioneEsistente(idA2A, posizioneEsistente.get(), rataRichiesta, datiPendenza);
+            return aggiungiAPosizioneEsistente(idA2A, posizioneEsistente.get(), rataRichiesta, soglia, datiPendenza);
         }
 
-        // Decisione #2: 'documento.rata' assente (sempre il caso del sintetico, per
-        // costruzione) -> SOLUZIONE_UNICA; presente -> PIANO_RATEALE. Alla primissima
-        // pendenza di un documento nuovo, l'unica rata ammessa e' 1 (vedi Javadoc di
-        // TipologiaOpzionePagamento: "la prima persistita subito come PIANO_RATEALE di 1
-        // sola pendenza, che diventa 2+ solo con la seconda chiamata").
-        TipologiaOpzionePagamento tipologia = rataRichiesta != null ? TipologiaOpzionePagamento.PIANO_RATEALE
-                : TipologiaOpzionePagamento.SOLUZIONE_UNICA;
-        if (tipologia == TipologiaOpzionePagamento.PIANO_RATEALE && rataRichiesta != 1) {
+        TipologiaEGiorni tipologiaEGiorni = risolviTipologia(rataRichiesta, soglia);
+        if (tipologiaEGiorni.tipologia() == TipologiaOpzionePagamento.PIANO_RATEALE && rataRichiesta != 1) {
             throw new ValidazioneNonSuperataException("documento.rata [" + rataRichiesta + "] non valida: per un "
                     + "documento nuovo la prima rata deve essere 1");
         }
 
-        DatiOpzionePagamento datiOpzione = new DatiOpzionePagamento(tipologia, null, null, null,
-                List.of(datiPendenza));
+        DatiOpzionePagamento datiOpzione = new DatiOpzionePagamento(tipologiaEGiorni.tipologia(),
+                tipologiaEGiorni.giorni(), null, null, List.of(datiPendenza));
         Long idUnitaOperativa = risolviIdUnitaOperativa(idDominio, dto.getIdUnitaOperativa());
         DatiSoggettoDebitore soggetto = toDatiSoggettoDebitore(dto.getSoggettoPagatore());
         DatiPosizioneDebitoria comando = new DatiPosizioneDebitoria(codDocumento, applicazione.getId(), idDominio,
@@ -361,7 +361,7 @@ public class NuovaPendenzaMapper {
      * silenziosa (stessa decisione del 2026-10-20 sulla validazione della rata dichiarata).
      */
     private Pendenza aggiungiAPosizioneEsistente(String idA2A, PosizioneDebitoria posizione, Integer rataRichiesta,
-            DatiPendenza datiPendenza) {
+            VincoloPagamento soglia, DatiPendenza datiPendenza) {
         List<OpzionePagamento> opzioni = posizione.getOpzioniPagamento();
         if (opzioni.size() != 1) {
             throw new ValidazioneNonSuperataException("il documento [" + posizione.getCodDocumento() + "] ha "
@@ -369,15 +369,16 @@ public class NuovaPendenzaMapper {
                     + "esattamente un'opzione (quelli creati da questa stessa API)");
         }
         OpzionePagamento opzione = opzioni.get(0);
-        TipologiaOpzionePagamento tipologiaRichiesta = rataRichiesta != null
-                ? TipologiaOpzionePagamento.PIANO_RATEALE
-                : TipologiaOpzionePagamento.SOLUZIONE_UNICA;
-        if (opzione.getTipologia() != tipologiaRichiesta) {
+        TipologiaEGiorni tipologiaEGiorni = risolviTipologia(rataRichiesta, soglia);
+        if (opzione.getTipologia() != tipologiaEGiorni.tipologia()) {
+            if (sonoSoglieComplementari(opzione.getTipologia(), tipologiaEGiorni.tipologia())) {
+                return completaCoppiaSoglia(idA2A, posizione, tipologiaEGiorni, datiPendenza);
+            }
             throw new ValidazioneNonSuperataException("la tipologia del documento [" + posizione.getCodDocumento()
                     + "] e' " + opzione.getTipologia() + " e non puo' cambiare dopo la creazione (rata "
                     + (rataRichiesta == null ? "non dichiarata" : "dichiarata [" + rataRichiesta + "]") + ")");
         }
-        if (tipologiaRichiesta == TipologiaOpzionePagamento.PIANO_RATEALE) {
+        if (tipologiaEGiorni.tipologia() == TipologiaOpzionePagamento.PIANO_RATEALE) {
             int prossimaRata = opzione.getPendenze().stream().mapToInt(Pendenza::getNumeroRata).max().orElse(0) + 1;
             if (rataRichiesta != prossimaRata) {
                 throw new ValidazioneNonSuperataException("documento.rata [" + rataRichiesta + "] non valida: la "
@@ -388,6 +389,73 @@ public class NuovaPendenzaMapper {
         String idPosizioneDebitoriaPubblica = posizioneDebitoriaService.idPosizioneDebitoriaPubblica(posizione);
         return posizioneDebitoriaService.aggiungiPendenza(idA2A, idPosizioneDebitoriaPubblica,
                 opzione.getIdOpzionePagamento(), datiPendenza);
+    }
+
+    private record TipologiaEGiorni(TipologiaOpzionePagamento tipologia, Integer giorni) {
+    }
+
+    /**
+     * {@code true} se le due tipologie sono la coppia {@code ENTRO}/{@code OLTRE} o la coppia
+     * {@code RIDOTTO}/{@code SCONTATO} (in qualunque ordine) — condizione per completare la
+     * coppia su un documento esistente con {@link #completaCoppiaSoglia} invece di rifiutare la
+     * seconda soglia con 400.
+     */
+    private static boolean sonoSoglieComplementari(TipologiaOpzionePagamento a, TipologiaOpzionePagamento b) {
+        return (a == TipologiaOpzionePagamento.SOLUZIONE_UNICA_ENTRO && b == TipologiaOpzionePagamento.SOLUZIONE_UNICA_OLTRE)
+                || (a == TipologiaOpzionePagamento.SOLUZIONE_UNICA_OLTRE && b == TipologiaOpzionePagamento.SOLUZIONE_UNICA_ENTRO)
+                || (a == TipologiaOpzionePagamento.SOLUZIONE_UNICA_RIDOTTO && b == TipologiaOpzionePagamento.SOLUZIONE_UNICA_SCONTATO)
+                || (a == TipologiaOpzionePagamento.SOLUZIONE_UNICA_SCONTATO && b == TipologiaOpzionePagamento.SOLUZIONE_UNICA_RIDOTTO);
+    }
+
+    /**
+     * Seconda soglia dichiarata su un documento esistente con una sola opzione DISPONIBILE di
+     * tipologia complementare: aggiunge una SECONDA opzione alla posizione (le due soglie sono
+     * alternative distinte nel modello v3, non due pendenze della stessa opzione), tramite
+     * {@link PosizioneDebitoriaService#aggiungiOpzionePagamento}.
+     */
+    private Pendenza completaCoppiaSoglia(String idA2A, PosizioneDebitoria posizione,
+            TipologiaEGiorni tipologiaEGiorni, DatiPendenza datiPendenza) {
+        String idPosizioneDebitoriaPubblica = posizioneDebitoriaService.idPosizioneDebitoriaPubblica(posizione);
+        DatiOpzionePagamento comando = new DatiOpzionePagamento(tipologiaEGiorni.tipologia(),
+                tipologiaEGiorni.giorni(), null, null, List.of(datiPendenza));
+        OpzionePagamento nuovaOpzione = posizioneDebitoriaService.aggiungiOpzionePagamento(idA2A,
+                idPosizioneDebitoriaPubblica, comando);
+        return nuovaOpzione.getPendenze().get(0);
+    }
+
+    /**
+     * {@code rata} e {@code soglia} mutuamente esclusivi: 400 se entrambi presenti.
+     * {@code rata} -&gt; {@code PIANO_RATEALE}; {@code soglia.tipo} {@code ENTRO}/{@code OLTRE}
+     * -&gt; {@code SOLUZIONE_UNICA_ENTRO}/{@code _OLTRE} con {@code giorni} dalla soglia,
+     * obbligatorio (400 se assente — lo schema non puo' esprimere questo vincolo condizionale);
+     * {@code RIDOTTO}/{@code SCONTATO} -&gt; {@code SOLUZIONE_UNICA_RIDOTTO}/{@code _SCONTATO},
+     * {@code giorni} ignorato se presente; nessuno dei due -&gt; {@code SOLUZIONE_UNICA}.
+     */
+    private TipologiaEGiorni risolviTipologia(Integer rataRichiesta, VincoloPagamento soglia) {
+        if (rataRichiesta != null && soglia != null) {
+            throw new ValidazioneNonSuperataException(
+                    "documento.rata e documento.soglia sono mutuamente esclusivi");
+        }
+        if (rataRichiesta != null) {
+            return new TipologiaEGiorni(TipologiaOpzionePagamento.PIANO_RATEALE, null);
+        }
+        if (soglia != null) {
+            return switch (soglia.getTipo()) {
+                case ENTRO, OLTRE -> {
+                    if (soglia.getGiorni() == null) {
+                        throw new ValidazioneNonSuperataException(
+                                "documento.soglia.giorni e' obbligatorio per soglia.tipo [" + soglia.getTipo() + "]");
+                    }
+                    yield new TipologiaEGiorni(soglia.getTipo() == TipoSogliaVincoloPagamento.ENTRO
+                            ? TipologiaOpzionePagamento.SOLUZIONE_UNICA_ENTRO
+                            : TipologiaOpzionePagamento.SOLUZIONE_UNICA_OLTRE, soglia.getGiorni());
+                }
+                // giorni non e' un valore dichiarabile per RIDOTTO/SCONTATO: ignorato se presente.
+                case RIDOTTO -> new TipologiaEGiorni(TipologiaOpzionePagamento.SOLUZIONE_UNICA_RIDOTTO, null);
+                case SCONTATO -> new TipologiaEGiorni(TipologiaOpzionePagamento.SOLUZIONE_UNICA_SCONTATO, null);
+            };
+        }
+        return new TipologiaEGiorni(TipologiaOpzionePagamento.SOLUZIONE_UNICA, null);
     }
 
     private DatiPendenza toDatiPendenza(String idPendenza, NuovaPendenza dto, Long idDominio,

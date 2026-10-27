@@ -1,6 +1,7 @@
 package it.govpay.pendenze.v2.pendenza;
 
 import java.io.ByteArrayOutputStream;
+import java.io.OutputStream;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
@@ -62,6 +63,7 @@ import it.govpay.pendenze.v2.api.model.PatchOp;
 import it.govpay.pendenze.v2.api.model.PendenzaCreata;
 import it.govpay.pendenze.v2.api.model.Pendenze;
 import it.govpay.pendenze.v2.api.model.PendenzaIndex;
+import it.govpay.pendenze.v2.api.model.ProprietaPendenza;
 import it.govpay.pendenze.v2.api.model.RppIndex;
 import it.govpay.pendenze.v2.api.model.StatoPendenza;
 import it.govpay.pendenze.v2.api.rest.PendenzeApi;
@@ -473,20 +475,35 @@ public class PendenzaV2Controller implements PendenzeApi {
      *
      * <p><b>Rate pagabili</b>: le pendenze {@code NON_ESEGUITO} di ciascuna opzione di
      * pagamento del documento, per {@code numeroRata} crescente. Un documento con un numero di
-     * opzioni ANCORA PAGABILI diverso da uno e' un 400 esplicito (questo wrapper gestisce solo
-     * i documenti con un'unica opzione pagabile). Nessuna rata pagabile in nessuna opzione:
-     * 422. Una sola rata MBT o con anagrafica debitore assente fa fallire l'intero avviso con
-     * lo stesso 422 di {@link #addPendenza}.</p>
+     * opzioni ANCORA PAGABILI diverso da uno e' un 400 esplicito, a meno che siano esattamente
+     * la coppia {@code SOLUZIONE_UNICA_ENTRO}/{@code _OLTRE} (vedi Layout). Nessuna rata
+     * pagabile in nessuna opzione: 422. Una sola rata MBT o con anagrafica debitore assente fa
+     * fallire l'intero avviso con lo stesso 422 di {@link #addPendenza}.</p>
      *
      * <p><b>Layout</b>: una sola rata pagabile produce {@code full}, o {@code reduced_payments}
      * (con {@code threshold_type}/{@code threshold_days} dalla tipologia/{@code giorni}
      * dell'opzione) se l'opzione e' {@code SOLUZIONE_UNICA_ENTRO}/{@code _OLTRE}; piu' di una
-     * rata pagabile produce sempre {@code instalments}.</p>
+     * rata pagabile produce sempre {@code instalments}. Se le opzioni ancora pagabili sono
+     * esattamente la coppia {@code SOLUZIONE_UNICA_ENTRO}/{@code _OLTRE}, un solo avviso con
+     * {@code reduced_payments} a due elementi, invece del 400 — vedi
+     * {@code AvvisoPdfPayloadMapper#toPaymentNoticeSoglie}. Se sono esattamente la coppia
+     * {@code SOLUZIONE_UNICA_RIDOTTO}/{@code _SCONTATO} (violazione del Codice della Strada),
+     * un PDF da {@code POST /cds_violation} di {@code govpay-stampe} — vedi
+     * {@code AvvisoPdfPayloadMapper#toCdsViolation}.</p>
      *
      * <p>{@code postal} e' {@code true} solo se TUTTE le rate hanno un IBAN postale, altrimenti
      * l'intero avviso e' non postale.</p>
      *
-     * <p>{@code linguaSecondaria} diversa da {@code false}: 422.</p>
+     * <p>{@code linguaSecondaria} diversa da {@code false}: nessun parametro causale/
+     * informativa tradotte in questo schema (come nel vero legacy — non sono valori di
+     * richiesta, ma dati del documento) — vengono letti da {@code proprieta
+     * .linguaSecondariaCausale}/{@code .informativaImportoAvviso}/
+     * {@code .linguaSecondariaInformativaImportoAvviso} della pendenza, persistiti da
+     * {@link #addPendenza}, e solo quando il layout stampa una SINGOLA rata rappresentativa
+     * (una sola rata pagabile, non piano rateale, non coppia soglie/CdS). 422 esplicito se la
+     * pendenza non ha una causale tradotta persistita, o se il layout ne ha piu' di una.
+     * {@code informativaImportoAvviso} (italiano) e' invece sempre letto in quel caso, anche
+     * senza bilingue.</p>
      *
      * <p>Il PDF viene restituito come {@link ByteArrayResource}. Nome file:
      * {@code <idDominio>_<numeroDocumento>.pdf}.</p>
@@ -515,11 +532,6 @@ public class PendenzaV2Controller implements PendenzeApi {
                 .orElseThrow(() -> new RisorsaNonTrovataException("nessun documento con idDominio [" + idDominio
                         + "] e numeroDocumento [" + numeroDocumento + "]"));
 
-        if (linguaSecondaria != null && linguaSecondaria != LinguaSecondaria.FALSE) {
-            throw new AvvisoDocumentoNonDisponibileException("Avviso bilingue non disponibile per questo endpoint: "
-                    + "nessun parametro causaleTradotta nello schema, l'oggetto del pagamento non sarebbe tradotto.");
-        }
-
         List<OpzionePagamento> opzioni = documento.getOpzioniPagamento();
         List<List<Pendenza>> opzioniPagabili = opzioni.stream()
                 .map(o -> o.getPendenze().stream()
@@ -528,40 +540,105 @@ public class PendenzaV2Controller implements PendenzeApi {
                         .toList())
                 .filter(pendenze -> !pendenze.isEmpty())
                 .toList();
-        if (opzioniPagabili.size() > 1) {
-            throw new ValidazioneNonSuperataException("il documento [" + numeroDocumento + "] ha "
-                    + opzioniPagabili.size() + " opzioni di pagamento ancora con rate pagabili: questo wrapper "
-                    + "gestisce solo documenti con esattamente un'opzione pagabile (quelli creati da questa stessa "
-                    + "API)");
-        }
-        List<Pendenza> ratePagabili = opzioniPagabili.isEmpty() ? List.of() : opzioniPagabili.get(0);
-        if (ratePagabili.isEmpty()) {
-            throw new AvvisoDocumentoNonDisponibileException("Non sono state trovate pendenze da includere nella "
-                    + "stampa del documento [IDA2A: " + applicazioneCorrente.getCodApplicazione() + " | CodDocumento: "
-                    + numeroDocumento + "].");
-        }
-        for (Pendenza rata : ratePagabili) {
-            if (AvvisoPdfPayloadMapper.isPendenzaMbt(rata)) {
-                throw new AvvisoMbtException(
-                        "Stampa Documento non disponibile: sono presenti dei pagamenti di Marca da Bollo");
-            }
-            if (AvvisoPdfPayloadMapper.isAnagraficaDebitoreAssente(rata)) {
-                throw new AvvisoAnagraficaAssenteException(
-                        "Avviso PDF non disponibile: anagrafica del debitore assente.");
-            }
-        }
 
-        PaymentNotice payload = ratePagabili.size() == 1
-                ? avvisoPdfPayloadMapper.toPaymentNotice(ratePagabili.get(0), null, null, null, null)
-                : avvisoPdfPayloadMapper.toPaymentNoticeRate(ratePagabili);
+        java.util.function.Consumer<OutputStream> chiamataStampe;
+        if (opzioniPagabili.size() > 1) {
+            if (richiedeBilingue(linguaSecondaria)) {
+                throw new AvvisoDocumentoNonDisponibileException("Avviso bilingue non disponibile per il documento ["
+                        + numeroDocumento + "]: con piu' di un'opzione di pagamento pagabile (soglie o violazione "
+                        + "CdS) nessuna causale tradotta e' associabile a una singola pendenza rappresentativa.");
+            }
+            if (AvvisoPdfPayloadMapper.sonoRidottoEScontato(opzioniPagabili)) {
+                verificaMbtEAnagrafica(opzioniPagabili.stream().map(o -> o.get(0)).toList());
+                var payload = avvisoPdfPayloadMapper.toCdsViolation(opzioniPagabili);
+                chiamataStampe = output -> stampeClient.streamCdsViolation(payload, output);
+            } else if (AvvisoPdfPayloadMapper.sonoTutteSoglie(opzioniPagabili)) {
+                List<Pendenza> soglie = opzioniPagabili.stream().map(o -> o.get(0)).toList();
+                verificaMbtEAnagrafica(soglie);
+                PaymentNotice payload = avvisoPdfPayloadMapper.toPaymentNoticeSoglie(soglie);
+                chiamataStampe = output -> stampeClient.streamPaymentNotice(payload, output);
+            } else {
+                throw new ValidazioneNonSuperataException("il documento [" + numeroDocumento + "] ha "
+                        + opzioniPagabili.size() + " opzioni di pagamento ancora con rate pagabili: questo wrapper "
+                        + "gestisce solo documenti con esattamente un'opzione pagabile (quelli creati da questa "
+                        + "stessa API)");
+            }
+        } else {
+            List<Pendenza> ratePagabili = opzioniPagabili.isEmpty() ? List.of() : opzioniPagabili.get(0);
+            if (ratePagabili.isEmpty()) {
+                throw new AvvisoDocumentoNonDisponibileException("Non sono state trovate pendenze da includere "
+                        + "nella stampa del documento [IDA2A: " + applicazioneCorrente.getCodApplicazione()
+                        + " | CodDocumento: " + numeroDocumento + "].");
+            }
+            verificaMbtEAnagrafica(ratePagabili);
+            PaymentNotice payload;
+            if (ratePagabili.size() == 1) {
+                Pendenza pendenza = ratePagabili.get(0);
+                ParametriBilingue bilingue = risolviParametriBilingue(linguaSecondaria, pendenza);
+                payload = avvisoPdfPayloadMapper.toPaymentNotice(pendenza, bilingue.linguaSecondaria(),
+                        bilingue.causaleTradotta(), bilingue.informativaImporto(),
+                        bilingue.informativaImportoTradotta());
+            } else {
+                if (richiedeBilingue(linguaSecondaria)) {
+                    throw new AvvisoDocumentoNonDisponibileException("Avviso bilingue non disponibile per il "
+                            + "documento [" + numeroDocumento + "]: con piu' di una rata pagabile nessuna causale "
+                            + "tradotta e' associabile a una singola rata rappresentativa.");
+                }
+                payload = avvisoPdfPayloadMapper.toPaymentNoticeRate(ratePagabili);
+            }
+            chiamataStampe = output -> stampeClient.streamPaymentNotice(payload, output);
+        }
         ByteArrayOutputStream output = new ByteArrayOutputStream();
-        externalCallMetricsRecorder.record("stampe", "payment_notice",
-                () -> stampeClient.streamPaymentNotice(payload, output));
+        externalCallMetricsRecorder.record("stampe", "payment_notice", () -> chiamataStampe.accept(output));
         return ResponseEntity.ok()
                 .contentType(MediaType.APPLICATION_PDF)
                 .header(HttpHeaders.CONTENT_DISPOSITION,
                         "attachment; filename=\"" + idDominio + "_" + documento.getCodDocumento() + ".pdf\"")
                 .body(new ByteArrayResource(output.toByteArray()));
+    }
+
+    private static boolean richiedeBilingue(LinguaSecondaria linguaSecondaria) {
+        return linguaSecondaria != null && linguaSecondaria != LinguaSecondaria.FALSE;
+    }
+
+    /**
+     * Causale/informativa tradotte della pendenza, dalla sua {@code proprieta} persistita da
+     * {@link #addPendenza} — nessun parametro di richiesta per questi valori in questo schema.
+     * 422 se {@code linguaSecondaria} e' richiesta ma {@code linguaSecondariaCausale} non e'
+     * presente. {@code informativaImporto} (italiano) e' risolto anche senza bilingue.
+     */
+    private ParametriBilingue risolviParametriBilingue(LinguaSecondaria linguaSecondaria, Pendenza pendenza) {
+        ProprietaPendenza proprieta = pendenzaV2Mapper.toProprietaPendenzaDto(pendenza.getProprieta());
+        String informativaImporto = proprieta == null ? null : proprieta.getInformativaImportoAvviso();
+        if (!richiedeBilingue(linguaSecondaria)) {
+            return new ParametriBilingue(null, null, informativaImporto, null);
+        }
+        String causaleTradotta = proprieta == null ? null : proprieta.getLinguaSecondariaCausale();
+        if (causaleTradotta == null || causaleTradotta.isBlank()) {
+            throw new AvvisoDocumentoNonDisponibileException("Avviso bilingue non disponibile per la pendenza ["
+                    + pendenza.getIdPendenza() + "]: nessuna causale tradotta "
+                    + "('proprieta.linguaSecondariaCausale') persistita.");
+        }
+        String informativaImportoTradotta = proprieta.getLinguaSecondariaInformativaImportoAvviso();
+        return new ParametriBilingue(it.govpay.pendenze.api.model.LinguaSecondaria.valueOf(linguaSecondaria.name()),
+                causaleTradotta, informativaImporto, informativaImportoTradotta);
+    }
+
+    private record ParametriBilingue(it.govpay.pendenze.api.model.LinguaSecondaria linguaSecondaria,
+            String causaleTradotta, String informativaImporto, String informativaImportoTradotta) {
+    }
+
+    private static void verificaMbtEAnagrafica(List<Pendenza> pendenze) {
+        for (Pendenza pendenza : pendenze) {
+            if (AvvisoPdfPayloadMapper.isPendenzaMbt(pendenza)) {
+                throw new AvvisoMbtException(
+                        "Stampa Documento non disponibile: sono presenti dei pagamenti di Marca da Bollo");
+            }
+            if (AvvisoPdfPayloadMapper.isAnagraficaDebitoreAssente(pendenza)) {
+                throw new AvvisoAnagraficaAssenteException(
+                        "Avviso PDF non disponibile: anagrafica del debitore assente.");
+            }
+        }
     }
 
     private it.govpay.pendenze.v2.api.model.Pendenza costruisciDto(Pendenza entity) {

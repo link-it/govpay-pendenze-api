@@ -359,6 +359,178 @@ class AddPendenzaControllerTest {
     }
 
     @Test
+    @DisplayName("creazione con documento+soglia ENTRO: crea un'opzione SOLUZIONE_UNICA_ENTRO (201), giorni dalla soglia")
+    void creaConDocumentoESogliaEntroCreaSoluzioneUnicaEntro() throws Exception {
+        String corpo = corpoConSoglia("sanzione ridotta", 70.00, "voce-entro-1", "DOC-ENTRO-1", "ENTRO", 5);
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-entro-1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpo))
+                .andExpect(status().isCreated());
+
+        inTransazioneDiLettura(() -> {
+            Pendenza pendenza = pendenzaRepository.findByIdApplicazioneAndIdPendenzaAndOpzionePagamentoIsNotNull(
+                    idApplicazione, "pend-entro-1").orElseThrow();
+            OpzionePagamento opzione = pendenza.getOpzionePagamento();
+            org.junit.jupiter.api.Assertions.assertEquals(TipologiaOpzionePagamento.SOLUZIONE_UNICA_ENTRO,
+                    opzione.getTipologia());
+            org.junit.jupiter.api.Assertions.assertEquals(5, opzione.getGiorni());
+            return null;
+        });
+    }
+
+    @Test
+    @DisplayName("creazione con documento+soglia OLTRE: crea un'opzione SOLUZIONE_UNICA_OLTRE (201)")
+    void creaConDocumentoESogliaOltreCreaSoluzioneUnicaOltre() throws Exception {
+        String corpo = corpoConSoglia("sanzione intera", 100.00, "voce-oltre-1", "DOC-OLTRE-1", "OLTRE", 5);
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-oltre-1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpo))
+                .andExpect(status().isCreated());
+
+        inTransazioneDiLettura(() -> {
+            Pendenza pendenza = pendenzaRepository.findByIdApplicazioneAndIdPendenzaAndOpzionePagamentoIsNotNull(
+                    idApplicazione, "pend-oltre-1").orElseThrow();
+            org.junit.jupiter.api.Assertions.assertEquals(TipologiaOpzionePagamento.SOLUZIONE_UNICA_OLTRE,
+                    pendenza.getOpzionePagamento().getTipologia());
+            return null;
+        });
+    }
+
+    @Test
+    @DisplayName("creazione con documento+soglia RIDOTTO (violazione CdS): crea un'opzione SOLUZIONE_UNICA_RIDOTTO "
+            + "(201), 'giorni' ignorato anche se presente nel body")
+    void creaConDocumentoESogliaRidottoCreaSoluzioneUnicaRidottoIgnorandoGiorni() throws Exception {
+        String corpo = corpoConSoglia("sanzione CdS ridotta", 70.00, "voce-ridotto-1", "DOC-RIDOTTO-1", "RIDOTTO", 5);
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-ridotto-1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpo))
+                .andExpect(status().isCreated());
+
+        inTransazioneDiLettura(() -> {
+            Pendenza pendenza = pendenzaRepository.findByIdApplicazioneAndIdPendenzaAndOpzionePagamentoIsNotNull(
+                    idApplicazione, "pend-ridotto-1").orElseThrow();
+            OpzionePagamento opzione = pendenza.getOpzionePagamento();
+            org.junit.jupiter.api.Assertions.assertEquals(TipologiaOpzionePagamento.SOLUZIONE_UNICA_RIDOTTO,
+                    opzione.getTipologia());
+            org.junit.jupiter.api.Assertions.assertNull(opzione.getGiorni());
+            return null;
+        });
+    }
+
+    @Test
+    @DisplayName("creazione con documento+soglia SCONTATO (violazione CdS): crea un'opzione SOLUZIONE_UNICA_SCONTATO "
+            + "(201)")
+    void creaConDocumentoESogliaScontatoCreaSoluzioneUnicaScontato() throws Exception {
+        String corpo = corpoConSoglia("sanzione CdS scontata", 100.00, "voce-scontato-1", "DOC-SCONTATO-1",
+                "SCONTATO", 5);
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-scontato-1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpo))
+                .andExpect(status().isCreated());
+
+        inTransazioneDiLettura(() -> {
+            Pendenza pendenza = pendenzaRepository.findByIdApplicazioneAndIdPendenzaAndOpzionePagamentoIsNotNull(
+                    idApplicazione, "pend-scontato-1").orElseThrow();
+            org.junit.jupiter.api.Assertions.assertEquals(TipologiaOpzionePagamento.SOLUZIONE_UNICA_SCONTATO,
+                    pendenza.getOpzionePagamento().getTipologia());
+            return null;
+        });
+    }
+
+    @Test
+    @DisplayName("seconda soglia complementare (OLTRE) sullo stesso documento (prima ENTRO): completa la coppia "
+            + "aggiungendo una SECONDA opzione, invece di 400")
+    void secondaSogliaOltreSuDocumentoEntroCompletaLaCoppia() throws Exception {
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-coppia-eo-1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpoConSoglia("sanzione ridotta", 70.00, "voce-coppia-eo-1", "DOC-COPPIA-EO", "ENTRO", 5)))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-coppia-eo-2")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpoConSoglia("sanzione intera", 100.00, "voce-coppia-eo-2", "DOC-COPPIA-EO", "OLTRE", 5)))
+                .andExpect(status().isCreated());
+
+        inTransazioneDiLettura(() -> {
+            PosizioneDebitoria posizione = posizioneDebitoriaRepository
+                    .findByIdApplicazioneAndIdDominioAndCodDocumento(idApplicazione, idDominio, "DOC-COPPIA-EO")
+                    .orElseThrow();
+            org.junit.jupiter.api.Assertions.assertEquals(2, posizione.getOpzioniPagamento().size());
+            var tipologie = posizione.getOpzioniPagamento().stream()
+                    .map(OpzionePagamento::getTipologia).collect(java.util.stream.Collectors.toSet());
+            org.junit.jupiter.api.Assertions.assertEquals(
+                    java.util.Set.of(TipologiaOpzionePagamento.SOLUZIONE_UNICA_ENTRO,
+                            TipologiaOpzionePagamento.SOLUZIONE_UNICA_OLTRE),
+                    tipologie);
+            posizione.getOpzioniPagamento()
+                    .forEach(o -> org.junit.jupiter.api.Assertions.assertEquals(1, o.getPendenze().size()));
+            return null;
+        });
+    }
+
+    @Test
+    @DisplayName("una TERZA soglia sullo stesso documento (coppia ENTRO/OLTRE gia' completa): 400")
+    void terzaSogliaSuCoppiaGiaCompletaRestituisce400() throws Exception {
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-coppia-eo3-1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpoConSoglia("sanzione ridotta", 70.00, "voce-coppia-eo3-1", "DOC-COPPIA-EO3", "ENTRO", 5)))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-coppia-eo3-2")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpoConSoglia("sanzione intera", 100.00, "voce-coppia-eo3-2", "DOC-COPPIA-EO3", "OLTRE", 5)))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-coppia-eo3-3")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpoConSoglia("sanzione in piu'", 50.00, "voce-coppia-eo3-3", "DOC-COPPIA-EO3", "ENTRO", 10)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("documento.soglia RIDOTTO senza 'giorni' nel body: 201 (non e' un valore ammesso per questa "
+            + "tipologia, non e' richiesto)")
+    void creaConDocumentoESogliaRidottoSenzaGiorniNelBodyRestituisce201() throws Exception {
+        String corpo = corpoConSogliaSenzaGiorni("sanzione CdS ridotta", 70.00, "voce-ridotto-ng-1",
+                "DOC-RIDOTTO-NG-1", "RIDOTTO");
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-ridotto-ng-1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpo))
+                .andExpect(status().isCreated());
+
+        inTransazioneDiLettura(() -> {
+            Pendenza pendenza = pendenzaRepository.findByIdApplicazioneAndIdPendenzaAndOpzionePagamentoIsNotNull(
+                    idApplicazione, "pend-ridotto-ng-1").orElseThrow();
+            OpzionePagamento opzione = pendenza.getOpzionePagamento();
+            org.junit.jupiter.api.Assertions.assertEquals(TipologiaOpzionePagamento.SOLUZIONE_UNICA_RIDOTTO,
+                    opzione.getTipologia());
+            org.junit.jupiter.api.Assertions.assertNull(opzione.getGiorni());
+            return null;
+        });
+    }
+
+    @Test
+    @DisplayName("documento.soglia ENTRO senza 'giorni' nel body: 400 (obbligatorio per questa tipologia)")
+    void creaConDocumentoESogliaEntroSenzaGiorniNelBodyRestituisce400() throws Exception {
+        String corpo = corpoConSogliaSenzaGiorni("sanzione ridotta", 70.00, "voce-entro-ng-1", "DOC-ENTRO-NG-1",
+                "ENTRO");
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-entro-ng-1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpo))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("documento.rata e documento.soglia insieme nello stesso body: 400")
+    void rataESogliaInsiemeRestituisce400() throws Exception {
+        String corpo = corpoConRataESoglia("non valido", 10.00, "voce-rata-soglia", "DOC-RATA-SOGLIA", 1, "ENTRO", 5);
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-rata-soglia")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpo))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     @DisplayName("update di una pendenza NON_ESEGUITO esistente: 200, non 201")
     void updatePendenzaNonEseguitaRestituisce200() throws Exception {
         mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-upd-1")
@@ -572,6 +744,61 @@ class AddPendenzaControllerTest {
                 "codEntrata": "DIRITTI_SEGRETERIA" } ]
                 }
                 """.formatted(ID_DOMINIO, causale, importo, identificativo, rata, idVocePendenza, importo);
+    }
+
+    private String corpoConSoglia(String causale, double importo, String idVocePendenza, String identificativo,
+            String tipoSoglia, int giorni) {
+        return """
+                {
+                  "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                  "idDominio": "%s",
+                  "causale": "%s",
+                  "soggettoPagatore": { "tipo": "F", "identificativo": "RSSMRA80A01H501U", "anagrafica": "Mario Rossi" },
+                  "importo": %s,
+                  "documento": { "identificativo": "%s", "descrizione": "Documento di test",
+                    "soglia": { "tipo": "%s", "giorni": %s } },
+                  "voci": [ { "idVocePendenza": "%s", "importo": %s, "descrizione": "test", \
+                "codEntrata": "DIRITTI_SEGRETERIA" } ]
+                }
+                """.formatted(ID_DOMINIO, causale, importo, identificativo, tipoSoglia, giorni, idVocePendenza,
+                importo);
+    }
+
+    /** Stesso corpo di {@link #corpoConSoglia}, ma senza il campo {@code giorni} nella soglia. */
+    private String corpoConSogliaSenzaGiorni(String causale, double importo, String idVocePendenza,
+            String identificativo, String tipoSoglia) {
+        return """
+                {
+                  "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                  "idDominio": "%s",
+                  "causale": "%s",
+                  "soggettoPagatore": { "tipo": "F", "identificativo": "RSSMRA80A01H501U", "anagrafica": "Mario Rossi" },
+                  "importo": %s,
+                  "documento": { "identificativo": "%s", "descrizione": "Documento di test",
+                    "soglia": { "tipo": "%s" } },
+                  "voci": [ { "idVocePendenza": "%s", "importo": %s, "descrizione": "test", \
+                "codEntrata": "DIRITTI_SEGRETERIA" } ]
+                }
+                """.formatted(ID_DOMINIO, causale, importo, identificativo, tipoSoglia, idVocePendenza, importo);
+    }
+
+    /** {@code rata} e {@code soglia} insieme nello stesso body: 400. */
+    private String corpoConRataESoglia(String causale, double importo, String idVocePendenza, String identificativo,
+            int rata, String tipoSoglia, int giorni) {
+        return """
+                {
+                  "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                  "idDominio": "%s",
+                  "causale": "%s",
+                  "soggettoPagatore": { "tipo": "F", "identificativo": "RSSMRA80A01H501U", "anagrafica": "Mario Rossi" },
+                  "importo": %s,
+                  "documento": { "identificativo": "%s", "descrizione": "Documento di test", "rata": %s,
+                    "soglia": { "tipo": "%s", "giorni": %s } },
+                  "voci": [ { "idVocePendenza": "%s", "importo": %s, "descrizione": "test", \
+                "codEntrata": "DIRITTI_SEGRETERIA" } ]
+                }
+                """.formatted(ID_DOMINIO, causale, importo, identificativo, rata, tipoSoglia, giorni,
+                idVocePendenza, importo);
     }
 
     private String corpoConDocumentoSenzaRata(String causale, double importo, String idVocePendenza,

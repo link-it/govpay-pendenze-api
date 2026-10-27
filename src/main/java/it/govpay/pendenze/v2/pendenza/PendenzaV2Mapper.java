@@ -302,6 +302,10 @@ public class PendenzaV2Mapper {
             case PIANO_RATEALE -> dto.setRata(entity.getNumeroRata());
             case SOLUZIONE_UNICA_ENTRO -> dto.setSoglia(toVincoloPagamento(TipoSogliaVincoloPagamento.ENTRO, opzione));
             case SOLUZIONE_UNICA_OLTRE -> dto.setSoglia(toVincoloPagamento(TipoSogliaVincoloPagamento.OLTRE, opzione));
+            case SOLUZIONE_UNICA_RIDOTTO ->
+                dto.setSoglia(toVincoloPagamento(TipoSogliaVincoloPagamento.RIDOTTO, opzione));
+            case SOLUZIONE_UNICA_SCONTATO ->
+                dto.setSoglia(toVincoloPagamento(TipoSogliaVincoloPagamento.SCONTATO, opzione));
             case SOLUZIONE_UNICA -> {
                 // Nessun rata/soglia: un vero documento con un'unica soluzione, nessuna
                 // informazione aggiuntiva da riportare.
@@ -389,7 +393,7 @@ public class PendenzaV2Mapper {
         }
     }
 
-    private ProprietaPendenza toProprietaPendenzaDto(String json) {
+    ProprietaPendenza toProprietaPendenzaDto(String json) {
         if (json == null || json.isBlank()) {
             return null;
         }

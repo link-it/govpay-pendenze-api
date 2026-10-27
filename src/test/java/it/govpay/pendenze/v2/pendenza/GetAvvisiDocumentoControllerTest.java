@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -100,22 +101,26 @@ class GetAvvisiDocumentoControllerTest {
     private static HttpServer stampeStub;
     private static final byte[] FINTO_PDF = "%PDF-finto-per-test".getBytes(StandardCharsets.UTF_8);
     private static final AtomicReference<String> ULTIMO_PAYLOAD = new AtomicReference<>();
+    private static final AtomicReference<String> ULTIMO_PATH = new AtomicReference<>();
     private static final AtomicInteger CHIAMATE = new AtomicInteger();
 
     @BeforeAll
     static void avviaStampeStub() throws IOException {
         stampeStub = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
-        stampeStub.createContext("/standard", exchange -> {
+        com.sun.net.httpserver.HttpHandler handler = exchange -> {
             try (InputStream is = exchange.getRequestBody()) {
                 ULTIMO_PAYLOAD.set(new String(is.readAllBytes(), StandardCharsets.UTF_8));
             }
+            ULTIMO_PATH.set(exchange.getRequestURI().getPath());
             CHIAMATE.incrementAndGet();
             exchange.getResponseHeaders().add("Content-Type", "application/pdf");
             exchange.sendResponseHeaders(200, FINTO_PDF.length);
             try (OutputStream os = exchange.getResponseBody()) {
                 os.write(FINTO_PDF);
             }
-        });
+        };
+        stampeStub.createContext("/standard", handler);
+        stampeStub.createContext("/cds_violation", handler);
         stampeStub.start();
     }
 
@@ -180,6 +185,7 @@ class GetAvvisiDocumentoControllerTest {
     @BeforeEach
     void creaAnagrafiche() {
         ULTIMO_PAYLOAD.set(null);
+        ULTIMO_PATH.set(null);
         CHIAMATE.set(0);
 
         UtenzaEntity utenza = new UtenzaEntity();
@@ -384,6 +390,111 @@ class GetAvvisiDocumentoControllerTest {
     }
 
     @Test
+    @DisplayName("due opzioni alternative (non soglia) entrambe ancora pagabili: 400, questo wrapper gestisce "
+            + "solo un'opzione pagabile per documento")
+    void dueOpzioniAlternativeNonSogliaAncoraPagabili400() throws Exception {
+        creaViaV3Nativo("DOC-ALT-400", """
+                [
+                  { "tipologia": "SOLUZIONE_UNICA", "pendenze": [ %s ] },
+                  { "tipologia": "PIANO_RATEALE", "pendenze": [ %s, %s ] }
+                ]
+                """.formatted(pendenzaV3("DOC-ALT-400-A", null),
+                pendenzaV3("DOC-ALT-400-B-r1", 1), pendenzaV3("DOC-ALT-400-B-r2", 2)));
+
+        mockMvc.perform(get(PATH, ID_DOMINIO, "DOC-ALT-400").accept(MediaType.APPLICATION_PDF))
+                .andExpect(status().isBadRequest());
+        assertEquals(0, CHIAMATE.get());
+    }
+
+    @Test
+    @DisplayName("coppia SOLUZIONE_UNICA_ENTRO/OLTRE entrambe ancora pagabili: 200, un solo avviso con "
+            + "'reduced_payments' a due elementi, non 400")
+    void coppiaEntroOltreProduceReducedPaymentsInveceDi400() throws Exception {
+        creaViaV3Nativo("DOC-SOGLIE", """
+                [
+                  { "tipologia": "SOLUZIONE_UNICA_ENTRO", "giorni": 5, "pendenze": [ %s ] },
+                  { "tipologia": "SOLUZIONE_UNICA_OLTRE", "giorni": 5, "pendenze": [ %s ] }
+                ]
+                """.formatted(pendenzaV3("DOC-SOGLIE-ridotta", null), pendenzaV3("DOC-SOGLIE-intera", null)));
+
+        mockMvc.perform(get(PATH, ID_DOMINIO, "DOC-SOGLIE").accept(MediaType.APPLICATION_PDF))
+                .andExpect(status().isOk());
+
+        JsonNode payload = ultimoPayload();
+        assertTrue(payload.get("full") == null || payload.get("full").isNull());
+        JsonNode reducedPayments = payload.get("reduced_payments");
+        assertEquals(2, reducedPayments.size());
+        assertEquals("ENTRO", reducedPayments.get(0).get("threshold_type").asString());
+        assertEquals("OLTRE", reducedPayments.get(1).get("threshold_type").asString());
+    }
+
+    @Test
+    @DisplayName("sola opzione SOLUZIONE_UNICA_RIDOTTO (creata da questo stesso wrapper, senza il suo "
+            + "SCONTATO), nessuna coppia completa: 200, 'full' su /standard, non /cds_violation")
+    void solaOpzioneRidottoSenzaScontatoProduceFull() throws Exception {
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-cds-solo-ridotto")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpoConSoglia("pend-cds-solo-ridotto", "DOC-CDS-SOLO", "RIDOTTO", 70.00)))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(get(PATH, ID_DOMINIO, "DOC-CDS-SOLO").accept(MediaType.APPLICATION_PDF))
+                .andExpect(status().isOk());
+
+        assertEquals("/standard", ULTIMO_PATH.get());
+        JsonNode payload = ultimoPayload();
+        assertNotNull(payload.get("full"));
+        assertFalse(payload.get("full").isNull());
+    }
+
+    @Test
+    @DisplayName("coppia SOLUZIONE_UNICA_RIDOTTO/SCONTATO (violazione CdS) entrambe ancora pagabili: 200, "
+            + "chiamata a POST /cds_violation invece di /standard")
+    void coppiaRidottoScontatoChiamaCdsViolation() throws Exception {
+        creaViaV3Nativo("DOC-CDS", """
+                [
+                  { "tipologia": "SOLUZIONE_UNICA_RIDOTTO", "pendenze": [ %s ] },
+                  { "tipologia": "SOLUZIONE_UNICA_SCONTATO", "pendenze": [ %s ] }
+                ]
+                """.formatted(pendenzaV3("DOC-CDS-ridotto", null), pendenzaV3("DOC-CDS-scontato", null)));
+
+        mockMvc.perform(get(PATH, ID_DOMINIO, "DOC-CDS").accept(MediaType.APPLICATION_PDF))
+                .andExpect(status().isOk());
+
+        assertEquals("/cds_violation", ULTIMO_PATH.get());
+    }
+
+    /** Creazione diretta con {@code POST /posizioni-debitorie/{idA2A}} (v3-nativo). */
+    private void creaViaV3Nativo(String codDocumento, String opzioniPagamentoJson) throws Exception {
+        String body = """
+                {
+                  "codDocumento": "%s",
+                  "idDominio": "%s",
+                  "descrizione": "test getAvvisiDocumento con piu' opzioni",
+                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "RSSMRA80A01H501U", "anagrafica": "Mario Rossi" } ],
+                  "opzioniPagamento": %s
+                }
+                """.formatted(codDocumento, ID_DOMINIO, opzioniPagamentoJson);
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}", PRINCIPAL)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isCreated());
+    }
+
+    private static String pendenzaV3(String idPendenza, Integer rata) {
+        String campoRata = rata == null ? "" : "\"rata\": " + rata + ",";
+        return """
+                {
+                  "idPendenza": "%s",
+                  "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                  %s
+                  "importo": 10.00,
+                  "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "%s-voce",
+                              "importo": 10.00, "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
+                }
+                """.formatted(idPendenza, campoRata, idPendenza);
+    }
+
+    @Test
     @DisplayName("documento inesistente: 404")
     void documentoInesistente404() throws Exception {
         mockMvc.perform(get(PATH, ID_DOMINIO, "DOC-NON-ESISTE").accept(MediaType.APPLICATION_PDF))
@@ -418,6 +529,58 @@ class GetAvvisiDocumentoControllerTest {
                 .andExpect(status().isOk());
         JsonNode secondLanguage = ultimoPayload().get("second_language");
         assertTrue(secondLanguage == null || secondLanguage.isNull());
+    }
+
+    @Test
+    @DisplayName("linguaSecondaria con causaleTradotta persistita su proprieta: 200, second_language popolato")
+    void linguaSecondariaConProprietaPersistitaProduceSecondLanguage() throws Exception {
+        String proprieta = """
+                { "linguaSecondariaCausale": "Translated reason", "informativaImportoAvviso": "nota",
+                  "linguaSecondariaInformativaImportoAvviso": "note" }
+                """;
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-su-bil-1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpoConProprieta("pend-su-bil-1", "DOC-SU-BIL-1", proprieta)))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(get(PATH, ID_DOMINIO, "DOC-SU-BIL-1").param("linguaSecondaria", "en")
+                .accept(MediaType.APPLICATION_PDF))
+                .andExpect(status().isOk());
+
+        JsonNode payload = ultimoPayload();
+        assertEquals("nota", payload.get("informativa_importo").asString());
+        JsonNode secondLanguage = payload.get("second_language");
+        assertNotNull(secondLanguage);
+        assertEquals("Translated reason", secondLanguage.get("title").asString());
+        assertEquals("note", secondLanguage.get("informativa_importo").asString());
+    }
+
+    @Test
+    @DisplayName("linguaSecondaria su piano rateale con piu' rate pagabili: 422, nessuna chiamata a govpay-stampe")
+    void linguaSecondariaSuPianoRatealeConPiuRatePagabili422() throws Exception {
+        creaPianoRateale("DOC-PR-BIL-1", 2);
+
+        mockMvc.perform(get(PATH, ID_DOMINIO, "DOC-PR-BIL-1").param("linguaSecondaria", "en")
+                .accept(MediaType.APPLICATION_PDF))
+                .andExpect(status().isUnprocessableContent());
+        assertEquals(0, CHIAMATE.get());
+    }
+
+    @Test
+    @DisplayName("linguaSecondaria sulla coppia ENTRO/OLTRE: 422, nessuna chiamata a govpay-stampe")
+    void linguaSecondariaSuCoppiaEntroOltre422() throws Exception {
+        creaViaV3Nativo("DOC-SOGLIE-BIL-1", """
+                [
+                  { "tipologia": "SOLUZIONE_UNICA_ENTRO", "giorni": 5, "pendenze": [ %s ] },
+                  { "tipologia": "SOLUZIONE_UNICA_OLTRE", "giorni": 5, "pendenze": [ %s ] }
+                ]
+                """.formatted(pendenzaV3("DOC-SOGLIE-BIL-1-ridotta", null),
+                pendenzaV3("DOC-SOGLIE-BIL-1-intera", null)));
+
+        mockMvc.perform(get(PATH, ID_DOMINIO, "DOC-SOGLIE-BIL-1").param("linguaSecondaria", "en")
+                .accept(MediaType.APPLICATION_PDF))
+                .andExpect(status().isUnprocessableContent());
+        assertEquals(0, CHIAMATE.get());
     }
 
     @Test
@@ -482,6 +645,41 @@ class GetAvvisiDocumentoControllerTest {
                 "codEntrata": "DIRITTI_SEGRETERIA" } ]
                 }
                 """.formatted(ID_DOMINIO, idPendenza, identificativoDocumento, campoRata, idPendenza);
+    }
+
+    /** Stesso corpo di {@link #corpo}, con {@code proprieta} (JSON grezzo) sul documento. */
+    private String corpoConProprieta(String idPendenza, String identificativoDocumento, String proprietaJson) {
+        return """
+                {
+                  "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                  "idDominio": "%s",
+                  "causale": "causale %s",
+                  "soggettoPagatore": { "tipo": "F", "identificativo": "RSSMRA80A01H501U", "anagrafica": "Mario Rossi" },
+                  "importo": 10.00,
+                  "documento": { "identificativo": "%s", "descrizione": "Documento di test" },
+                  "proprieta": %s,
+                  "voci": [ { "idVocePendenza": "voce-%s", "importo": 10.00, "descrizione": "test", \
+                "codEntrata": "DIRITTI_SEGRETERIA" } ]
+                }
+                """.formatted(ID_DOMINIO, idPendenza, identificativoDocumento, proprietaJson, idPendenza);
+    }
+
+    private String corpoConSoglia(String idPendenza, String identificativoDocumento, String tipoSoglia,
+            double importo) {
+        return """
+                {
+                  "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                  "idDominio": "%s",
+                  "causale": "causale %s",
+                  "soggettoPagatore": { "tipo": "F", "identificativo": "RSSMRA80A01H501U", "anagrafica": "Mario Rossi" },
+                  "importo": %s,
+                  "documento": { "identificativo": "%s", "descrizione": "Documento di test",
+                    "soglia": { "tipo": "%s", "giorni": 5 } },
+                  "voci": [ { "idVocePendenza": "voce-%s", "importo": %s, "descrizione": "test", \
+                "codEntrata": "DIRITTI_SEGRETERIA" } ]
+                }
+                """.formatted(ID_DOMINIO, idPendenza, importo, identificativoDocumento, tipoSoglia, idPendenza,
+                importo);
     }
 
     private JsonNode ultimoPayload() {

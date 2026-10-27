@@ -29,6 +29,7 @@ import it.govpay.pendenze.entity.SoggettoDebitore;
 import it.govpay.pendenze.entity.VocePendenza;
 import it.govpay.pendenze.model.TipoSoggetto;
 import it.govpay.pendenze.model.TipologiaOpzionePagamento;
+import it.govpay.stampe.client.model.CdsViolation;
 import it.govpay.stampe.client.model.Languages;
 import it.govpay.stampe.client.model.PaymentNotice;
 import it.govpay.stampe.client.model.ThresholdType;
@@ -710,5 +711,134 @@ class AvvisoPdfPayloadMapperTest {
         PaymentNotice notice = mapper.toPaymentNoticeOpzioni(List.of(List.of(unicaA), List.of(unicaB)));
 
         assertThat(notice.getPostal()).isFalse();
+    }
+
+    // --- toPaymentNoticeSoglie: coppia ENTRO/OLTRE su una sola pagina, reduced_payments a due elementi ---
+
+    @Test
+    void toPaymentNoticeSoglieRifiutaListaVuota() {
+        assertThatThrownBy(() -> mapper.toPaymentNoticeSoglie(List.of()))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> mapper.toPaymentNoticeSoglie(null))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void toPaymentNoticeSoglieCombinaEntroEOltreInReducedPaymentsAUnicaPagina() {
+        DominioEntity dominio = dominio();
+        Pendenza oltre = pendenza(dominio, "Via Roma");
+        oltre.getOpzionePagamento().setTipologia(TipologiaOpzionePagamento.SOLUZIONE_UNICA_OLTRE);
+        oltre.getOpzionePagamento().setGiorni(5);
+        Pendenza entro = pendenza(dominio, "Via Roma");
+        entro.getOpzionePagamento().setTipologia(TipologiaOpzionePagamento.SOLUZIONE_UNICA_ENTRO);
+        entro.getOpzionePagamento().setGiorni(5);
+
+        PaymentNotice notice = mapper.toPaymentNoticeSoglie(List.of(oltre, entro));
+
+        assertThat(notice.getFull()).isNull();
+        assertThat(notice.getInstalments()).isEmpty();
+        assertThat(notice.getOptions()).isEmpty();
+        assertThat(notice.getReducedPayments()).hasSize(2);
+        assertThat(notice.getReducedPayments().get(0).getThresholdType()).isEqualTo(ThresholdType.ENTRO);
+        assertThat(notice.getReducedPayments().get(1).getThresholdType()).isEqualTo(ThresholdType.OLTRE);
+    }
+
+    @Test
+    void toPaymentNoticeSoglieOrdinaPerGiorniCrescenteAncheConTipologieInvertite() {
+        DominioEntity dominio = dominio();
+        Pendenza entro10 = pendenza(dominio, "Via Roma");
+        entro10.getOpzionePagamento().setTipologia(TipologiaOpzionePagamento.SOLUZIONE_UNICA_ENTRO);
+        entro10.getOpzionePagamento().setGiorni(10);
+        Pendenza oltre5 = pendenza(dominio, "Via Roma");
+        oltre5.getOpzionePagamento().setTipologia(TipologiaOpzionePagamento.SOLUZIONE_UNICA_OLTRE);
+        oltre5.getOpzionePagamento().setGiorni(5);
+
+        PaymentNotice notice = mapper.toPaymentNoticeSoglie(List.of(entro10, oltre5));
+
+        assertThat(notice.getReducedPayments().get(0).getThresholdType()).isEqualTo(ThresholdType.OLTRE);
+        assertThat(notice.getReducedPayments().get(0).getThresholdDays()).isEqualTo(5);
+        assertThat(notice.getReducedPayments().get(1).getThresholdType()).isEqualTo(ThresholdType.ENTRO);
+        assertThat(notice.getReducedPayments().get(1).getThresholdDays()).isEqualTo(10);
+    }
+
+    @Test
+    void sonoTutteSoglieVeroSoloSeOgniOpzioneHaUnaSolaPendenzaSoglia() {
+        DominioEntity dominio = dominio();
+        Pendenza entro = pendenza(dominio, "Via Roma");
+        entro.getOpzionePagamento().setTipologia(TipologiaOpzionePagamento.SOLUZIONE_UNICA_ENTRO);
+        entro.getOpzionePagamento().setGiorni(5);
+        Pendenza oltre = pendenza(dominio, "Via Roma");
+        oltre.getOpzionePagamento().setTipologia(TipologiaOpzionePagamento.SOLUZIONE_UNICA_OLTRE);
+        oltre.getOpzionePagamento().setGiorni(5);
+        Pendenza unicaNonSoglia = pendenza(dominio, "Via Roma");
+
+        assertThat(AvvisoPdfPayloadMapper.sonoTutteSoglie(List.of(List.of(entro), List.of(oltre)))).isTrue();
+        assertThat(AvvisoPdfPayloadMapper.sonoTutteSoglie(List.of(List.of(entro), List.of(unicaNonSoglia))))
+                .isFalse();
+
+        Pendenza rata2 = pendenza(dominio, "Via Roma");
+        rata2.setNumeroRata(2);
+        assertThat(AvvisoPdfPayloadMapper.sonoTutteSoglie(List.of(List.of(entro, rata2)))).isFalse();
+    }
+
+    // --- CdsViolation: coppia SOLUZIONE_UNICA_RIDOTTO/SCONTATO -> POST /cds_violation ---
+
+    @Test
+    void sonoRidottoEScontatoVeroSoloConLaCoppiaCompleta() {
+        DominioEntity dominio = dominio();
+        Pendenza ridotto = pendenza(dominio, "Via Roma");
+        ridotto.getOpzionePagamento().setTipologia(TipologiaOpzionePagamento.SOLUZIONE_UNICA_RIDOTTO);
+        Pendenza scontato = pendenza(dominio, "Via Roma");
+        scontato.getOpzionePagamento().setTipologia(TipologiaOpzionePagamento.SOLUZIONE_UNICA_SCONTATO);
+        Pendenza entro = pendenza(dominio, "Via Roma");
+        entro.getOpzionePagamento().setTipologia(TipologiaOpzionePagamento.SOLUZIONE_UNICA_ENTRO);
+        entro.getOpzionePagamento().setGiorni(5);
+
+        assertThat(AvvisoPdfPayloadMapper.sonoRidottoEScontato(List.of(List.of(ridotto), List.of(scontato))))
+                .isTrue();
+        assertThat(AvvisoPdfPayloadMapper.sonoRidottoEScontato(List.of(List.of(ridotto), List.of(entro))))
+                .isFalse();
+        assertThat(AvvisoPdfPayloadMapper.sonoRidottoEScontato(List.of(List.of(ridotto)))).isFalse();
+
+        Pendenza rata2 = pendenza(dominio, "Via Roma");
+        rata2.setOpzionePagamento(scontato.getOpzionePagamento());
+        rata2.setNumeroRata(2);
+        assertThat(AvvisoPdfPayloadMapper
+                .sonoRidottoEScontato(List.of(List.of(ridotto), List.of(scontato, rata2)))).isFalse();
+    }
+
+    @Test
+    void toCdsViolationMappaRidottoEScontatoSuDiscountedEReduced() {
+        DominioEntity dominio = dominio();
+        Pendenza ridotto = pendenza(dominio, "Via Roma");
+        ridotto.getOpzionePagamento().setTipologia(TipologiaOpzionePagamento.SOLUZIONE_UNICA_RIDOTTO);
+        ridotto.setImporto(70.0);
+        Pendenza scontato = pendenza(dominio, "Via Roma");
+        scontato.getOpzionePagamento().setTipologia(TipologiaOpzionePagamento.SOLUZIONE_UNICA_SCONTATO);
+        scontato.setImporto(100.0);
+
+        CdsViolation violazione = mapper.toCdsViolation(List.of(List.of(ridotto), List.of(scontato)));
+
+        assertThat(violazione.getReducedAmount().getAmount()).isEqualTo(70.0);
+        assertThat(violazione.getDiscountedAmount().getAmount()).isEqualTo(100.0);
+        assertThat(violazione.getCreditor().getFiscalCode()).isEqualTo(dominio.getCodDominio());
+        assertThat(violazione.getTitle()).isEqualTo("Diritti di segreteria");
+    }
+
+    @Test
+    void toCdsViolationPostaleSoloSeEntrambeLePendenzeHannoUnIbanPostale() {
+        DominioEntity dominio = dominio();
+        Pendenza ridotto = pendenza(dominio, "Via Roma");
+        ridotto.getOpzionePagamento().setTipologia(TipologiaOpzionePagamento.SOLUZIONE_UNICA_RIDOTTO);
+        primaVoce(ridotto).setIdIbanAccredito(10L);
+        when(ibanAccreditoRepository.findById(10L))
+                .thenReturn(Optional.of(iban("IT60X0542811101000000123456", true)));
+        Pendenza scontato = pendenza(dominio, "Via Roma");
+        scontato.getOpzionePagamento().setTipologia(TipologiaOpzionePagamento.SOLUZIONE_UNICA_SCONTATO);
+        // scontato senza IBAN postale: configurazione mista
+
+        CdsViolation violazione = mapper.toCdsViolation(List.of(List.of(ridotto), List.of(scontato)));
+
+        assertThat(violazione.getPostal()).isFalse();
     }
 }

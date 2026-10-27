@@ -157,9 +157,15 @@ public class PosizioneDebitoriaController implements PosizioniDebitorieApi {
      *
      * <p><b>Layout</b>: esattamente un'opzione stampabile produce lo stesso avviso di
      * {@code getStampaPendenza}/{@code getAvvisiDocumento} (rata unica se l'opzione ha una sola
-     * pendenza pagabile, cumulativo se ne ha piu' di una). Piu' di un'opzione stampabile
-     * produce un solo PDF con {@code PaymentNotice.options}, una pagina (o piu', se l'opzione
-     * ha piu' rate) per opzione, mai condivisa — vedi
+     * pendenza pagabile, cumulativo se ne ha piu' di una). Se le opzioni stampabili sono
+     * esattamente la coppia {@code SOLUZIONE_UNICA_RIDOTTO}/{@code _SCONTATO} (violazione del
+     * Codice della Strada), un PDF prodotto da {@code POST /cds_violation} di
+     * {@code govpay-stampe} — vedi {@link AvvisoPdfPayloadMapper#toCdsViolation}. Se sono
+     * esattamente la coppia {@code SOLUZIONE_UNICA_ENTRO}/{@code _OLTRE}, un solo PDF con
+     * {@code PaymentNotice.reducedPayments} a due elementi, stessa pagina — vedi
+     * {@link AvvisoPdfPayloadMapper#toPaymentNoticeSoglie}. Altrimenti, con piu' di un'opzione
+     * stampabile, un solo PDF con {@code PaymentNotice.options}, una pagina (o piu', se
+     * l'opzione ha piu' rate) per opzione, mai condivisa — vedi
      * {@link AvvisoPdfPayloadMapper#toPaymentNoticeOpzioni}. Marca da Bollo Telematica o
      * anagrafica debitore assente su QUALUNQUE pendenza stampabile di QUALUNQUE opzione fa
      * fallire l'intera stampa con 422.</p>
@@ -202,14 +208,23 @@ public class PosizioneDebitoriaController implements PosizioniDebitorieApi {
             }
         }
 
-        PaymentNotice payload;
+        java.util.function.Consumer<java.io.OutputStream> chiamataStampe;
         if (opzioni.size() == 1) {
             List<Pendenza> pendenzeOpzione = opzioni.get(0);
-            payload = pendenzeOpzione.size() == 1
+            PaymentNotice payload = pendenzeOpzione.size() == 1
                     ? avvisoPdfPayloadMapper.toPaymentNotice(pendenzeOpzione.get(0), null, null, null, null)
                     : avvisoPdfPayloadMapper.toPaymentNoticeRate(pendenzeOpzione);
+            chiamataStampe = output -> stampeClient.streamPaymentNotice(payload, output);
+        } else if (AvvisoPdfPayloadMapper.sonoRidottoEScontato(opzioni)) {
+            var payload = avvisoPdfPayloadMapper.toCdsViolation(opzioni);
+            chiamataStampe = output -> stampeClient.streamCdsViolation(payload, output);
+        } else if (AvvisoPdfPayloadMapper.sonoTutteSoglie(opzioni)) {
+            PaymentNotice payload = avvisoPdfPayloadMapper
+                    .toPaymentNoticeSoglie(opzioni.stream().map(o -> o.get(0)).toList());
+            chiamataStampe = output -> stampeClient.streamPaymentNotice(payload, output);
         } else {
-            payload = avvisoPdfPayloadMapper.toPaymentNoticeOpzioni(opzioni);
+            PaymentNotice payload = avvisoPdfPayloadMapper.toPaymentNoticeOpzioni(opzioni);
+            chiamataStampe = output -> stampeClient.streamPaymentNotice(payload, output);
         }
 
         currentResponse.setContentType(MediaType.APPLICATION_PDF_VALUE);
@@ -217,8 +232,7 @@ public class PosizioneDebitoriaController implements PosizioniDebitorieApi {
                 "attachment; filename=\"" + idPosizioneDebitoria + ".pdf\"");
         try {
             var output = currentResponse.getOutputStream();
-            externalCallMetricsRecorder.record("stampe", "payment_notice",
-                    () -> stampeClient.streamPaymentNotice(payload, output));
+            externalCallMetricsRecorder.record("stampe", "payment_notice", () -> chiamataStampe.accept(output));
             currentResponse.flushBuffer();
         } catch (IOException e) {
             throw new UncheckedIOException(e);

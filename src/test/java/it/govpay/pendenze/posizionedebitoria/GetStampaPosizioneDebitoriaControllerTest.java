@@ -100,22 +100,26 @@ class GetStampaPosizioneDebitoriaControllerTest {
     private static HttpServer stampeStub;
     private static final byte[] FINTO_PDF = "%PDF-finto-per-test".getBytes(StandardCharsets.UTF_8);
     private static final AtomicReference<String> ULTIMO_PAYLOAD = new AtomicReference<>();
+    private static final AtomicReference<String> ULTIMO_PATH = new AtomicReference<>();
     private static final AtomicInteger CHIAMATE = new AtomicInteger();
 
     @BeforeAll
     static void avviaStampeStub() throws IOException {
         stampeStub = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
-        stampeStub.createContext("/standard", exchange -> {
+        com.sun.net.httpserver.HttpHandler handler = exchange -> {
             try (InputStream is = exchange.getRequestBody()) {
                 ULTIMO_PAYLOAD.set(new String(is.readAllBytes(), StandardCharsets.UTF_8));
             }
+            ULTIMO_PATH.set(exchange.getRequestURI().getPath());
             CHIAMATE.incrementAndGet();
             exchange.getResponseHeaders().add("Content-Type", "application/pdf");
             exchange.sendResponseHeaders(200, FINTO_PDF.length);
             try (OutputStream os = exchange.getResponseBody()) {
                 os.write(FINTO_PDF);
             }
-        });
+        };
+        stampeStub.createContext("/standard", handler);
+        stampeStub.createContext("/cds_violation", handler);
         stampeStub.start();
     }
 
@@ -172,6 +176,7 @@ class GetStampaPosizioneDebitoriaControllerTest {
     @BeforeEach
     void creaAnagrafiche() {
         ULTIMO_PAYLOAD.set(null);
+        ULTIMO_PATH.set(null);
         CHIAMATE.set(0);
 
         UtenzaEntity utenza = new UtenzaEntity();
@@ -318,6 +323,39 @@ class GetStampaPosizioneDebitoriaControllerTest {
         assertNotNull(payload.get("full"));
         assertFalse(payload.get("full").isNull());
         assertTrue(payload.get("options") == null || payload.get("options").isEmpty());
+    }
+
+    @Test
+    @DisplayName("coppia SOLUZIONE_UNICA_ENTRO/OLTRE entrambe ancora pagabili: 200, un solo PDF con "
+            + "'reducedPayments' a due elementi, nessun 'options'")
+    void coppiaEntroOltreProduceReducedPaymentsSuUnaSolaPagina() throws Exception {
+        String idPosizioneDebitoria = creaConEntroEOltre("pos-stampa-soglie");
+
+        mockMvc.perform(get(PATH, PRINCIPAL, idPosizioneDebitoria).accept(MediaType.APPLICATION_PDF))
+                .andExpect(status().isOk());
+
+        JsonNode payload = ultimoPayload();
+        assertTrue(payload.get("full") == null || payload.get("full").isNull());
+        assertTrue(payload.get("options") == null || payload.get("options").isEmpty());
+        JsonNode reducedPayments = payload.get("reduced_payments");
+        assertEquals(2, reducedPayments.size());
+        assertEquals("ENTRO", reducedPayments.get(0).get("threshold_type").asText());
+        assertEquals("OLTRE", reducedPayments.get(1).get("threshold_type").asText());
+    }
+
+    @Test
+    @DisplayName("coppia SOLUZIONE_UNICA_RIDOTTO/SCONTATO (violazione CdS) entrambe ancora pagabili: 200, "
+            + "chiamata a POST /cds_violation invece di /standard")
+    void coppiaRidottoScontatoChiamaCdsViolation() throws Exception {
+        String idPosizioneDebitoria = creaConRidottoEScontato("pos-stampa-cds");
+
+        mockMvc.perform(get(PATH, PRINCIPAL, idPosizioneDebitoria).accept(MediaType.APPLICATION_PDF))
+                .andExpect(status().isOk());
+
+        assertEquals("/cds_violation", ULTIMO_PATH.get());
+        JsonNode payload = ultimoPayload();
+        assertEquals(70.0, payload.get("reduced_amount").get("amount").asDouble());
+        assertEquals(100.0, payload.get("discounted_amount").get("amount").asDouble());
     }
 
     @Test
@@ -478,6 +516,66 @@ class GetStampaPosizioneDebitoriaControllerTest {
                 """.formatted(codDocumento, ID_DOMINIO,
                 numeroRateA > 1 ? "PIANO_RATEALE" : "SOLUZIONE_UNICA", pendenzeOpzione(codDocumento, "A", numeroRateA),
                 numeroRateB > 1 ? "PIANO_RATEALE" : "SOLUZIONE_UNICA", pendenzeOpzione(codDocumento, "B", numeroRateB));
+
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}", PRINCIPAL)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isCreated());
+        return IdentificatorePosizioneDebitoria.comporre(PRINCIPAL, ID_DOMINIO, codDocumento);
+    }
+
+    /** Coppia {@code SOLUZIONE_UNICA_RIDOTTO}/{@code _SCONTATO} (violazione CdS) sullo stesso debito. */
+    private String creaConRidottoEScontato(String codDocumento) throws Exception {
+        String body = """
+                {
+                  "codDocumento": "%s",
+                  "idDominio": "%s",
+                  "descrizione": "test stampa violazione CdS",
+                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y", "anagrafica": "Paola Ferrari" } ],
+                  "opzioniPagamento": [
+                    { "tipologia": "SOLUZIONE_UNICA_RIDOTTO", "pendenze": [ {
+                        "idPendenza": "%s-ridotto", "idTipoPendenza": "DIRITTI_SEGRETERIA", "importo": 70.00,
+                        "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "%s-ridotto-voce",
+                                    "importo": 70.00, "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
+                      } ] },
+                    { "tipologia": "SOLUZIONE_UNICA_SCONTATO", "pendenze": [ {
+                        "idPendenza": "%s-scontato", "idTipoPendenza": "DIRITTI_SEGRETERIA", "importo": 100.00,
+                        "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "%s-scontato-voce",
+                                    "importo": 100.00, "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
+                      } ] }
+                  ]
+                }
+                """.formatted(codDocumento, ID_DOMINIO, codDocumento, codDocumento, codDocumento, codDocumento);
+
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}", PRINCIPAL)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isCreated());
+        return IdentificatorePosizioneDebitoria.comporre(PRINCIPAL, ID_DOMINIO, codDocumento);
+    }
+
+    /** Coppia {@code SOLUZIONE_UNICA_ENTRO}/{@code _OLTRE} sullo stesso debito, {@code giorni=5}. */
+    private String creaConEntroEOltre(String codDocumento) throws Exception {
+        String body = """
+                {
+                  "codDocumento": "%s",
+                  "idDominio": "%s",
+                  "descrizione": "test stampa soglie ENTRO/OLTRE",
+                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y", "anagrafica": "Paola Ferrari" } ],
+                  "opzioniPagamento": [
+                    { "tipologia": "SOLUZIONE_UNICA_ENTRO", "giorni": 5, "pendenze": [ {
+                        "idPendenza": "%s-ridotta", "idTipoPendenza": "DIRITTI_SEGRETERIA", "importo": 7.00,
+                        "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "%s-ridotta-voce",
+                                    "importo": 7.00, "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
+                      } ] },
+                    { "tipologia": "SOLUZIONE_UNICA_OLTRE", "giorni": 5, "pendenze": [ {
+                        "idPendenza": "%s-intera", "idTipoPendenza": "DIRITTI_SEGRETERIA", "importo": 10.00,
+                        "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "%s-intera-voce",
+                                    "importo": 10.00, "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
+                      } ] }
+                  ]
+                }
+                """.formatted(codDocumento, ID_DOMINIO, codDocumento, codDocumento, codDocumento, codDocumento);
 
         mockMvc.perform(post("/posizioni-debitorie/{idA2A}", PRINCIPAL)
                         .contentType(MediaType.APPLICATION_JSON)

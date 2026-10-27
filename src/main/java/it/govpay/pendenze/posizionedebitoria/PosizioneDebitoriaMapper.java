@@ -46,6 +46,8 @@ import it.govpay.pendenze.api.model.NuovaOpzionePagamentoPianoRateale;
 import it.govpay.pendenze.api.model.NuovaOpzionePagamentoSoluzioneUnica;
 import it.govpay.pendenze.api.model.NuovaOpzionePagamentoSoluzioneUnicaEntro;
 import it.govpay.pendenze.api.model.NuovaOpzionePagamentoSoluzioneUnicaOltre;
+import it.govpay.pendenze.api.model.NuovaOpzionePagamentoSoluzioneUnicaRidotto;
+import it.govpay.pendenze.api.model.NuovaOpzionePagamentoSoluzioneUnicaScontato;
 import it.govpay.pendenze.api.model.NuovaPendenza;
 import it.govpay.pendenze.api.model.NuovaPosizioneDebitoria;
 import it.govpay.pendenze.api.model.NuovaVocePendenza;
@@ -57,10 +59,14 @@ import it.govpay.pendenze.api.model.OpzionePagamentoIndexPianoRateale;
 import it.govpay.pendenze.api.model.OpzionePagamentoIndexSoluzioneUnica;
 import it.govpay.pendenze.api.model.OpzionePagamentoIndexSoluzioneUnicaEntro;
 import it.govpay.pendenze.api.model.OpzionePagamentoIndexSoluzioneUnicaOltre;
+import it.govpay.pendenze.api.model.OpzionePagamentoIndexSoluzioneUnicaRidotto;
+import it.govpay.pendenze.api.model.OpzionePagamentoIndexSoluzioneUnicaScontato;
 import it.govpay.pendenze.api.model.OpzionePagamentoPianoRateale;
 import it.govpay.pendenze.api.model.OpzionePagamentoSoluzioneUnica;
 import it.govpay.pendenze.api.model.OpzionePagamentoSoluzioneUnicaEntro;
 import it.govpay.pendenze.api.model.OpzionePagamentoSoluzioneUnicaOltre;
+import it.govpay.pendenze.api.model.OpzionePagamentoSoluzioneUnicaRidotto;
+import it.govpay.pendenze.api.model.OpzionePagamentoSoluzioneUnicaScontato;
 import it.govpay.pendenze.api.model.PatchOp;
 import it.govpay.pendenze.api.model.PendenzaOpzionePagamento;
 import it.govpay.pendenze.api.model.Soggetto;
@@ -722,6 +728,14 @@ public class PosizioneDebitoriaMapper {
             opzione.setDataInizioValidita(o.getDataInizioValidita());
             opzione.setDataScadenza(o.getDataScadenza());
             pendenze = o.getPendenze();
+        } else if (dto instanceof NuovaOpzionePagamentoSoluzioneUnicaRidotto o) {
+            opzione.setDataInizioValidita(o.getDataInizioValidita());
+            opzione.setDataScadenza(o.getDataScadenza());
+            pendenze = o.getPendenze();
+        } else if (dto instanceof NuovaOpzionePagamentoSoluzioneUnicaScontato o) {
+            opzione.setDataInizioValidita(o.getDataInizioValidita());
+            opzione.setDataScadenza(o.getDataScadenza());
+            pendenze = o.getPendenze();
         } else {
             throw new IllegalArgumentException("tipo di NuovaOpzionePagamento non gestito: " + dto.getClass());
         }
@@ -1073,6 +1087,26 @@ public class PosizioneDebitoriaMapper {
                 dto.setPendenze(pendenze);
                 return dto;
             }
+            case SOLUZIONE_UNICA_RIDOTTO -> {
+                OpzionePagamentoSoluzioneUnicaRidotto dto = new OpzionePagamentoSoluzioneUnicaRidotto();
+                dto.setIdOpzionePagamento(entity.getIdOpzionePagamento());
+                dto.setTipologia(TipologiaOpzionePagamento.SOLUZIONE_UNICA_RIDOTTO);
+                dto.setStato(stato);
+                dto.setDataInizioValidita(entity.getDataInizioValidita());
+                dto.setDataScadenza(entity.getDataScadenza());
+                dto.setPendenze(pendenze);
+                return dto;
+            }
+            case SOLUZIONE_UNICA_SCONTATO -> {
+                OpzionePagamentoSoluzioneUnicaScontato dto = new OpzionePagamentoSoluzioneUnicaScontato();
+                dto.setIdOpzionePagamento(entity.getIdOpzionePagamento());
+                dto.setTipologia(TipologiaOpzionePagamento.SOLUZIONE_UNICA_SCONTATO);
+                dto.setStato(stato);
+                dto.setDataInizioValidita(entity.getDataInizioValidita());
+                dto.setDataScadenza(entity.getDataScadenza());
+                dto.setPendenze(pendenze);
+                return dto;
+            }
         }
         throw new IllegalStateException("tipologia non gestita: " + entity.getTipologia());
     }
@@ -1113,6 +1147,24 @@ public class PosizioneDebitoriaMapper {
                 dto.setIdOpzionePagamento(entity.getIdOpzionePagamento());
                 dto.setTipologia(TipologiaOpzionePagamento.SOLUZIONE_UNICA_OLTRE);
                 dto.setGiorni(entity.getGiorni());
+                dto.setStato(stato);
+                dto.setDataInizioValidita(entity.getDataInizioValidita());
+                dto.setDataScadenza(entity.getDataScadenza());
+                return dto;
+            }
+            case SOLUZIONE_UNICA_RIDOTTO -> {
+                OpzionePagamentoIndexSoluzioneUnicaRidotto dto = new OpzionePagamentoIndexSoluzioneUnicaRidotto();
+                dto.setIdOpzionePagamento(entity.getIdOpzionePagamento());
+                dto.setTipologia(TipologiaOpzionePagamento.SOLUZIONE_UNICA_RIDOTTO);
+                dto.setStato(stato);
+                dto.setDataInizioValidita(entity.getDataInizioValidita());
+                dto.setDataScadenza(entity.getDataScadenza());
+                return dto;
+            }
+            case SOLUZIONE_UNICA_SCONTATO -> {
+                OpzionePagamentoIndexSoluzioneUnicaScontato dto = new OpzionePagamentoIndexSoluzioneUnicaScontato();
+                dto.setIdOpzionePagamento(entity.getIdOpzionePagamento());
+                dto.setTipologia(TipologiaOpzionePagamento.SOLUZIONE_UNICA_SCONTATO);
                 dto.setStato(stato);
                 dto.setDataInizioValidita(entity.getDataInizioValidita());
                 dto.setDataScadenza(entity.getDataScadenza());

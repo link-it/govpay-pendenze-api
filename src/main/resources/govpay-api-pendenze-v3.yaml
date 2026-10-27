@@ -1539,6 +1539,8 @@ components:
         - SOLUZIONE_UNICA
         - SOLUZIONE_UNICA_ENTRO
         - SOLUZIONE_UNICA_OLTRE
+        - SOLUZIONE_UNICA_RIDOTTO
+        - SOLUZIONE_UNICA_SCONTATO
       examples:
         - SOLUZIONE_UNICA
 
@@ -1558,6 +1560,8 @@ components:
         - $ref: '#/components/schemas/NuovaOpzionePagamentoSoluzioneUnica'
         - $ref: '#/components/schemas/NuovaOpzionePagamentoSoluzioneUnicaEntro'
         - $ref: '#/components/schemas/NuovaOpzionePagamentoSoluzioneUnicaOltre'
+        - $ref: '#/components/schemas/NuovaOpzionePagamentoSoluzioneUnicaRidotto'
+        - $ref: '#/components/schemas/NuovaOpzionePagamentoSoluzioneUnicaScontato'
       discriminator:
         propertyName: tipologia
         mapping:
@@ -1565,6 +1569,8 @@ components:
           SOLUZIONE_UNICA: '#/components/schemas/NuovaOpzionePagamentoSoluzioneUnica'
           SOLUZIONE_UNICA_ENTRO: '#/components/schemas/NuovaOpzionePagamentoSoluzioneUnicaEntro'
           SOLUZIONE_UNICA_OLTRE: '#/components/schemas/NuovaOpzionePagamentoSoluzioneUnicaOltre'
+          SOLUZIONE_UNICA_RIDOTTO: '#/components/schemas/NuovaOpzionePagamentoSoluzioneUnicaRidotto'
+          SOLUZIONE_UNICA_SCONTATO: '#/components/schemas/NuovaOpzionePagamentoSoluzioneUnicaScontato'
 
     NuovaOpzionePagamentoPianoRateale:
       type: object
@@ -1651,6 +1657,50 @@ components:
             creazione della posizione debitoria: può ad esempio partire dal
             momento in cui il debitore seleziona questa opzione tra quelle
             disponibili.
+        dataInizioValidita:
+          $ref: '#/components/schemas/dataInizioValiditaOpzionePagamento'
+        dataScadenza:
+          $ref: '#/components/schemas/dataScadenzaOpzionePagamento'
+        pendenze:
+          type: array
+          description: Esattamente una pendenza per l'intero importo.
+          minItems: 1
+          maxItems: 1
+          items:
+            $ref: '#/components/schemas/NuovaPendenza'
+
+    NuovaOpzionePagamentoSoluzioneUnicaRidotto:
+      type: object
+      description: >-
+        Sanzione del Codice della Strada in misura ridotta. Nessun campo
+        `giorni`: il termine di legge non è un valore dichiarabile dal
+        chiamante.
+      required: [tipologia, pendenze]
+      properties:
+        tipologia:
+          $ref: '#/components/schemas/TipologiaOpzionePagamento'
+        dataInizioValidita:
+          $ref: '#/components/schemas/dataInizioValiditaOpzionePagamento'
+        dataScadenza:
+          $ref: '#/components/schemas/dataScadenzaOpzionePagamento'
+        pendenze:
+          type: array
+          description: Esattamente una pendenza per l'intero importo.
+          minItems: 1
+          maxItems: 1
+          items:
+            $ref: '#/components/schemas/NuovaPendenza'
+
+    NuovaOpzionePagamentoSoluzioneUnicaScontato:
+      type: object
+      description: >-
+        Sanzione del Codice della Strada con sconto per pagamento in forma
+        agevolata. Nessun campo `giorni`: il termine di legge non è un
+        valore dichiarabile dal chiamante.
+      required: [tipologia, pendenze]
+      properties:
+        tipologia:
+          $ref: '#/components/schemas/TipologiaOpzionePagamento'
         dataInizioValidita:
           $ref: '#/components/schemas/dataInizioValiditaOpzionePagamento'
         dataScadenza:
@@ -2023,6 +2073,8 @@ components:
         - $ref: '#/components/schemas/OpzionePagamentoIndexSoluzioneUnica'
         - $ref: '#/components/schemas/OpzionePagamentoIndexSoluzioneUnicaEntro'
         - $ref: '#/components/schemas/OpzionePagamentoIndexSoluzioneUnicaOltre'
+        - $ref: '#/components/schemas/OpzionePagamentoIndexSoluzioneUnicaRidotto'
+        - $ref: '#/components/schemas/OpzionePagamentoIndexSoluzioneUnicaScontato'
       discriminator:
         propertyName: tipologia
         mapping:
@@ -2030,6 +2082,8 @@ components:
           SOLUZIONE_UNICA: '#/components/schemas/OpzionePagamentoIndexSoluzioneUnica'
           SOLUZIONE_UNICA_ENTRO: '#/components/schemas/OpzionePagamentoIndexSoluzioneUnicaEntro'
           SOLUZIONE_UNICA_OLTRE: '#/components/schemas/OpzionePagamentoIndexSoluzioneUnicaOltre'
+          SOLUZIONE_UNICA_RIDOTTO: '#/components/schemas/OpzionePagamentoIndexSoluzioneUnicaRidotto'
+          SOLUZIONE_UNICA_SCONTATO: '#/components/schemas/OpzionePagamentoIndexSoluzioneUnicaScontato'
 
     StatoOpzionePagamento:
       type: string
@@ -2142,6 +2196,46 @@ components:
           type: string
           format: date
 
+    OpzionePagamentoIndexSoluzioneUnicaRidotto:
+      type: object
+      required: [idOpzionePagamento, tipologia, stato]
+      properties:
+        idOpzionePagamento:
+          type: string
+          format: uuid
+          examples:
+            - 3fa85f64-5717-4562-b3fc-2c963f66afa6
+        tipologia:
+          $ref: '#/components/schemas/TipologiaOpzionePagamento'
+        stato:
+          $ref: '#/components/schemas/StatoOpzionePagamento'
+        dataInizioValidita:
+          type: string
+          format: date
+        dataScadenza:
+          type: string
+          format: date
+
+    OpzionePagamentoIndexSoluzioneUnicaScontato:
+      type: object
+      required: [idOpzionePagamento, tipologia, stato]
+      properties:
+        idOpzionePagamento:
+          type: string
+          format: uuid
+          examples:
+            - 3fa85f64-5717-4562-b3fc-2c963f66afa6
+        tipologia:
+          $ref: '#/components/schemas/TipologiaOpzionePagamento'
+        stato:
+          $ref: '#/components/schemas/StatoOpzionePagamento'
+        dataInizioValidita:
+          type: string
+          format: date
+        dataScadenza:
+          type: string
+          format: date
+
     OpzionePagamento:
       type: object
       description: >-
@@ -2156,6 +2250,8 @@ components:
         - $ref: '#/components/schemas/OpzionePagamentoSoluzioneUnica'
         - $ref: '#/components/schemas/OpzionePagamentoSoluzioneUnicaEntro'
         - $ref: '#/components/schemas/OpzionePagamentoSoluzioneUnicaOltre'
+        - $ref: '#/components/schemas/OpzionePagamentoSoluzioneUnicaRidotto'
+        - $ref: '#/components/schemas/OpzionePagamentoSoluzioneUnicaScontato'
       discriminator:
         propertyName: tipologia
         mapping:
@@ -2163,6 +2259,8 @@ components:
           SOLUZIONE_UNICA: '#/components/schemas/OpzionePagamentoSoluzioneUnica'
           SOLUZIONE_UNICA_ENTRO: '#/components/schemas/OpzionePagamentoSoluzioneUnicaEntro'
           SOLUZIONE_UNICA_OLTRE: '#/components/schemas/OpzionePagamentoSoluzioneUnicaOltre'
+          SOLUZIONE_UNICA_RIDOTTO: '#/components/schemas/OpzionePagamentoSoluzioneUnicaRidotto'
+          SOLUZIONE_UNICA_SCONTATO: '#/components/schemas/OpzionePagamentoSoluzioneUnicaScontato'
 
     OpzionePagamentoPianoRateale:
       description: >-
@@ -2271,6 +2369,65 @@ components:
           $ref: '#/components/schemas/TipologiaOpzionePagamento'
         giorni:
           $ref: '#/components/schemas/giornoOpzionePagamento'
+        stato:
+          $ref: '#/components/schemas/StatoOpzionePagamento'
+        dataInizioValidita:
+          type: string
+          format: date
+        dataScadenza:
+          type: string
+          format: date
+        pendenze:
+          type: array
+          minItems: 1
+          maxItems: 1
+          items:
+            $ref: '#/components/schemas/PendenzaOpzionePagamento'
+
+    OpzionePagamentoSoluzioneUnicaRidotto:
+      description: >-
+        Sanzione del Codice della Strada in misura ridotta, comprensiva
+        della pendenza che la compone. Nessun campo `giorni`.
+      type: object
+      required: [idOpzionePagamento, tipologia, stato, pendenze]
+      properties:
+        idOpzionePagamento:
+          type: string
+          format: uuid
+          examples:
+            - 3fa85f64-5717-4562-b3fc-2c963f66afa6
+        tipologia:
+          $ref: '#/components/schemas/TipologiaOpzionePagamento'
+        stato:
+          $ref: '#/components/schemas/StatoOpzionePagamento'
+        dataInizioValidita:
+          type: string
+          format: date
+        dataScadenza:
+          type: string
+          format: date
+        pendenze:
+          type: array
+          minItems: 1
+          maxItems: 1
+          items:
+            $ref: '#/components/schemas/PendenzaOpzionePagamento'
+
+    OpzionePagamentoSoluzioneUnicaScontato:
+      description: >-
+        Sanzione del Codice della Strada con sconto per pagamento in forma
+        agevolata, comprensiva della pendenza che la compone. Nessun campo
+        `giorni`.
+      type: object
+      required: [idOpzionePagamento, tipologia, stato, pendenze]
+      properties:
+        idOpzionePagamento:
+          type: string
+          format: uuid
+          examples:
+            - 3fa85f64-5717-4562-b3fc-2c963f66afa6
+        tipologia:
+          $ref: '#/components/schemas/TipologiaOpzionePagamento'
         stato:
           $ref: '#/components/schemas/StatoOpzionePagamento'
         dataInizioValidita:

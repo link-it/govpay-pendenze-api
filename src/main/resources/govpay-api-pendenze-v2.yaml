@@ -2165,12 +2165,18 @@ components:
       example: F                     
     TipoSogliaVincoloPagamento:
       description: >-
-        Indica se il pagamento deve avvenire entro o oltre la soglia di giorni indicata
+        Indica se il pagamento deve avvenire entro o oltre la soglia di giorni indicata,
+        oppure se si tratta di una sanzione del Codice della Strada in misura ridotta
+        (RIDOTTO) o con sconto per pagamento in forma agevolata (SCONTATO) — per queste
+        due il campo `giorni` di `VincoloPagamento` non è un valore dichiarabile dal
+        chiamante.
       type: string
       enum:
         - ENTRO
         - OLTRE
-      example: ENTRO 
+        - RIDOTTO
+        - SCONTATO
+      example: ENTRO
     UnitaOperativa:
       type: object
       required: 
@@ -2321,12 +2327,14 @@ components:
       type: object
       required:
         - tipo
-        - giorni
       properties:
         giorni:
           type: integer
           format: int32
-          description: numero di giorni vincolo per il pagamento
+          description: >-
+            Numero di giorni vincolo per il pagamento. Obbligatorio se `tipo` e' `ENTRO`/`OLTRE`
+            (vincolo applicativo, non esprimibile in questo schema). Se `tipo` e'
+            `RIDOTTO`/`SCONTATO` non e' un valore dichiarabile: se presente viene ignorato.
           example: 5
           minimum: 1
         tipo:

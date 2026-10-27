@@ -1,6 +1,7 @@
 package it.govpay.pendenze.avviso;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 
 import org.springframework.stereotype.Component;
@@ -19,6 +20,7 @@ import it.govpay.pendenze.entity.SoggettoDebitore;
 import it.govpay.pendenze.entity.VocePendenza;
 import it.govpay.pendenze.model.TipologiaOpzionePagamento;
 import it.govpay.stampe.client.model.Amount;
+import it.govpay.stampe.client.model.CdsViolation;
 import it.govpay.stampe.client.model.Creditor;
 import it.govpay.stampe.client.model.Debtor;
 import it.govpay.stampe.client.model.Iban;
@@ -146,6 +148,97 @@ public class AvvisoPdfPayloadMapper {
         }
         notice.setOptions(options);
         return notice;
+    }
+
+    /**
+     * Avviso con la coppia {@code SOLUZIONE_UNICA_ENTRO}/{@code _OLTRE} dello stesso debito,
+     * su un'unica pagina ({@code PaymentNotice.reducedPayments}, un elemento per soglia,
+     * ordinato per {@code giorni} crescente e, a parita', {@code ENTRO} prima di {@code OLTRE}).
+     *
+     * @param soglie le pendenze pagabili delle opzioni soglia, non vuota — ciascuna deve
+     *     soddisfare {@link #isSogliaTemporale}
+     */
+    public PaymentNotice toPaymentNoticeSoglie(List<Pendenza> soglie) {
+        if (soglie == null || soglie.isEmpty()) {
+            throw new IllegalArgumentException("almeno una pendenza soglia richiesta");
+        }
+        List<Pendenza> ordinate = soglie.stream()
+                .sorted(Comparator.comparingInt((Pendenza p) -> p.getOpzionePagamento().getGiorni())
+                        .thenComparing(p -> p.getOpzionePagamento().getTipologia()
+                                == TipologiaOpzionePagamento.SOLUZIONE_UNICA_ENTRO ? 0 : 1))
+                .toList();
+        Pendenza prima = ordinate.get(0);
+        DominioEntity dominio = dominioDi(prima);
+        PaymentNotice notice = intestazione(prima, dominio);
+        notice.setPostal(ordinate.stream().allMatch(p -> ibanPostale(p) != null));
+        List<ThresholdPayment> reducedPayments = new ArrayList<>(ordinate.size());
+        for (Pendenza p : ordinate) {
+            reducedPayments.add(mapReducedPayment(p, dominioDi(p), ibanPostale(p)));
+        }
+        notice.setReducedPayments(reducedPayments);
+        return notice;
+    }
+
+    /**
+     * {@code true} se le opzioni sono esattamente due, una pendenza ciascuna, una
+     * {@code SOLUZIONE_UNICA_ENTRO} e una {@code SOLUZIONE_UNICA_OLTRE} — condizione per usare
+     * {@link #toPaymentNoticeSoglie} invece di {@link #toPaymentNoticeOpzioni}.
+     */
+    public static boolean sonoTutteSoglie(List<List<Pendenza>> opzioni) {
+        if (opzioni.size() != 2 || opzioni.stream().anyMatch(o -> o.size() != 1)) {
+            return false;
+        }
+        var tipologie = opzioni.stream().map(o -> o.get(0).getOpzionePagamento().getTipologia()).toList();
+        return tipologie.contains(TipologiaOpzionePagamento.SOLUZIONE_UNICA_ENTRO)
+                && tipologie.contains(TipologiaOpzionePagamento.SOLUZIONE_UNICA_OLTRE);
+    }
+
+    /**
+     * {@code true} se le opzioni sono esattamente due, una pendenza ciascuna, una
+     * {@code SOLUZIONE_UNICA_RIDOTTO} e una {@code SOLUZIONE_UNICA_SCONTATO} — condizione per
+     * usare {@link #toCdsViolation} e l'endpoint {@code POST /cds_violation} di
+     * {@code govpay-stampe}, invece di {@link #toPaymentNoticeOpzioni}.
+     */
+    public static boolean sonoRidottoEScontato(List<List<Pendenza>> opzioni) {
+        if (opzioni.size() != 2 || opzioni.stream().anyMatch(o -> o.size() != 1)) {
+            return false;
+        }
+        var tipologie = opzioni.stream().map(o -> o.get(0).getOpzionePagamento().getTipologia()).toList();
+        return tipologie.contains(TipologiaOpzionePagamento.SOLUZIONE_UNICA_RIDOTTO)
+                && tipologie.contains(TipologiaOpzionePagamento.SOLUZIONE_UNICA_SCONTATO);
+    }
+
+    /**
+     * Violazione del Codice della Strada con importo ridotto e scontato, via
+     * {@code POST /cds_violation} di {@code govpay-stampe} — vedi {@link #sonoRidottoEScontato}.
+     *
+     * @param opzioni le due opzioni (una pendenza ciascuna, RIDOTTO e SCONTATO in qualunque
+     *     ordine), come verificato da {@link #sonoRidottoEScontato}
+     */
+    public CdsViolation toCdsViolation(List<List<Pendenza>> opzioni) {
+        Pendenza ridotto = null;
+        Pendenza scontato = null;
+        for (List<Pendenza> o : opzioni) {
+            Pendenza p = o.get(0);
+            if (p.getOpzionePagamento().getTipologia() == TipologiaOpzionePagamento.SOLUZIONE_UNICA_RIDOTTO) {
+                ridotto = p;
+            } else {
+                scontato = p;
+            }
+        }
+        DominioEntity dominio = dominioDi(ridotto);
+        boolean postal = ibanPostale(ridotto) != null && ibanPostale(scontato) != null;
+        CdsViolation violazione = new CdsViolation();
+        violazione.setLanguage(Languages.IT);
+        violazione.setCreditor(mapCreditor(dominio));
+        violazione.setDebtor(mapDebtor(primoSoggettoDebitore(ridotto)));
+        violazione.setTitle(descrizioneDi(ridotto));
+        violazione.setFirstLogo(logoDi(dominio));
+        violazione.setPostal(postal);
+        violazione.setReducedAmount(mapFullAmount(ridotto, dominio, postal ? ibanPostale(ridotto) : null));
+        violazione.setDiscountedAmount(
+                mapFullAmount(scontato, dominioDi(scontato), postal ? ibanPostale(scontato) : null));
+        return violazione;
     }
 
     /**
