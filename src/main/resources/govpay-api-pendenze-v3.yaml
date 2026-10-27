@@ -364,6 +364,88 @@ paths:
         '500':
           $ref: '#/components/responses/500ServiceUnavailable'
 
+  '/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/stampa':
+    get:
+      tags:
+        - PosizioniDebitorie
+      summary: Stampa dell'avviso di pagamento di una posizione debitoria
+      operationId: getStampaPosizioneDebitoria
+      description: >-
+        Fornisce la stampa dell'avviso di pagamento della posizione
+        debitoria, in formato PDF. Considera solo le opzioni di pagamento
+        con almeno una rata ancora pagabile: se ne resta esattamente una,
+        l'avviso è quello della sua rata unica o, se ha più rate, quello
+        cumulativo delle sue rate (stesso criterio di
+        `GET /pendenze/{idA2A}/{idPendenza}/stampa`); se ne restano più
+        di una (opzioni alternative, es. "paga tutto" o "paga a rate"
+        sullo stesso debito), l'avviso è un unico PDF con una pagina (o
+        più pagine, se l'opzione ha più rate) per ciascuna opzione, mai
+        condivisa fra due opzioni diverse. Non è disponibile in formato
+        bilingue.
+      parameters:
+        - in: path
+          name: idA2A
+          description: Identificativo del gestionale
+          required: true
+          schema:
+            type: string
+            pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
+        - in: path
+          name: idPosizioneDebitoria
+          description: >-
+            Identificativo pubblico della posizione debitoria (IUPD standard
+            pagoPA GPD: idA2A+idDominio+codDocumento concatenati senza
+            separatore) — vedi `PosizioneDebitoria.idPosizioneDebitoria`.
+          required: true
+          schema:
+            type: string
+            pattern: '(^[a-zA-Z0-9\-_]{1,81}$)'
+      responses:
+        '200':
+          description: Avviso di pagamento in formato PDF
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/401NotAuthenticated'
+        '403':
+          $ref: '#/components/responses/403NotAuthorized'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+        '406':
+          description: 'Header `Accept` non compatibile con `application/pdf`'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: >-
+            L'avviso PDF non è generabile per questa posizione debitoria
+            (nessuna opzione di pagamento con rate ancora pagabili, Marca
+            da Bollo Telematica, o debitore senza anagrafica)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '500':
+          $ref: '#/components/responses/500ServiceUnavailable'
+        '502':
+          description: 'Errore di comunicazione con il microservizio `govpay-stampe`'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: >-
+            Microservizio `govpay-stampe` non configurato
+            (`app.stampe.base-url` mancante)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+
   '/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento':
     post:
       tags:

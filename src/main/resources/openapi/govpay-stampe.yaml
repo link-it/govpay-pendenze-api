@@ -26,7 +26,11 @@ paths:
         - PaymentNotice
       operationId: createPaymentNotice
       summary: Avviso di pagamento con e senza rate
-      description: Genera un avviso di pagamento pagoPA in formato PDF. Supporta rata unica, rate multiple, bollettino postale e formato bilingue.
+      description: >-
+        Genera un avviso di pagamento pagoPA in formato PDF. Supporta rata unica, rate
+        multiple, bollettino postale, formato bilingue e, tramite PaymentNotice.options,
+        più opzioni di pagamento alternative sulla stessa posizione, ciascuna sulla propria
+        pagina in un unico PDF.
       requestBody:
         content:
           application/json:
@@ -336,6 +340,21 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/ThresholdPayment'
+            options:
+              type: array
+              minItems: 2
+              description: >-
+                Più opzioni di pagamento alternative sulla stessa posizione (es. "paga tutto"
+                vs "paga a rate" per lo stesso debito): un'opzione per elemento, ciascuna
+                sulla propria pagina (o pagine, se l'opzione ha più rate) - mai due opzioni
+                sulla stessa pagina fisica, perché rappresentano arrangiamenti di pagamento
+                distinti con un proprio IUV. Mutuamente esclusivo con full/instalments/
+                reduced_payments a livello di documento: se presente insieme a uno di quei tre
+                campi, la richiesta è rifiutata (422), non è una combinazione in cui i tre
+                campi vengono ignorati. Non supportato insieme all'avviso bilingue
+                (second_language): rifiutato anch'esso con 422.
+              items:
+                $ref: '#/components/schemas/PaymentNoticeOption'
             informativa_importo:
               type: string
               maxLength: 255
@@ -370,6 +389,25 @@ components:
           properties:
             instalment_number:
               type: integer
+
+    PaymentNoticeOption:
+      type: object
+      description: >-
+        Un elemento di PaymentNotice.options: stessa struttura di importo di PaymentNotice
+        (full/instalments/reduced_payments), ma senza i metadati del documento (creditor/
+        debtor/title/lingua/...), condivisi una sola volta a livello di PaymentNotice -
+        tutte le opzioni di una stessa posizione hanno lo stesso creditore e debitore.
+      properties:
+        full:
+          $ref: '#/components/schemas/Amount'
+        instalments:
+          type: array
+          items:
+            $ref: '#/components/schemas/Instalment'
+        reduced_payments:
+          type: array
+          items:
+            $ref: '#/components/schemas/ThresholdPayment'
 
     ThresholdType:
       type: string

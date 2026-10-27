@@ -299,6 +299,35 @@ class GetAvvisiDocumentoControllerTest {
     }
 
     @Test
+    @DisplayName("piano rateale con una sola rata persistita: 'full', non 'instalments' (la scelta segue la "
+            + "cardinalita', non la tipologia dell'opzione)")
+    void pianoRatealeConUnaSolaRataProduceFull() throws Exception {
+        creaPianoRateale("DOC-PR-UNA", 1);
+
+        mockMvc.perform(get(PATH, ID_DOMINIO, "DOC-PR-UNA").accept(MediaType.APPLICATION_PDF))
+                .andExpect(status().isOk());
+
+        JsonNode payload = ultimoPayload();
+        assertNotNull(payload.get("full"));
+        assertFalse(payload.get("full").isNull());
+        assertTrue(instalmentNumbers(payload).isEmpty());
+    }
+
+    @Test
+    @DisplayName("soluzione unica con piu' di una pendenza pagabile: 'instalments', un solo documento cumulativo "
+            + "come nel legacy (AvvisoPagamento#getBytesAvvisoDocumento)")
+    void soluzioneUnicaConPiuPendenzeProduceInstalments() throws Exception {
+        creaSoluzioneUnicaMultipla("DOC-SU-MULTI", 2);
+
+        mockMvc.perform(get(PATH, ID_DOMINIO, "DOC-SU-MULTI").accept(MediaType.APPLICATION_PDF))
+                .andExpect(status().isOk());
+
+        JsonNode payload = ultimoPayload();
+        assertTrue(payload.get("full") == null || payload.get("full").isNull());
+        assertEquals(2, instalmentNumbers(payload).size());
+    }
+
+    @Test
     @DisplayName("rata gia' ESEGUITA: esclusa dall'avviso cumulativo")
     void rataEseguitaEsclusa() throws Exception {
         creaPianoRateale("DOC-PR-2", 3);
@@ -419,6 +448,22 @@ class GetAvvisiDocumentoControllerTest {
             mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, idPendenza)
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(corpo(idPendenza, identificativoDocumento, rata)))
+                    .andExpect(status().isCreated());
+        }
+    }
+
+    /**
+     * Pendenze con {@code idPendenza} {@code <identificativo>-su<n>}, n da 1, tutte aggiunte
+     * allo stesso documento SENZA mai dichiarare {@code rata}: l'opzione resta
+     * {@code SOLUZIONE_UNICA} (la tipologia e' decisa alla creazione e non cambia mai, §31) ma
+     * accumula piu' di una pendenza, possibile in v3 (§3.3, nessun limite di cardinalita').
+     */
+    private void creaSoluzioneUnicaMultipla(String identificativoDocumento, int numeroPendenze) throws Exception {
+        for (int i = 1; i <= numeroPendenze; i++) {
+            String idPendenza = identificativoDocumento + "-su" + i;
+            mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, idPendenza)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(corpo(idPendenza, identificativoDocumento, null)))
                     .andExpect(status().isCreated());
         }
     }

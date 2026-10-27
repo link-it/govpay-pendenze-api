@@ -1,17 +1,25 @@
 package it.govpay.pendenze.posizionedebitoria;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.net.URI;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 
+import org.springframework.core.io.Resource;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
+import it.govpay.common.metrics.ExternalCallMetricsRecorder;
 import it.govpay.pendenze.api.model.NuovaOpzionePagamento;
 import it.govpay.pendenze.api.model.NuovaPendenza;
 import it.govpay.pendenze.api.model.NuovaPosizioneDebitoria;
@@ -21,28 +29,39 @@ import it.govpay.pendenze.api.model.Pagination;
 import it.govpay.pendenze.api.model.PosizioneDebitoriaIndex;
 import it.govpay.pendenze.api.model.PosizioniDebitorie;
 import it.govpay.pendenze.api.rest.PosizioniDebitorieApi;
+import it.govpay.pendenze.avviso.AvvisoAnagraficaAssenteException;
+import it.govpay.pendenze.avviso.AvvisoDocumentoNonDisponibileException;
+import it.govpay.pendenze.avviso.AvvisoMbtException;
+import it.govpay.pendenze.avviso.AvvisoPdfPayloadMapper;
+import it.govpay.pendenze.avviso.StampeClient;
 import it.govpay.pendenze.criteri.CriteriOrdinamento;
 import it.govpay.pendenze.criteri.CursorCodec;
 import it.govpay.pendenze.criteri.OffsetPageRequest;
 import it.govpay.pendenze.criteri.PaginaRisultati;
 import it.govpay.pendenze.criteri.PaginaSenzaConteggio;
+import it.govpay.pendenze.entity.Pendenza;
 import it.govpay.pendenze.entity.PosizioneDebitoria;
 import it.govpay.pendenze.exception.RisorsaNonTrovataException;
 import it.govpay.pendenze.exception.ValidazioneNonSuperataException;
+import it.govpay.pendenze.model.StatoPendenza;
 import it.govpay.pendenze.security.AclAuthorizer;
 import it.govpay.pendenze.security.CurrentApplicazioneService;
 import it.govpay.pendenze.service.PosizioneDebitoriaService;
+import it.govpay.pendenze.web.NotAcceptableMediaTypeException;
 import it.govpay.pendenze.web.QueryParamUtils;
 import it.govpay.pendenze.web.SelezioneCampi;
+import it.govpay.stampe.client.model.PaymentNotice;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import tools.jackson.databind.ObjectMapper;
 
 /**
  * Implementa {@link PosizioniDebitorieApi}: per ora {@link #addPosizioneDebitoria},
- * {@link #getPosizioneDebitoria}, {@link #updatePosizioneDebitoria},
- * {@link #findPosizioniDebitorie}, {@link #addOpzionePagamento}, {@link #addPendenza} e
- * {@link #updateOpzionePagamento}, le altre operazioni restano sul default generato (501,
- * vedi Javadoc dell'interfaccia) fino al loro sviluppo.
+ * {@link #getPosizioneDebitoria}, {@link #getStampaPosizioneDebitoria},
+ * {@link #updatePosizioneDebitoria}, {@link #findPosizioniDebitorie},
+ * {@link #addOpzionePagamento}, {@link #addPendenza} e {@link #updateOpzionePagamento}, le
+ * altre operazioni restano sul default generato (501, vedi Javadoc dell'interfaccia) fino al
+ * loro sviluppo.
  */
 @RestController
 @RequestMapping("${govpay.pendenze.api.v3.base-path:}")
@@ -53,19 +72,28 @@ public class PosizioneDebitoriaController implements PosizioniDebitorieApi {
 
     private final PosizioneDebitoriaMapper mapper;
     private final PosizioneDebitoriaService posizioneDebitoriaService;
+    private final AvvisoPdfPayloadMapper avvisoPdfPayloadMapper;
+    private final StampeClient stampeClient;
+    private final ExternalCallMetricsRecorder externalCallMetricsRecorder;
     private final ObjectMapper objectMapper;
     private final HttpServletRequest currentRequest;
+    private final HttpServletResponse currentResponse;
     private final CurrentApplicazioneService currentApplicazioneService;
     private final AclAuthorizer aclAuthorizer;
 
     public PosizioneDebitoriaController(PosizioneDebitoriaMapper mapper,
-            PosizioneDebitoriaService posizioneDebitoriaService, ObjectMapper objectMapper,
-            HttpServletRequest currentRequest, CurrentApplicazioneService currentApplicazioneService,
-            AclAuthorizer aclAuthorizer) {
+            PosizioneDebitoriaService posizioneDebitoriaService, AvvisoPdfPayloadMapper avvisoPdfPayloadMapper,
+            StampeClient stampeClient, ExternalCallMetricsRecorder externalCallMetricsRecorder,
+            ObjectMapper objectMapper, HttpServletRequest currentRequest, HttpServletResponse currentResponse,
+            CurrentApplicazioneService currentApplicazioneService, AclAuthorizer aclAuthorizer) {
         this.mapper = mapper;
         this.posizioneDebitoriaService = posizioneDebitoriaService;
+        this.avvisoPdfPayloadMapper = avvisoPdfPayloadMapper;
+        this.stampeClient = stampeClient;
+        this.externalCallMetricsRecorder = externalCallMetricsRecorder;
         this.objectMapper = objectMapper;
         this.currentRequest = currentRequest;
+        this.currentResponse = currentResponse;
         this.currentApplicazioneService = currentApplicazioneService;
         this.aclAuthorizer = aclAuthorizer;
     }
@@ -117,6 +145,137 @@ public class PosizioneDebitoriaController implements PosizioniDebitorieApi {
                         + "idPosizioneDebitoria [" + idPosizioneDebitoria + "] per idA2A [" + idA2A + "]"));
 
         return ResponseEntity.ok(mapper.toDto(posizione));
+    }
+
+    /**
+     * Avviso PDF della posizione debitoria. Copre l'intera {@code PosizioneDebitoria}, incluse
+     * le eventuali {@code OpzionePagamento} alternative.
+     *
+     * <p><b>Opzioni considerate</b>: si stampano solo le pendenze ancora {@code NON_ESEGUITO}
+     * (vedi {@link #opzioniStampabili}). Nessuna opzione stampabile: 422
+     * ({@link AvvisoDocumentoNonDisponibileException}).</p>
+     *
+     * <p><b>Layout</b>: esattamente un'opzione stampabile produce lo stesso avviso di
+     * {@code getStampaPendenza}/{@code getAvvisiDocumento} (rata unica se l'opzione ha una sola
+     * pendenza pagabile, cumulativo se ne ha piu' di una). Piu' di un'opzione stampabile
+     * produce un solo PDF con {@code PaymentNotice.options}, una pagina (o piu', se l'opzione
+     * ha piu' rate) per opzione, mai condivisa — vedi
+     * {@link AvvisoPdfPayloadMapper#toPaymentNoticeOpzioni}. Marca da Bollo Telematica o
+     * anagrafica debitore assente su QUALUNQUE pendenza stampabile di QUALUNQUE opzione fa
+     * fallire l'intera stampa con 422.</p>
+     *
+     * <p>Un'opzione {@code SOLUZIONE_UNICA_ENTRO}/{@code _OLTRE} produce {@code reduced_payments}
+     * invece di {@code full}. {@code postal} e' {@code true} solo se TUTTE le pendenze di TUTTE
+     * le opzioni stampabili hanno un IBAN postale.</p>
+     *
+     * <p>Nessun parametro {@code linguaSecondaria}/{@code causaleTradotta}: l'avviso e' sempre
+     * in italiano. Nome del file: {@code <idPosizioneDebitoria>.pdf}.</p>
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public ResponseEntity<Resource> getStampaPosizioneDebitoria(String idA2A, String idPosizioneDebitoria) {
+        aclAuthorizer.richiedeLettura();
+        currentApplicazioneService.verificaIdA2A(idA2A);
+        verificaAcceptCompatibileConPdf();
+
+        it.govpay.pendenze.entity.PosizioneDebitoria posizione = posizioneDebitoriaService
+                .trovaPerIdentificativo(idA2A, idPosizioneDebitoria)
+                .orElseThrow(() -> new RisorsaNonTrovataException("nessuna posizione debitoria con "
+                        + "idPosizioneDebitoria [" + idPosizioneDebitoria + "] per idA2A [" + idA2A + "]"));
+
+        List<List<Pendenza>> opzioni = opzioniStampabili(posizione);
+        if (opzioni.isEmpty()) {
+            throw new AvvisoDocumentoNonDisponibileException("Non sono state trovate opzioni di pagamento con rate "
+                    + "pagabili da includere nella stampa della posizione debitoria [idA2A: " + idA2A
+                    + " | idPosizioneDebitoria: " + idPosizioneDebitoria + "].");
+        }
+        for (List<Pendenza> pendenzeOpzione : opzioni) {
+            for (Pendenza pendenza : pendenzeOpzione) {
+                if (AvvisoPdfPayloadMapper.isPendenzaMbt(pendenza)) {
+                    throw new AvvisoMbtException(
+                            "Stampa posizione debitoria non disponibile: sono presenti dei pagamenti di Marca da Bollo");
+                }
+                if (AvvisoPdfPayloadMapper.isAnagraficaDebitoreAssente(pendenza)) {
+                    throw new AvvisoAnagraficaAssenteException(
+                            "Avviso PDF non disponibile: anagrafica del debitore assente.");
+                }
+            }
+        }
+
+        PaymentNotice payload;
+        if (opzioni.size() == 1) {
+            List<Pendenza> pendenzeOpzione = opzioni.get(0);
+            payload = pendenzeOpzione.size() == 1
+                    ? avvisoPdfPayloadMapper.toPaymentNotice(pendenzeOpzione.get(0), null, null, null, null)
+                    : avvisoPdfPayloadMapper.toPaymentNoticeRate(pendenzeOpzione);
+        } else {
+            payload = avvisoPdfPayloadMapper.toPaymentNoticeOpzioni(opzioni);
+        }
+
+        currentResponse.setContentType(MediaType.APPLICATION_PDF_VALUE);
+        currentResponse.setHeader(HttpHeaders.CONTENT_DISPOSITION,
+                "attachment; filename=\"" + idPosizioneDebitoria + ".pdf\"");
+        try {
+            var output = currentResponse.getOutputStream();
+            externalCallMetricsRecorder.record("stampe", "payment_notice",
+                    () -> stampeClient.streamPaymentNotice(payload, output));
+            currentResponse.flushBuffer();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        return ResponseEntity.ok().build();
+    }
+
+    /**
+     * Le pendenze pagabili ({@link StatoPendenza#NON_ESEGUITO}, ordinate per
+     * {@code numeroRata}) di ciascuna opzione di pagamento della posizione — un elemento di
+     * lista per opzione, nello stesso ordine di {@code PosizioneDebitoria.getOpzioniPagamento()},
+     * con le opzioni senza alcuna pendenza pagabile escluse.
+     */
+    private static List<List<Pendenza>> opzioniStampabili(it.govpay.pendenze.entity.PosizioneDebitoria posizione) {
+        List<List<Pendenza>> risultato = new ArrayList<>();
+        for (it.govpay.pendenze.entity.OpzionePagamento opzione : posizione.getOpzioniPagamento()) {
+            List<Pendenza> pagabili = opzione.getPendenze().stream()
+                    .filter(p -> p.getStato() == StatoPendenza.NON_ESEGUITO)
+                    .sorted(Comparator.comparingInt(Pendenza::getNumeroRata))
+                    .toList();
+            if (!pagabili.isEmpty()) {
+                risultato.add(pagabili);
+            }
+        }
+        return risultato;
+    }
+
+    /**
+     * Verifica che l'Accept richiesto non escluda {@code application/pdf}, l'unico
+     * content-type prodotto da questo endpoint.
+     */
+    private void verificaAcceptCompatibileConPdf() {
+        String accept = currentRequest.getHeader("Accept");
+        if (accept == null || accept.isBlank()) {
+            return;
+        }
+        List<MediaType> richiesti = MediaType.parseMediaTypes(accept);
+        if (qualitaPiuSpecifica(MediaType.APPLICATION_PDF, richiesti) <= 0) {
+            throw new NotAcceptableMediaTypeException(
+                    "Accept header non compatibile: questo endpoint produce solo application/pdf.");
+        }
+    }
+
+    private static double qualitaPiuSpecifica(MediaType tipo, List<MediaType> richiesti) {
+        return richiesti.stream()
+                .filter(mt -> mt.isCompatibleWith(tipo))
+                .max(Comparator.comparingInt(PosizioneDebitoriaController::specificita))
+                .map(MediaType::getQualityValue)
+                .orElse(0.0);
+    }
+
+    /** Match esatto (2) prevale su sottotipo wildcard, es. {@code application/*} (1), su {@code *}/{@code *} (0). */
+    private static int specificita(MediaType mt) {
+        if (!mt.isWildcardType() && !mt.isWildcardSubtype()) {
+            return 2;
+        }
+        return mt.isWildcardType() ? 0 : 1;
     }
 
     /**

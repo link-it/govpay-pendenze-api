@@ -49,7 +49,6 @@ import it.govpay.pendenze.exception.RicercaNonUnivocaException;
 import it.govpay.pendenze.exception.RisorsaNonTrovataException;
 import it.govpay.pendenze.exception.TransizioneStatoNonAmmessaException;
 import it.govpay.pendenze.exception.ValidazioneNonSuperataException;
-import it.govpay.pendenze.model.TipologiaOpzionePagamento;
 import it.govpay.pendenze.repository.PendenzaRepository;
 import it.govpay.pendenze.repository.PosizioneDebitoriaRepository;
 import it.govpay.pendenze.repository.RptRepository;
@@ -458,61 +457,39 @@ public class PendenzaV2Controller implements PendenzeApi {
     }
 
     /**
-     * Avviso PDF cumulativo di tutte le rate pagabili di un documento — porting di
-     * {@code DocumentiController.getAvvisiDocumento}/{@code AvvisiDAO.getDocumento} del legacy.
-     * Il documento e' la {@link PosizioneDebitoria} con {@code codDocumento = numeroDocumento}
-     * (nessuna traduzione) dell'applicazione AUTENTICATA: {@code idA2A} non e' nella richiesta
-     * e la ricerca e' scoped all'applicazione corrente fin dall'inizio, come nel legacy ("un'
-     * applicazione vede solo i suoi documenti") — un documento di un'altra applicazione e'
-     * semplicemente 404, non 403. Dominio o documento inesistente: 404.
+     * Avviso PDF cumulativo di tutte le rate pagabili di un documento. Il documento e' la
+     * {@link PosizioneDebitoria} con {@code codDocumento = numeroDocumento} dell'applicazione
+     * autenticata: {@code idA2A} non e' nella richiesta, la ricerca e' scoped all'applicazione
+     * corrente. Un documento di un'altra applicazione e' 404. Dominio o documento inesistente:
+     * 404.
      *
-     * <p><b>{@code numeriAvviso} e' validato ma MAI applicato come filtro</b> — bug legacy
-     * replicato fedelmente (vedi memoria {@code feedback_wrapper_v2_fedelta_legacy}): il
-     * controller legacy valida ogni elemento con {@code IuvUtils.toIuv} ma non lo copia mai su
-     * {@code GetDocumentoAvvisiDTO}, quindi {@code Documento.getVersamentiPagabili} lo riceve
-     * sempre {@code null} e il PDF include sempre tutte le rate pagabili. Qui resta la stessa
-     * validazione ({@link #validaFormatoNumeroAvviso}, 400 se la prima cifra non e' un
-     * AuxDigit; le 18 cifre le valida gia' lo schema) e lo stesso mancato filtro.</p>
+     * <p>{@code numeriAvviso}: ogni elemento e' validato ({@link #validaFormatoNumeroAvviso},
+     * 400 se la prima cifra non e' un AuxDigit) ma non e' applicato come filtro — il PDF
+     * include sempre tutte le rate pagabili.</p>
      *
-     * <p><b>Content negotiation</b>: come nel legacy, solo un {@code Accept} che CONTIENE
-     * {@code application/pdf} (controllo testuale naive, stesso di {@code RppV2Controller})
-     * ottiene il PDF; qualunque altro valore — compresi {@code Accept} assente e
-     * {@code *}{@code /*} — e' un 406. {@code produces = MediaType.ALL_VALUE} sovrascrive la
-     * produces-list generata ({@code pdf}/{@code problem+json}), che altrimenti lascerebbe
-     * passare {@code problem+json}, {@code *}{@code /*} e l'Accept assente: la negoziazione di
-     * Spring da sola non riproduce il 406 legacy.</p>
+     * <p><b>Content negotiation</b>: solo un {@code Accept} che CONTIENE
+     * {@code application/pdf} ottiene il PDF; qualunque altro valore — compresi
+     * {@code Accept} assente e {@code *}{@code /*} — e' un 406.</p>
      *
-     * <p><b>Rate pagabili</b>: le pendenze {@code NON_ESEGUITO} dell'unica opzione di
-     * pagamento del documento, per {@code numeroRata} crescente (il legacy ordina anche per
-     * {@code giorniSoglia}/{@code tipoSoglia}, senza equivalente v3). Un documento con un
-     * numero di opzioni diverso da uno e' un 400 esplicito (stesso vincolo di
-     * {@link NuovaPendenzaMapper}: questo wrapper gestisce solo i documenti con un'unica
-     * opzione, quelli che crea lui stesso). Nessuna rata pagabile: 422, come il legacy
-     * ({@code UnprocessableEntityException} in {@code getBytesAvvisoDocumento}). Una sola rata
-     * MBT o con anagrafica debitore assente fa fallire l'intero avviso con lo stesso 422 di
-     * {@link #addPendenza}.</p>
+     * <p><b>Rate pagabili</b>: le pendenze {@code NON_ESEGUITO} di ciascuna opzione di
+     * pagamento del documento, per {@code numeroRata} crescente. Un documento con un numero di
+     * opzioni ANCORA PAGABILI diverso da uno e' un 400 esplicito (questo wrapper gestisce solo
+     * i documenti con un'unica opzione pagabile). Nessuna rata pagabile in nessuna opzione:
+     * 422. Una sola rata MBT o con anagrafica debitore assente fa fallire l'intero avviso con
+     * lo stesso 422 di {@link #addPendenza}.</p>
      *
-     * <p><b>Layout</b>: un'opzione {@code PIANO_RATEALE} produce sempre
-     * {@code PaymentNotice.instalments} (una rata per pendenza), anche se resta una sola rata
-     * pagabile. Un'opzione non rateale con una sola pendenza pagabile produce invece il
-     * normale avviso a rata unica ({@code full}), come il legacy per le pendenze senza
-     * {@code numeroRata} (pagina singola). Un'opzione non rateale con piu' pendenze pagabili
-     * (il legacy stamperebbe una pagina singola per ciascuna) finisce anch'essa in
-     * {@code instalments}: un unico {@code POST /standard} di govpay-stampe non produce piu'
-     * avvisi distinti e questo progetto non ha una libreria per unire PDF.</p>
+     * <p><b>Layout</b>: una sola rata pagabile produce {@code full}, o {@code reduced_payments}
+     * (con {@code threshold_type}/{@code threshold_days} dalla tipologia/{@code giorni}
+     * dell'opzione) se l'opzione e' {@code SOLUZIONE_UNICA_ENTRO}/{@code _OLTRE}; piu' di una
+     * rata pagabile produce sempre {@code instalments}.</p>
      *
-     * <p><b>{@code linguaSecondaria} diversa da {@code false}: 422</b>, comportamento
-     * definitivo di questo endpoint, non un rinvio. L'avviso bilingue di govpay-stampe
-     * richiede {@code second_language.title} (la causale tradotta) e lo schema di questo
-     * endpoint non ha un parametro {@code causaleTradotta} (a differenza di
-     * {@code GET /pendenze/{idA2A}/{idPendenza}/stampa}, v3) da cui ricavarla: un avviso
-     * bilingue con l'oggetto del pagamento non tradotto sarebbe incompleto, e non va prodotto
-     * silenziosamente in sola lingua italiana.</p>
+     * <p>{@code postal} e' {@code true} solo se TUTTE le rate hanno un IBAN postale, altrimenti
+     * l'intero avviso e' non postale.</p>
      *
-     * <p>Il PDF viene bufferizzato e restituito come {@link ByteArrayResource}, non scritto in
-     * streaming su {@code HttpServletResponse}: in caso di errore di govpay-stampe la risposta
-     * resta un problem+json pulito, invece di un PDF troncato con status 200 gia' inviato.
-     * Nome file come nel legacy: {@code <idDominio>_<numeroDocumento>.pdf}.</p>
+     * <p>{@code linguaSecondaria} diversa da {@code false}: 422.</p>
+     *
+     * <p>Il PDF viene restituito come {@link ByteArrayResource}. Nome file:
+     * {@code <idDominio>_<numeroDocumento>.pdf}.</p>
      */
     @Override
     @Transactional(readOnly = true)
@@ -544,16 +521,20 @@ public class PendenzaV2Controller implements PendenzeApi {
         }
 
         List<OpzionePagamento> opzioni = documento.getOpzioniPagamento();
-        if (opzioni.size() != 1) {
-            throw new ValidazioneNonSuperataException("il documento [" + numeroDocumento + "] ha " + opzioni.size()
-                    + " opzioni di pagamento: questo wrapper gestisce solo documenti con esattamente un'opzione "
-                    + "(quelli creati da questa stessa API)");
-        }
-        OpzionePagamento opzione = opzioni.get(0);
-        List<Pendenza> ratePagabili = opzione.getPendenze().stream()
-                .filter(p -> p.getStato() == it.govpay.pendenze.model.StatoPendenza.NON_ESEGUITO)
-                .sorted(Comparator.comparingInt(Pendenza::getNumeroRata))
+        List<List<Pendenza>> opzioniPagabili = opzioni.stream()
+                .map(o -> o.getPendenze().stream()
+                        .filter(p -> p.getStato() == it.govpay.pendenze.model.StatoPendenza.NON_ESEGUITO)
+                        .sorted(Comparator.comparingInt(Pendenza::getNumeroRata))
+                        .toList())
+                .filter(pendenze -> !pendenze.isEmpty())
                 .toList();
+        if (opzioniPagabili.size() > 1) {
+            throw new ValidazioneNonSuperataException("il documento [" + numeroDocumento + "] ha "
+                    + opzioniPagabili.size() + " opzioni di pagamento ancora con rate pagabili: questo wrapper "
+                    + "gestisce solo documenti con esattamente un'opzione pagabile (quelli creati da questa stessa "
+                    + "API)");
+        }
+        List<Pendenza> ratePagabili = opzioniPagabili.isEmpty() ? List.of() : opzioniPagabili.get(0);
         if (ratePagabili.isEmpty()) {
             throw new AvvisoDocumentoNonDisponibileException("Non sono state trovate pendenze da includere nella "
                     + "stampa del documento [IDA2A: " + applicazioneCorrente.getCodApplicazione() + " | CodDocumento: "
@@ -570,10 +551,9 @@ public class PendenzaV2Controller implements PendenzeApi {
             }
         }
 
-        PaymentNotice payload = opzione.getTipologia() != TipologiaOpzionePagamento.PIANO_RATEALE
-                && ratePagabili.size() == 1
-                        ? avvisoPdfPayloadMapper.toPaymentNotice(ratePagabili.get(0), null, null, null, null)
-                        : avvisoPdfPayloadMapper.toPaymentNoticeRate(ratePagabili);
+        PaymentNotice payload = ratePagabili.size() == 1
+                ? avvisoPdfPayloadMapper.toPaymentNotice(ratePagabili.get(0), null, null, null, null)
+                : avvisoPdfPayloadMapper.toPaymentNoticeRate(ratePagabili);
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         externalCallMetricsRecorder.record("stampe", "payment_notice",
                 () -> stampeClient.streamPaymentNotice(payload, output));
