@@ -331,6 +331,7 @@ public class PendenzaV2Mapper {
         dto.setProvincia(entity.getProvincia());
         dto.setNazione(entity.getNazione());
         dto.setEmail(entity.getEmail());
+        dto.setCellulare(entity.getCellulare());
         return dto;
     }
 

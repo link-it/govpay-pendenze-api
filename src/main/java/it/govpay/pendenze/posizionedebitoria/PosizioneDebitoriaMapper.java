@@ -503,6 +503,7 @@ public class PosizioneDebitoriaMapper {
         soggetto.setProvincia(dto.getProvincia());
         soggetto.setNazione(dto.getNazione());
         soggetto.setEmail(dto.getEmail());
+        soggetto.setCellulare(dto.getCellulare());
         return soggetto;
     }
 
@@ -1035,6 +1036,7 @@ public class PosizioneDebitoriaMapper {
         dto.setProvincia(entity.getProvincia());
         dto.setNazione(entity.getNazione());
         dto.setEmail(entity.getEmail());
+        dto.setCellulare(entity.getCellulare());
         return dto;
     }
 

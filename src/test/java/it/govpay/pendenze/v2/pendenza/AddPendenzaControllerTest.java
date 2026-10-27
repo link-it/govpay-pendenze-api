@@ -54,6 +54,7 @@ import it.govpay.common.repository.UnitaOperativaRepository;
 import it.govpay.pendenze.entity.OpzionePagamento;
 import it.govpay.pendenze.entity.Pendenza;
 import it.govpay.pendenze.entity.PosizioneDebitoria;
+import it.govpay.pendenze.entity.SoggettoDebitore;
 import it.govpay.pendenze.model.StatoPendenza;
 import it.govpay.pendenze.model.TipologiaOpzionePagamento;
 import it.govpay.pendenze.repository.PendenzaRepository;
@@ -309,6 +310,37 @@ class AddPendenzaControllerTest {
             // UUID senza trattini (32 hex), nessun prefisso "MIGR-" (riservato alla migrazione).
             org.junit.jupiter.api.Assertions.assertEquals(32, posizione.getCodDocumento().length());
             org.junit.jupiter.api.Assertions.assertFalse(posizione.getCodDocumento().contains("-"));
+            return null;
+        });
+    }
+
+    @Test
+    @DisplayName("creazione con soggettoPagatore.cellulare: persistito su SoggettoDebitore (campo aggiunto, "
+            + "2026-10-27 — in precedenza scartato silenziosamente, gap noto)")
+    void creaConCellulareDelSoggettoLoPersiste() throws Exception {
+        String corpo = """
+                {
+                  "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                  "idDominio": "%s",
+                  "causale": "test cellulare",
+                  "soggettoPagatore": { "tipo": "F", "identificativo": "RSSMRA80A01H501U", "anagrafica": "Mario Rossi",
+                                         "cellulare": "+39 000-1234567" },
+                  "importo": 16.00,
+                  "voci": [ { "idVocePendenza": "voce-cellulare", "importo": 16.00, "descrizione": "test",
+                              "codEntrata": "DIRITTI_SEGRETERIA" } ]
+                }
+                """.formatted(ID_DOMINIO);
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-cellulare-1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpo))
+                .andExpect(status().isCreated());
+
+        inTransazioneDiLettura(() -> {
+            Pendenza pendenza = pendenzaRepository.findByIdApplicazioneAndIdPendenzaAndOpzionePagamentoIsNotNull(
+                    idApplicazione, "pend-cellulare-1").orElseThrow();
+            SoggettoDebitore soggetto = pendenza.getOpzionePagamento().getPosizioneDebitoria()
+                    .getSoggettiDebitori().get(0);
+            org.junit.jupiter.api.Assertions.assertEquals("+39 000-1234567", soggetto.getCellulare());
             return null;
         });
     }

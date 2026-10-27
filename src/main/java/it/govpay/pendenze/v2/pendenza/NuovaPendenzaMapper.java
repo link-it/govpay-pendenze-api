@@ -481,9 +481,7 @@ public class NuovaPendenzaMapper {
     private DatiSoggettoDebitore toDatiSoggettoDebitore(Soggetto dto) {
         return new DatiSoggettoDebitore(it.govpay.pendenze.model.TipoSoggetto.valueOf(dto.getTipo().name()),
                 dto.getIdentificativo(), dto.getAnagrafica(), dto.getIndirizzo(), dto.getCivico(), dto.getCap(),
-                dto.getLocalita(), dto.getProvincia(), dto.getNazione(), dto.getEmail());
-        // NOTA: Soggetto.cellulare (v2) non ha alcun campo equivalente in
-        // DatiSoggettoDebitore/SoggettoDebitore (v3): gap noto, nessuna colonna lo riceve.
+                dto.getLocalita(), dto.getProvincia(), dto.getNazione(), dto.getEmail(), dto.getCellulare());
     }
 
     // ── Ramo di aggiornamento (idPendenza gia' esistente) ───────────────────────────────

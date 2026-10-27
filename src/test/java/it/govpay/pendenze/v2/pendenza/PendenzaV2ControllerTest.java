@@ -323,6 +323,39 @@ class PendenzaV2ControllerTest {
     }
 
     @Test
+    @DisplayName("GET /v2/pendenze/{idA2A}/{idPendenza}: soggettoPagatore.cellulare di una pendenza creata via "
+            + "API v3-nativa e' letto correttamente (campo aggiunto a SoggettoDebitore/Soggetto, 2026-10-27)")
+    void getPendenzaRestituisceCellulareDelSoggettoCreatoViaV3Nativa() throws Exception {
+        String body = """
+                {
+                  "codDocumento": "pos-v2-cellulare-1",
+                  "idDominio": "12345678901",
+                  "descrizione": "test cellulare",
+                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y",
+                                           "anagrafica": "Mario Rossi", "cellulare": "+39 000-1234567" } ],
+                  "opzioniPagamento": [ {
+                    "tipologia": "SOLUZIONE_UNICA",
+                    "pendenze": [ {
+                      "idPendenza": "pendenza-v2-cellulare-1",
+                      "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                      "importo": 16.00,
+                      "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-cellulare-1",
+                                  "importo": 16.00, "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
+                    } ]
+                  } ]
+                }
+                """;
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}", "A2A-TEST")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(get("/v2/pendenze/{idA2A}/{idPendenza}", "A2A-TEST", "pendenza-v2-cellulare-1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.soggettoPagatore.cellulare").value("+39 000-1234567"));
+    }
+
+    @Test
     @DisplayName("GET /v2/pendenze/{idA2A}/{idPendenza} restituisce il dettaglio nel formato v2, "
             + "comprensivo di dominio/soggettoPagatore/voci, rpp e allegati vuoti (nessuno creato)")
     void getPendenzaRestituisceIlDettaglioNelFormatoV2() throws Exception {

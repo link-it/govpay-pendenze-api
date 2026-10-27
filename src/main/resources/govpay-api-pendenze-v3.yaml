@@ -2758,6 +2758,11 @@ components:
           type: string
           examples:
             - mario.rossi@email.it
+        cellulare:
+          type: string
+          examples:
+            - '+39 000-1234567'
+          pattern: '\+[0-9]{2}\s[0-9]{3}\-[0-9]{7}'
     TipoSoggetto:
       description: >-
         tipologia di soggetto, se persona fisica (F) o giuridica (G)
