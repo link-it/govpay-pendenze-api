@@ -3,6 +3,7 @@ package it.govpay.pendenze.v2.pendenza;
 import static org.hamcrest.Matchers.blankOrNullString;
 import static org.hamcrest.Matchers.not;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -55,6 +56,7 @@ import it.govpay.pendenze.entity.OpzionePagamento;
 import it.govpay.pendenze.entity.Pendenza;
 import it.govpay.pendenze.entity.PosizioneDebitoria;
 import it.govpay.pendenze.entity.SoggettoDebitore;
+import it.govpay.pendenze.identificativo.IdentificatorePosizioneDebitoria;
 import it.govpay.pendenze.model.StatoPendenza;
 import it.govpay.pendenze.model.TipologiaOpzionePagamento;
 import it.govpay.pendenze.repository.PendenzaRepository;
@@ -584,6 +586,130 @@ class AddPendenzaControllerTest {
         mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-coppia-eo3-3")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(corpoConSoglia("sanzione in piu'", 50.00, "voce-coppia-eo3-3", "DOC-COPPIA-EO3", "ENTRO", 10)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("un documento con PIU' di un'opzione (creato dalla v3-nativa, non da questo wrapper) accetta "
+            + "comunque una nuova pendenza se una sola delle opzioni ha la tipologia richiesta")
+    void documentoV3NativoConPiuOpzioniTrovaQuellaCompatibile() throws Exception {
+        String creazione = """
+                {
+                  "codDocumento": "DOC-MULTI-1",
+                  "idDominio": "%s",
+                  "descrizione": "documento con piu' opzioni",
+                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "RSSMRA80A01H501U" } ],
+                  "opzioniPagamento": [ {
+                    "tipologia": "SOLUZIONE_UNICA",
+                    "pendenze": [ {
+                      "idPendenza": "pend-multi-su",
+                      "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                      "importo": 10.00,
+                      "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-multi-su",
+                                  "importo": 10.00, "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
+                    } ]
+                  } ]
+                }
+                """.formatted(ID_DOMINIO);
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}", PRINCIPAL)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(creazione))
+                .andExpect(status().isCreated());
+
+        String secondaOpzione = """
+                {
+                  "tipologia": "SOLUZIONE_UNICA_ENTRO",
+                  "giorni": 5,
+                  "pendenze": [ {
+                    "idPendenza": "pend-multi-entro",
+                    "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                    "importo": 70.00,
+                    "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-multi-entro",
+                                "importo": 70.00, "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
+                  } ]
+                }
+                """;
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento", PRINCIPAL,
+                IdentificatorePosizioneDebitoria.comporre(PRINCIPAL, ID_DOMINIO, "DOC-MULTI-1"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(secondaOpzione))
+                .andExpect(status().isCreated());
+
+        // Il documento ha ora 2 opzioni (SOLUZIONE_UNICA, SOLUZIONE_UNICA_ENTRO): una richiesta
+        // v2 senza 'rata'/'soglia' (-> SOLUZIONE_UNICA) non e' piu' rifiutata per il solo fatto
+        // che il documento ne ha piu' di una, perche' esattamente una corrisponde.
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-multi-nuova")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpoConDocumentoSenzaRata("terza pendenza sul documento", 10.00, "voce-multi-nuova",
+                        "DOC-MULTI-1")))
+                .andExpect(status().isCreated());
+
+        inTransazioneDiLettura(() -> {
+            PosizioneDebitoria posizione = posizioneDebitoriaRepository
+                    .findByIdApplicazioneAndIdDominioAndCodDocumento(idApplicazione, idDominio, "DOC-MULTI-1")
+                    .orElseThrow();
+            org.junit.jupiter.api.Assertions.assertEquals(2, posizione.getOpzioniPagamento().size());
+            OpzionePagamento soluzioneUnica = posizione.getOpzioniPagamento().stream()
+                    .filter(o -> o.getTipologia() == TipologiaOpzionePagamento.SOLUZIONE_UNICA).findFirst()
+                    .orElseThrow();
+            org.junit.jupiter.api.Assertions.assertEquals(2, soluzioneUnica.getPendenze().size());
+            OpzionePagamento entro = posizione.getOpzioniPagamento().stream()
+                    .filter(o -> o.getTipologia() == TipologiaOpzionePagamento.SOLUZIONE_UNICA_ENTRO).findFirst()
+                    .orElseThrow();
+            org.junit.jupiter.api.Assertions.assertEquals(1, entro.getPendenze().size());
+            return null;
+        });
+    }
+
+    @Test
+    @DisplayName("un documento con DUE opzioni della STESSA tipologia (creato dalla v3-nativa): riferimento "
+            + "ambiguo, 400 invece di scegliere arbitrariamente")
+    void documentoV3NativoConDueOpzioniDellaStessaTipologiaRestituisce400Ambiguo() throws Exception {
+        String creazione = """
+                {
+                  "codDocumento": "DOC-MULTI-2",
+                  "idDominio": "%s",
+                  "descrizione": "documento con due opzioni della stessa tipologia",
+                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "RSSMRA80A01H501U" } ],
+                  "opzioniPagamento": [ {
+                    "tipologia": "SOLUZIONE_UNICA",
+                    "pendenze": [ {
+                      "idPendenza": "pend-ambig-1",
+                      "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                      "importo": 10.00,
+                      "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-ambig-1",
+                                  "importo": 10.00, "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
+                    } ]
+                  } ]
+                }
+                """.formatted(ID_DOMINIO);
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}", PRINCIPAL)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(creazione))
+                .andExpect(status().isCreated());
+
+        String secondaOpzione = """
+                {
+                  "tipologia": "SOLUZIONE_UNICA",
+                  "pendenze": [ {
+                    "idPendenza": "pend-ambig-2",
+                    "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                    "importo": 10.00,
+                    "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-ambig-2",
+                                "importo": 10.00, "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
+                  } ]
+                }
+                """;
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento", PRINCIPAL,
+                IdentificatorePosizioneDebitoria.comporre(PRINCIPAL, ID_DOMINIO, "DOC-MULTI-2"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(secondaOpzione))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-ambig-nuova")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpoConDocumentoSenzaRata("terza pendenza ambigua", 10.00, "voce-ambig-nuova",
+                        "DOC-MULTI-2")))
                 .andExpect(status().isBadRequest());
     }
 

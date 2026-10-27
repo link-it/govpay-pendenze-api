@@ -349,17 +349,6 @@ public class NuovaPendenzaMapper {
     }
 
     /**
-     * Decisione #3 (continua): valida che la tipologia richiesta (dedotta dalla presenza di
-     * {@code documento.rata} in QUESTA chiamata) non sia in conflitto con quella decisa alla
-     * creazione del documento, e che la rata dichiarata (se {@code PIANO_RATEALE}) coincida
-     * con la prossima posizione attesa — errore esplicito (400), nessuna rinumerazione
-     * silenziosa (stessa decisione del 2026-10-20 sulla validazione della rata dichiarata).
-     * {@code descrizioneDocumento} sovrascrive sempre quella della posizione esistente — vince
-     * l'ultima richiesta (decisione del committente del 2026-10-27, in deroga alla #3: qui
-     * {@code documento}/{@code causale} NON sono ignorati come gli altri campi "solo alla
-     * creazione").
-     */
-    /**
      * {@code documento.descrizione} se {@code documento} e' presente, altrimenti {@code causale}
      * — 'documenti.descrizione' e' {@code NOT NULL} nello schema, e {@code causale} e' sempre
      * obbligatoria su {@code NuovaPendenza}, quindi garantisce sempre un valore.
@@ -369,36 +358,56 @@ public class NuovaPendenzaMapper {
         return documento != null ? documento.getDescrizione() : dto.getCausale();
     }
 
+    /**
+     * Decisione #3 (continua): calcola la tipologia richiesta da {@code rata}/{@code soglia} e
+     * cerca, fra tutte le opzioni di pagamento del documento, quella con la stessa tipologia.
+     * Una sola corrispondenza: aggiunge la pendenza li' (se {@code PIANO_RATEALE}, la rata
+     * dichiarata deve coincidere con la prossima posizione attesa — errore esplicito, nessuna
+     * rinumerazione silenziosa). Nessuna corrispondenza ma una complementare presente
+     * ({@code ENTRO}/{@code OLTRE} o {@code RIDOTTO}/{@code SCONTATO}): crea una seconda
+     * opzione ({@link #completaCoppiaSoglia}). Nessuna corrispondenza e nessuna complementare,
+     * o piu' di una corrispondenza: errore esplicito (400). {@code descrizioneDocumento}
+     * sovrascrive sempre quella della posizione esistente, indipendentemente dall'esito sopra.
+     */
     private Pendenza aggiungiAPosizioneEsistente(String idA2A, PosizioneDebitoria posizione, Integer rataRichiesta,
             VincoloPagamento soglia, DatiPendenza datiPendenza, String descrizioneDocumento) {
         posizione.setDescrizione(descrizioneDocumento);
-        List<OpzionePagamento> opzioni = posizione.getOpzioniPagamento();
-        if (opzioni.size() != 1) {
-            throw new ValidazioneNonSuperataException("il documento [" + posizione.getCodDocumento() + "] ha "
-                    + opzioni.size() + " opzioni di pagamento: questo wrapper gestisce solo documenti con "
-                    + "esattamente un'opzione (quelli creati da questa stessa API)");
-        }
-        OpzionePagamento opzione = opzioni.get(0);
         TipologiaEGiorni tipologiaEGiorni = risolviTipologia(rataRichiesta, soglia);
-        if (opzione.getTipologia() != tipologiaEGiorni.tipologia()) {
-            if (sonoSoglieComplementari(opzione.getTipologia(), tipologiaEGiorni.tipologia())) {
-                return completaCoppiaSoglia(idA2A, posizione, tipologiaEGiorni, datiPendenza);
-            }
-            throw new ValidazioneNonSuperataException("la tipologia del documento [" + posizione.getCodDocumento()
-                    + "] e' " + opzione.getTipologia() + " e non puo' cambiare dopo la creazione (rata "
-                    + (rataRichiesta == null ? "non dichiarata" : "dichiarata [" + rataRichiesta + "]") + ")");
+        List<OpzionePagamento> opzioni = posizione.getOpzioniPagamento();
+
+        List<OpzionePagamento> corrispondenti = opzioni.stream()
+                .filter(o -> o.getTipologia() == tipologiaEGiorni.tipologia())
+                .toList();
+        if (corrispondenti.size() > 1) {
+            throw new ValidazioneNonSuperataException("il documento [" + posizione.getCodDocumento() + "] ha "
+                    + corrispondenti.size() + " opzioni di tipologia " + tipologiaEGiorni.tipologia()
+                    + ": riferimento ambiguo, non e' possibile scegliere a quale aggiungere la pendenza");
         }
-        if (tipologiaEGiorni.tipologia() == TipologiaOpzionePagamento.PIANO_RATEALE) {
-            int prossimaRata = opzione.getPendenze().stream().mapToInt(Pendenza::getNumeroRata).max().orElse(0) + 1;
-            if (rataRichiesta != prossimaRata) {
-                throw new ValidazioneNonSuperataException("documento.rata [" + rataRichiesta + "] non valida: la "
-                        + "prossima rata attesa per il documento [" + posizione.getCodDocumento() + "] e' ["
-                        + prossimaRata + "]");
+        if (corrispondenti.size() == 1) {
+            OpzionePagamento opzione = corrispondenti.get(0);
+            if (tipologiaEGiorni.tipologia() == TipologiaOpzionePagamento.PIANO_RATEALE) {
+                int prossimaRata = opzione.getPendenze().stream().mapToInt(Pendenza::getNumeroRata).max()
+                        .orElse(0) + 1;
+                if (rataRichiesta != prossimaRata) {
+                    throw new ValidazioneNonSuperataException("documento.rata [" + rataRichiesta + "] non valida: "
+                            + "la prossima rata attesa per il documento [" + posizione.getCodDocumento() + "] e' ["
+                            + prossimaRata + "]");
+                }
             }
+            String idPosizioneDebitoriaPubblica = posizioneDebitoriaService.idPosizioneDebitoriaPubblica(posizione);
+            return posizioneDebitoriaService.aggiungiPendenza(idA2A, idPosizioneDebitoriaPubblica,
+                    opzione.getIdOpzionePagamento(), datiPendenza);
         }
-        String idPosizioneDebitoriaPubblica = posizioneDebitoriaService.idPosizioneDebitoriaPubblica(posizione);
-        return posizioneDebitoriaService.aggiungiPendenza(idA2A, idPosizioneDebitoriaPubblica,
-                opzione.getIdOpzionePagamento(), datiPendenza);
+
+        boolean complementarePresente = opzioni.stream()
+                .anyMatch(o -> sonoSoglieComplementari(o.getTipologia(), tipologiaEGiorni.tipologia()));
+        if (complementarePresente) {
+            return completaCoppiaSoglia(idA2A, posizione, tipologiaEGiorni, datiPendenza);
+        }
+        throw new ValidazioneNonSuperataException("il documento [" + posizione.getCodDocumento() + "] non ha "
+                + "un'opzione di tipologia " + tipologiaEGiorni.tipologia() + " ne' una complementare a cui "
+                + "aggiungere la pendenza (tipologie presenti: " + opzioni.stream().map(o -> o.getTipologia()
+                        .toString()).collect(Collectors.joining(", ")) + ")");
     }
 
     private record TipologiaEGiorni(TipologiaOpzionePagamento tipologia, Integer giorni) {
