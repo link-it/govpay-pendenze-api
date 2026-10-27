@@ -1,7 +1,9 @@
 package it.govpay.pendenze.v2.pendenza;
 
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.io.OutputStream;
+import java.io.UncheckedIOException;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
@@ -56,7 +58,9 @@ import it.govpay.pendenze.repository.RptRepository;
 import it.govpay.pendenze.security.AclAuthorizer;
 import it.govpay.pendenze.security.CurrentApplicazioneService;
 import it.govpay.pendenze.service.PosizioneDebitoriaService;
+import it.govpay.pendenze.v2.api.model.Avviso;
 import it.govpay.pendenze.v2.api.model.LinguaSecondaria;
+import it.govpay.pendenze.v2.api.model.StatoAvviso;
 import it.govpay.pendenze.v2.api.model.NuovaPendenza;
 import it.govpay.pendenze.v2.api.model.NuovoAllegatoPendenza;
 import it.govpay.pendenze.v2.api.model.PatchOp;
@@ -72,6 +76,7 @@ import it.govpay.pendenze.web.NotAcceptableMediaTypeException;
 import it.govpay.pendenze.web.SelezioneCampi;
 import it.govpay.stampe.client.model.PaymentNotice;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import tools.jackson.databind.ObjectMapper;
 
 /**
@@ -122,6 +127,7 @@ public class PendenzaV2Controller implements PendenzeApi {
     private final CurrentApplicazioneService currentApplicazioneService;
     private final ObjectMapper objectMapper;
     private final HttpServletRequest currentRequest;
+    private final HttpServletResponse currentResponse;
     private final AvvisoPdfPayloadMapper avvisoPdfPayloadMapper;
     private final StampeClient stampeClient;
     private final ExternalCallMetricsRecorder externalCallMetricsRecorder;
@@ -133,7 +139,7 @@ public class PendenzaV2Controller implements PendenzeApi {
             AllegatoRepository allegatoRepository, PendenzaV2Mapper pendenzaV2Mapper,
             NuovaPendenzaMapper nuovaPendenzaMapper, RppMapper rppMapper,
             AclAuthorizer aclAuthorizer, CurrentApplicazioneService currentApplicazioneService,
-            ObjectMapper objectMapper, HttpServletRequest currentRequest,
+            ObjectMapper objectMapper, HttpServletRequest currentRequest, HttpServletResponse currentResponse,
             AvvisoPdfPayloadMapper avvisoPdfPayloadMapper, StampeClient stampeClient,
             ExternalCallMetricsRecorder externalCallMetricsRecorder) {
         this.posizioneDebitoriaService = posizioneDebitoriaService;
@@ -150,6 +156,7 @@ public class PendenzaV2Controller implements PendenzeApi {
         this.currentApplicazioneService = currentApplicazioneService;
         this.objectMapper = objectMapper;
         this.currentRequest = currentRequest;
+        this.currentResponse = currentResponse;
         this.avvisoPdfPayloadMapper = avvisoPdfPayloadMapper;
         this.stampeClient = stampeClient;
         this.externalCallMetricsRecorder = externalCallMetricsRecorder;
@@ -455,6 +462,113 @@ public class PendenzaV2Controller implements PendenzeApi {
         if (primaCifra < '0' || primaCifra > '3') {
             throw new ValidazioneNonSuperataException("numeroAvviso [" + numeroAvviso + "] fornito non valido: "
                     + "prima cifra non e' [0|1|2|3]");
+        }
+    }
+
+    /**
+     * Avviso di pagamento identificato da {@code idDominio}+{@code numeroAvviso} — una SOLA
+     * pendenza, non un documento. Nessuna validazione di formato su {@code numeroAvviso} (a
+     * differenza di {@link #getPendenzaByAvviso}, endpoint diverso): il legacy
+     * ({@code AvvisiController#getAvviso}) non ne applica nessuna qui.
+     *
+     * <p><b>Content negotiation manuale</b> (sostituisce quella generata, come
+     * {@code RppV2Controller#getRpt}/{@code #getRt}): solo un {@code Accept} che contiene
+     * {@code application/pdf} o {@code application/json} e' servito, altrimenti 406 — stesso
+     * controllo a sottostringa case-insensitive del legacy, non la negoziazione quality-aware
+     * usata altrove in v3-nativo.</p>
+     *
+     * <p><b>Nessuna pendenza trovata</b>: in PDF, 404; in JSON, **200** con
+     * {@code Avviso{stato: SCONOSCIUTA, idDominio, numeroAvviso}} — replica fedele del legacy,
+     * che intercetta l'assenza solo sul ramo JSON e non la propaga mai come errore. Nessuna
+     * chiamata al connettore "Verifica" dell'applicazione proprietaria quando l'avviso non e'
+     * nel DB: stesso punto sospeso di {@link #getPendenzaByAvviso}, mai implementato in questo
+     * wrapper.</p>
+     *
+     * <p><b>Piu' di una pendenza trovata</b> (rate di un piano rateale con avviso cumulativo,
+     * NAV condiviso): 409 ({@link RicercaNonUnivocaException}, stessa di
+     * {@link #getPendenzaByAvviso}), in entrambi i formati.</p>
+     *
+     * <p><b>PDF</b>: stessi due guard (MBT, anagrafica debitore assente) di
+     * {@link #getAvvisiDocumento}, con lo stesso 422 (il legacy qui risponderebbe con un 500
+     * non gestito, non replicato). {@code causaleTradotta}/{@code informativaImporto}/
+     * {@code informativaImportoTradotta} risolti da {@code proprieta} della pendenza, stesso
+     * meccanismo di {@link #getAvvisiDocumento} — mai un parametro di richiesta.</p>
+     *
+     * <p><b>JSON</b>: nessun controllo MBT/anagrafica (il legacy non lo applica su questo
+     * ramo).</p>
+     */
+    @Override
+    @Transactional(readOnly = true)
+    @RequestMapping(method = RequestMethod.GET, value = PendenzeApi.PATH_GET_AVVISO, produces = MediaType.ALL_VALUE)
+    public ResponseEntity<Avviso> getAvviso(String idDominio, String numeroAvviso,
+            LinguaSecondaria linguaSecondaria) {
+        aclAuthorizer.richiedeLettura();
+        String accept = currentRequest.getHeader(HttpHeaders.ACCEPT);
+        String acceptLower = accept == null ? "" : accept.toLowerCase(Locale.ROOT);
+        boolean vuolePdf = acceptLower.contains(MediaType.APPLICATION_PDF_VALUE);
+        boolean vuoleJson = acceptLower.contains(MediaType.APPLICATION_JSON_VALUE);
+        if (!vuolePdf && !vuoleJson) {
+            throw new NotAcceptableMediaTypeException("Avviso di pagamento non disponibile nel formato indicato "
+                    + "nell'header Accept, ricevuto: '" + (accept == null ? "" : accept)
+                    + "', consentiti: 'application/pdf', 'application/json'");
+        }
+
+        List<Pendenza> trovate = dominioRepository.findByCodDominio(idDominio)
+                .map(dominio -> pendenzaRepository.findByIdDominioAndNumeroAvviso(dominio.getId(), numeroAvviso))
+                .orElseGet(List::of);
+        if (trovate.size() > 1) {
+            throw new RicercaNonUnivocaException("piu' di una pendenza (" + trovate.size()
+                    + ") con idDominio [" + idDominio + "] e numeroAvviso [" + numeroAvviso
+                    + "]: tipicamente le rate di uno stesso piano rateale con avviso cumulativo, non "
+                    + "disambiguabili da questo endpoint");
+        }
+        if (trovate.isEmpty()) {
+            if (vuolePdf) {
+                throw new RisorsaNonTrovataException(
+                        "nessuna pendenza con idDominio [" + idDominio + "] e numeroAvviso [" + numeroAvviso + "]");
+            }
+            Avviso sconosciuto = new Avviso();
+            sconosciuto.setStato(StatoAvviso.SCONOSCIUTA);
+            sconosciuto.setIdDominio(idDominio);
+            sconosciuto.setNumeroAvviso(numeroAvviso);
+            return ResponseEntity.ok(sconosciuto);
+        }
+
+        Pendenza pendenza = trovate.get(0);
+        String codApplicazioneProprietaria = applicazioneRepository.findById(pendenza.getIdApplicazione())
+                .map(ApplicazioneEntity::getCodApplicazione)
+                .orElseThrow(() -> new IllegalStateException(
+                        "applicazione [id:" + pendenza.getIdApplicazione() + "] non trovata in anagrafica"));
+        currentApplicazioneService.verificaIdA2A(codApplicazioneProprietaria);
+
+        if (vuolePdf) {
+            streamAvvisoPdfV2(pendenza, idDominio, numeroAvviso, linguaSecondaria);
+            return ResponseEntity.ok().build();
+        }
+        return ResponseEntity.ok(pendenzaV2Mapper.toAvvisoDto(pendenza));
+    }
+
+    private void streamAvvisoPdfV2(Pendenza pendenza, String idDominio, String numeroAvviso,
+            LinguaSecondaria linguaSecondaria) {
+        if (AvvisoPdfPayloadMapper.isPendenzaMbt(pendenza)) {
+            throw new AvvisoMbtException("Avviso PDF non disponibile per pendenze con Marca da Bollo Telematica.");
+        }
+        if (AvvisoPdfPayloadMapper.isAnagraficaDebitoreAssente(pendenza)) {
+            throw new AvvisoAnagraficaAssenteException("Avviso PDF non disponibile: anagrafica del debitore assente.");
+        }
+        ParametriBilingue bilingue = risolviParametriBilingue(linguaSecondaria, pendenza);
+        PaymentNotice payload = avvisoPdfPayloadMapper.toPaymentNotice(pendenza, bilingue.linguaSecondaria(),
+                bilingue.causaleTradotta(), bilingue.informativaImporto(), bilingue.informativaImportoTradotta());
+        currentResponse.setContentType(MediaType.APPLICATION_PDF_VALUE);
+        currentResponse.setHeader(HttpHeaders.CONTENT_DISPOSITION,
+                "attachment; filename=\"" + idDominio + "_" + numeroAvviso + ".pdf\"");
+        try {
+            var output = currentResponse.getOutputStream();
+            externalCallMetricsRecorder.record("stampe", "payment_notice",
+                    () -> stampeClient.streamPaymentNotice(payload, output));
+            currentResponse.flushBuffer();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
         }
     }
 

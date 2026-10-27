@@ -26,12 +26,15 @@ import it.govpay.pendenze.entity.Pendenza;
 import it.govpay.pendenze.entity.PosizioneDebitoria;
 import it.govpay.pendenze.entity.SoggettoDebitore;
 import it.govpay.pendenze.entity.VocePendenza;
+import it.govpay.pendenze.avviso.AvvisoMapper;
 import it.govpay.pendenze.model.TipologiaOpzionePagamento;
+import it.govpay.pendenze.v2.api.model.Avviso;
 import it.govpay.pendenze.v2.api.model.Documento;
 import it.govpay.pendenze.v2.api.model.Dominio;
 import it.govpay.pendenze.v2.api.model.ProprietaPendenza;
 import it.govpay.pendenze.v2.api.model.Segnalazione;
 import it.govpay.pendenze.v2.api.model.Soggetto;
+import it.govpay.pendenze.v2.api.model.StatoAvviso;
 import it.govpay.pendenze.v2.api.model.StatoPendenza;
 import it.govpay.pendenze.v2.api.model.TassonomiaAvviso;
 import it.govpay.pendenze.v2.api.model.TipoPendenzaTipologia;
@@ -239,6 +242,54 @@ public class PendenzaV2Mapper {
             default -> stato = StatoPendenza.NON_ESEGUITA;
         }
         return entity.isAnomalo() ? StatoPendenza.ANOMALA : stato;
+    }
+
+    /**
+     * Replica {@code PendenzeConverter.toAvvisoRsModel} ({@code GET /avvisi/{idDominio}/
+     * {numeroAvviso}}) — switch DIVERSO da {@link #risolviStato}: qui solo {@code stato}, mai
+     * {@code statoPagamento}/{@code anomalo}. {@code ANOMALO}/{@code ESEGUITO_SENZA_RPT}/
+     * {@code INCASSATO} non hanno un caso (nessuno nello switch originale): {@code stato}
+     * resta {@code null}, anche se lo schema lo dichiara {@code required}.
+     */
+    public Avviso toAvvisoDto(Pendenza entity) {
+        DominioEntity dominio = dominioRepository.findById(entity.getIdDominio())
+                .orElseThrow(() -> new IllegalStateException("idDominio [" + entity.getIdDominio()
+                        + "] della pendenza non risolve a nessun dominio censito"));
+        Avviso dto = new Avviso();
+        dto.setStato(risolviStatoAvviso(entity));
+        dto.setImporto(entity.getImporto());
+        dto.setIdDominio(dominio.getCodDominio());
+        dto.setNumeroAvviso(entity.getNumeroAvviso());
+        dto.setDataValidita(entity.getDataValidita() == null ? null : entity.getDataValidita().toLocalDate());
+        dto.setDataScadenza(
+                entity.getDataScadenzaAvviso() == null ? null : entity.getDataScadenzaAvviso().toLocalDate());
+        dto.setDataPagamento(entity.getDataPagamento() == null ? null : entity.getDataPagamento().toLocalDate());
+        dto.setDescrizione(risolviDescrizioneAvviso(entity));
+        dto.setTassonomiaAvviso(entity.getTassonomiaAvviso() == null ? null
+                : TassonomiaAvviso.fromValue(entity.getTassonomiaAvviso()));
+        dto.setQrcode(AvvisoMapper.buildQrcode(entity, dominio));
+        dto.setBarcode(AvvisoMapper.buildBarcode(entity, dominio));
+        return dto;
+    }
+
+    /**
+     * Causale legacy ({@code causaleVersamento}) se presente, altrimenti la descrizione della
+     * posizione debitoria — mai scritta su {@code causaleVersamento}, le pendenze create da
+     * API v3-nativa. Stesso fallback di {@code AvvisoPdfPayloadMapper#descrizioneDi}, usato
+     * dalla stampa PDF di questo stesso avviso.
+     */
+    private String risolviDescrizioneAvviso(Pendenza entity) {
+        String causale = CausaleVersamentoCodec.decode(entity.getCausaleVersamento());
+        return causale != null ? causale : entity.getOpzionePagamento().getPosizioneDebitoria().getDescrizione();
+    }
+
+    private StatoAvviso risolviStatoAvviso(Pendenza entity) {
+        return switch (entity.getStato()) {
+            case ANNULLATO -> StatoAvviso.ANNULLATA;
+            case ESEGUITO, ESEGUITO_ALTRO_CANALE, PARZIALMENTE_ESEGUITO -> StatoAvviso.DUPLICATA;
+            case NON_ESEGUITO -> isScaduta(entity) ? StatoAvviso.SCADUTA : StatoAvviso.NON_ESEGUITA;
+            default -> null;
+        };
     }
 
     /** Stessa soglia del legacy ({@code DateUtils.CONTROLLO_SCADENZA}, mezzanotte del giorno

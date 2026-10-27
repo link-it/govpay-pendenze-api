@@ -876,7 +876,7 @@ paths:
           $ref: '#/components/responses/500ServiceUnavailable'
 
   '/pendenze/{idA2A}/{idPendenza}/stampa':
-    get:
+    post:
       tags:
         - Pendenze
       summary: Stampa dell'avviso di una pendenza
@@ -886,8 +886,11 @@ paths:
         formato PDF, identificata tramite gli identificativi del
         gestionale (idA2A e idPendenza) invece che tramite numeroAvviso.
         Le opzioni di personalizzazione testuale/traduzione dell'avviso
-        (lingua secondaria, testi tradotti) si specificano nei parametri
-        di questa chiamata.
+        (lingua secondaria, testi tradotti) si specificano nel corpo
+        della richiesta — POST, non GET, perché sono testo libero: in
+        query string andrebbero percent-encoded e sarebbero esposte a
+        problemi con caratteri speciali/accentati e a limiti di
+        lunghezza dell'URL.
       parameters:
         - in: path
           name: idA2A
@@ -903,10 +906,12 @@ paths:
           schema:
             type: string
             pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
-        - $ref: '#/components/parameters/linguaSecondaria'
-        - $ref: '#/components/parameters/causaleTradotta'
-        - $ref: '#/components/parameters/informativaImporto'
-        - $ref: '#/components/parameters/informativaImportoTradotta'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PersonalizzazioneAvviso'
       responses:
         '200':
           description: Avviso di pagamento in formato PDF
@@ -918,7 +923,7 @@ paths:
         '400':
           description: >-
             Bilinguismo richiesto (`linguaSecondaria`) senza
-            `causaleTradotta`
+            `causaleTradotta` nel corpo della richiesta
           content:
             application/problem+json:
               schema:
@@ -1322,44 +1327,6 @@ components:
       schema:
         type: string
       example: 'dataCreazione:desc'
-    linguaSecondaria:
-      name: linguaSecondaria
-      in: query
-      description: >-
-        Indica se creare l'avviso in modalita' multilingua e quale seconda
-        lingua affiancare all'italiano all'interno dell'avviso.
-      required: false
-      schema:
-        $ref: '#/components/schemas/LinguaSecondaria'
-    causaleTradotta:
-      name: causaleTradotta
-      in: query
-      description: >-
-        Causale della pendenza tradotta nella lingua secondaria, da inserire
-        nell'avviso.
-      required: false
-      schema:
-        type: string
-    informativaImporto:
-      name: informativaImporto
-      in: query
-      description: >-
-        Se valorizzato, sostituisce il testo standard della nota informativa
-        sull'importo. Se valorizzato con stringa vuota, l'informativa viene
-        omessa.
-      required: false
-      schema:
-        type: string
-        maxLength: 255
-    informativaImportoTradotta:
-      name: informativaImportoTradotta
-      in: query
-      description: Versione tradotta di `informativaImporto`, nella lingua secondaria.
-      required: false
-      schema:
-        type: string
-        maxLength: 255
-
   responses:
     400BadRequest:
       description: Richiesta non valida
@@ -3811,6 +3778,30 @@ components:
         - 'en'
         - 'fr'
         - 'sl'
+
+    PersonalizzazioneAvviso:
+      type: object
+      description: >-
+        Opzioni di personalizzazione testuale/traduzione dell'avviso di pagamento.
+      properties:
+        linguaSecondaria:
+          $ref: '#/components/schemas/LinguaSecondaria'
+        causaleTradotta:
+          type: string
+          description: >-
+            Causale della pendenza tradotta nella lingua secondaria, da inserire
+            nell'avviso.
+        informativaImporto:
+          type: string
+          maxLength: 255
+          description: >-
+            Se valorizzato, sostituisce il testo standard della nota informativa
+            sull'importo. Se valorizzato con stringa vuota, l'informativa viene
+            omessa.
+        informativaImportoTradotta:
+          type: string
+          maxLength: 255
+          description: Versione tradotta di `informativaImporto`, nella lingua secondaria.
 
     Pagination:
       type: object

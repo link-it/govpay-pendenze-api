@@ -1379,21 +1379,23 @@ class PendenzaControllerTest {
     }
 
     @Test
-    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/stampa restituisce 404 se la pendenza non esiste")
+    @DisplayName("POST /pendenze/{idA2A}/{idPendenza}/stampa restituisce 404 se la pendenza non esiste")
     void getStampaPendenzaRestituisce404SeNonEsiste() throws Exception {
-        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/stampa", "A2A-TEST", "pendenza-inesistente"))
+        mockMvc.perform(post("/pendenze/{idA2A}/{idPendenza}/stampa", "A2A-TEST", "pendenza-inesistente")
+                        .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isNotFound())
                 .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
                 .andExpect(jsonPath("$.status").value(404));
     }
 
     @Test
-    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/stampa restituisce 406 per un Accept non compatibile "
+    @DisplayName("POST /pendenze/{idA2A}/{idPendenza}/stampa restituisce 406 per un Accept non compatibile "
             + "con PDF")
     void getStampaPendenzaRestituisce406PerAcceptNonSupportato() throws Exception {
         creaPosizioneConPendenza("pos-stampa-406", "12345678901", "pendenza-stampa-406");
 
-        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/stampa", "A2A-TEST", "pendenza-stampa-406")
+        mockMvc.perform(post("/pendenze/{idA2A}/{idPendenza}/stampa", "A2A-TEST", "pendenza-stampa-406")
+                        .contentType(MediaType.APPLICATION_JSON)
                         .accept(MediaType.APPLICATION_XML))
                 .andExpect(status().isNotAcceptable())
                 .andExpect(jsonPath("$.status").value(406));
@@ -1406,12 +1408,13 @@ class PendenzaControllerTest {
      * {@code PendenzaController#qualitaPiuSpecifica}).
      */
     @Test
-    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/stampa restituisce 406 se l'Accept esclude esplicitamente "
+    @DisplayName("POST /pendenze/{idA2A}/{idPendenza}/stampa restituisce 406 se l'Accept esclude esplicitamente "
             + "application/pdf (q=0), anche con un wildcard generico di qualita' maggiore")
     void getStampaPendenzaRestituisce406SeAcceptEsclude406Pdf() throws Exception {
         creaPosizioneConPendenza("pos-stampa-q0", "12345678901", "pendenza-stampa-q0");
 
-        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/stampa", "A2A-TEST", "pendenza-stampa-q0")
+        mockMvc.perform(post("/pendenze/{idA2A}/{idPendenza}/stampa", "A2A-TEST", "pendenza-stampa-q0")
+                        .contentType(MediaType.APPLICATION_JSON)
                         .header("Accept", "application/pdf;q=0, */*;q=1"))
                 .andExpect(status().isNotAcceptable())
                 .andExpect(jsonPath("$.status").value(406));
@@ -1422,15 +1425,17 @@ class PendenzaControllerTest {
      * govpay-stampe (va in second_language.title, l'oggetto del pagamento tradotto).
      */
     @Test
-    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/stampa (Accept: application/pdf) accetta causaleTradotta "
+    @DisplayName("POST /pendenze/{idA2A}/{idPendenza}/stampa (Accept: application/pdf) accetta causaleTradotta "
             + "e lo inoltra a govpay-stampe")
     void getStampaPendenzaPdfAccettaCausaleTradotta() throws Exception {
         creaPosizioneConPendenza("pos-stampa-causale-pdf", "12345678901", "pendenza-stampa-causale-pdf");
 
-        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/stampa", "A2A-TEST", "pendenza-stampa-causale-pdf")
+        mockMvc.perform(post("/pendenze/{idA2A}/{idPendenza}/stampa", "A2A-TEST", "pendenza-stampa-causale-pdf")
                         .accept(MediaType.APPLICATION_PDF)
-                        .param("linguaSecondaria", "EN")
-                        .param("causaleTradotta", "Payment notice"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "linguaSecondaria": "en", "causaleTradotta": "Payment notice" }
+                                """))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.status").value(503));
     }
@@ -1440,42 +1445,48 @@ class PendenzaControllerTest {
      * verso govpay-stampe (va in second_language.informativa_importo).
      */
     @Test
-    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/stampa (Accept: application/pdf) accetta "
+    @DisplayName("POST /pendenze/{idA2A}/{idPendenza}/stampa (Accept: application/pdf) accetta "
             + "informativaImportoTradotta e lo inoltra a govpay-stampe")
     void getStampaPendenzaPdfAccettaInformativaImportoTradotta() throws Exception {
         creaPosizioneConPendenza("pos-stampa-info-tra-pdf", "12345678901", "pendenza-stampa-info-tra-pdf");
 
-        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/stampa", "A2A-TEST", "pendenza-stampa-info-tra-pdf")
+        mockMvc.perform(post("/pendenze/{idA2A}/{idPendenza}/stampa", "A2A-TEST", "pendenza-stampa-info-tra-pdf")
                         .accept(MediaType.APPLICATION_PDF)
-                        .param("linguaSecondaria", "EN")
-                        .param("causaleTradotta", "Secretarial fees")
-                        .param("informativaImporto", "Testo personalizzato")
-                        .param("informativaImportoTradotta", "Testo tradotto"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "linguaSecondaria": "en", "causaleTradotta": "Secretarial fees",
+                                  "informativaImporto": "Testo personalizzato",
+                                  "informativaImportoTradotta": "Testo tradotto" }
+                                """))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.status").value(503));
     }
 
     @Test
-    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/stampa (Accept: application/pdf) restituisce 400 se "
+    @DisplayName("POST /pendenze/{idA2A}/{idPendenza}/stampa (Accept: application/pdf) restituisce 400 se "
             + "linguaSecondaria e' specificato senza causaleTradotta: un avviso bilingue senza causale tradotta "
             + "non e' un documento valido")
     void getStampaPendenzaPdfRestituisce400SeLinguaSecondariaSenzaCausaleTradotta() throws Exception {
         creaPosizioneConPendenza("pos-stampa-bil-no-causale", "12345678901", "pendenza-stampa-bil-no-causale");
 
-        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/stampa", "A2A-TEST", "pendenza-stampa-bil-no-causale")
+        mockMvc.perform(post("/pendenze/{idA2A}/{idPendenza}/stampa", "A2A-TEST", "pendenza-stampa-bil-no-causale")
                         .accept(MediaType.APPLICATION_PDF)
-                        .param("linguaSecondaria", "EN"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "linguaSecondaria": "en" }
+                                """))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400));
     }
 
     @Test
-    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/stampa (Accept: application/pdf) restituisce 503 se "
+    @DisplayName("POST /pendenze/{idA2A}/{idPendenza}/stampa (Accept: application/pdf) restituisce 503 se "
             + "app.stampe.base-url non e' configurato (default di questo contesto di test)")
     void getStampaPendenzaPdfRestituisce503SeStampeNonConfigurato() throws Exception {
         creaPosizioneConPendenza("pos-stampa-pdf-503", "12345678901", "pendenza-stampa-pdf-503");
 
-        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/stampa", "A2A-TEST", "pendenza-stampa-pdf-503")
+        mockMvc.perform(post("/pendenze/{idA2A}/{idPendenza}/stampa", "A2A-TEST", "pendenza-stampa-pdf-503")
+                        .contentType(MediaType.APPLICATION_JSON)
                         .accept(MediaType.APPLICATION_PDF))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
@@ -1488,14 +1499,17 @@ class PendenzaControllerTest {
      * arriva comunque a tentare la chiamata, fallendo per quello, non per la validazione.
      */
     @Test
-    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/stampa (Accept: application/pdf) accetta informativaImporto "
+    @DisplayName("POST /pendenze/{idA2A}/{idPendenza}/stampa (Accept: application/pdf) accetta informativaImporto "
             + "e lo inoltra a govpay-stampe")
     void getStampaPendenzaPdfAccettaInformativaImporto() throws Exception {
         creaPosizioneConPendenza("pos-stampa-info-pdf", "12345678901", "pendenza-stampa-info-pdf");
 
-        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/stampa", "A2A-TEST", "pendenza-stampa-info-pdf")
+        mockMvc.perform(post("/pendenze/{idA2A}/{idPendenza}/stampa", "A2A-TEST", "pendenza-stampa-info-pdf")
                         .accept(MediaType.APPLICATION_PDF)
-                        .param("informativaImporto", "Testo personalizzato"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "informativaImporto": "Testo personalizzato" }
+                                """))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.status").value(503));
     }
@@ -1507,7 +1521,7 @@ class PendenzaControllerTest {
      * PRIMA di contattare govpay-stampe).
      */
     @Test
-    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/stampa (Accept: application/pdf) restituisce 422 per una "
+    @DisplayName("POST /pendenze/{idA2A}/{idPendenza}/stampa (Accept: application/pdf) restituisce 422 per una "
             + "pendenza con Marca da Bollo Telematica")
     void getStampaPendenzaPdfRestituisce422PerPendenzaMbt() throws Exception {
         String body = """
@@ -1534,7 +1548,8 @@ class PendenzaControllerTest {
                         .content(body))
                 .andExpect(status().isCreated());
 
-        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/stampa", "A2A-TEST", "pendenza-stampa-pdf-mbt")
+        mockMvc.perform(post("/pendenze/{idA2A}/{idPendenza}/stampa", "A2A-TEST", "pendenza-stampa-pdf-mbt")
+                        .contentType(MediaType.APPLICATION_JSON)
                         .accept(MediaType.APPLICATION_PDF))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
@@ -1548,7 +1563,7 @@ class PendenzaControllerTest {
      * govpay-stampe risponderebbe 400, tradotto poi in 502 generico dal client HTTP.
      */
     @Test
-    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/stampa (Accept: application/pdf) restituisce 422 se il "
+    @DisplayName("POST /pendenze/{idA2A}/{idPendenza}/stampa (Accept: application/pdf) restituisce 422 se il "
             + "debitore non ha anagrafica")
     void getStampaPendenzaPdfRestituisce422PerAnagraficaDebitoreAssente() throws Exception {
         String body = """
@@ -1574,7 +1589,9 @@ class PendenzaControllerTest {
                         .content(body))
                 .andExpect(status().isCreated());
 
-        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/stampa", "A2A-TEST", "pendenza-stampa-pdf-no-anagrafica")
+        mockMvc.perform(post("/pendenze/{idA2A}/{idPendenza}/stampa", "A2A-TEST",
+                        "pendenza-stampa-pdf-no-anagrafica")
+                        .contentType(MediaType.APPLICATION_JSON)
                         .accept(MediaType.APPLICATION_PDF))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))

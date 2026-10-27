@@ -280,6 +280,10 @@ paths:
           $ref: '#/components/responses/403NotAuthorized'
         '404':
           $ref: '#/components/responses/404NotFound'
+        '422':
+          description: >-
+            L'avviso PDF non è generabile per questa pendenza (Marca da Bollo Telematica, o
+            debitore senza anagrafica)
         '500':
           $ref: '#/components/responses/500ServiceUnavailable'
   '/documenti/{idDominio}/{numeroDocumento}/avvisi':

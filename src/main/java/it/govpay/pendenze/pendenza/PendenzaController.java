@@ -22,6 +22,7 @@ import it.govpay.pendenze.api.model.NuovaPendenza;
 import it.govpay.pendenze.api.model.Pagination;
 import it.govpay.pendenze.api.model.PendenzaIndex;
 import it.govpay.pendenze.api.model.Pendenze;
+import it.govpay.pendenze.api.model.PersonalizzazioneAvviso;
 import it.govpay.pendenze.api.model.Rendicontazione;
 import it.govpay.pendenze.api.model.Rendicontazioni;
 import it.govpay.pendenze.api.model.Ricevuta;
@@ -183,15 +184,28 @@ public class PendenzaController implements PendenzeApi {
      * — un avviso bilingue senza causale tradotta sarebbe un documento bilingue incompleto
      * (l'oggetto del pagamento resterebbe non tradotto), non un caso da accettare
      * silenziosamente.</p>
+     *
+     * <p>{@code POST}, non {@code GET}: questi valori sono testo libero (causale/informativa
+     * tradotte), in query string andrebbero percent-encoded ed esposti a problemi con caratteri
+     * speciali/accentati e a limiti di lunghezza dell'URL — corpo opzionale, {@code null}
+     * equivale a nessuna personalizzazione richiesta.</p>
      */
     @Override
     @Transactional(readOnly = true)
     public ResponseEntity<Resource> getStampaPendenza(String idA2A, String idPendenza,
-            LinguaSecondaria linguaSecondaria, String causaleTradotta, String informativaImporto,
-            String informativaImportoTradotta) {
+            PersonalizzazioneAvviso personalizzazioneAvviso) {
         aclAuthorizer.richiedeLettura();
         currentApplicazioneService.verificaIdA2A(idA2A);
         verificaAcceptCompatibileConPdf();
+
+        LinguaSecondaria linguaSecondaria = personalizzazioneAvviso == null ? null
+                : personalizzazioneAvviso.getLinguaSecondaria();
+        String causaleTradotta = personalizzazioneAvviso == null ? null
+                : personalizzazioneAvviso.getCausaleTradotta();
+        String informativaImporto = personalizzazioneAvviso == null ? null
+                : personalizzazioneAvviso.getInformativaImporto();
+        String informativaImportoTradotta = personalizzazioneAvviso == null ? null
+                : personalizzazioneAvviso.getInformativaImportoTradotta();
 
         Pendenza pendenza = trovaPendenza(idA2A, idPendenza);
         streamAvvisoPdf(pendenza, linguaSecondaria, causaleTradotta, informativaImporto, informativaImportoTradotta);
