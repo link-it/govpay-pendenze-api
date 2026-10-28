@@ -553,6 +553,9 @@ class FindRppControllerTest {
         rpt.setDataMsgRichiesta(dataRichiesta);
         rpt.setDataMsgRicevuta(dataRicevuta);
         rpt.setCodEsitoPagamento(codEsito);
+        rpt.setCodStazione("STAZIONE-TEST");
+        rpt.setCodMsgRichiesta("msg-" + ccp);
+        rpt.setDataAggiornamentoStato(dataRicevuta != null ? dataRicevuta : dataRichiesta);
         return rptRepository.save(rpt);
     }
 

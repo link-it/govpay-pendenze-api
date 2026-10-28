@@ -540,6 +540,11 @@ class PendenzaControllerTest {
         inAttesa.setIur("iur-in-attesa");
         inAttesa.setCodDominio("12345678901");
         inAttesa.setVersione("SANP_240");
+        inAttesa.setCodStazione("STAZIONE-TEST");
+        inAttesa.setCodMsgRichiesta("msg-in-attesa");
+        inAttesa.setStato("RPT_ATTIVATA");
+        inAttesa.setDataMsgRichiesta(OffsetDateTime.now());
+        inAttesa.setDataAggiornamentoStato(OffsetDateTime.now());
         rptRepository.save(inAttesa);
 
         mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/ricevute", "A2A-TEST", "pendenza-ricevute-attesa"))
@@ -1403,6 +1408,11 @@ class PendenzaControllerTest {
         rpt.setXmlRt(xmlRt);
         rpt.setDataMsgRicevuta(dataMsgRicevuta);
         rpt.setVersione(versione);
+        rpt.setCodStazione("STAZIONE-TEST");
+        rpt.setCodMsgRichiesta("msg-" + iur);
+        rpt.setStato("RT_ACCETTATA_PA");
+        rpt.setDataMsgRichiesta(OffsetDateTime.now());
+        rpt.setDataAggiornamentoStato(OffsetDateTime.now());
         return rptRepository.save(rpt);
     }
 

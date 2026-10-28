@@ -9,6 +9,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.jayway.jsonpath.JsonPath;
 
+import java.time.OffsetDateTime;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -277,6 +279,10 @@ class RppV2ControllerTest {
         rpt.setStato("RT_ACCETTATA_PA");
         rpt.setDescrizioneStato("Pagamento eseguito con successo");
         rpt.setXmlRt(fixtureRt("rt-v2-ok.xml"));
+        rpt.setCodStazione("STAZIONE-TEST");
+        rpt.setCodMsgRichiesta("msg-" + ccp);
+        rpt.setDataMsgRichiesta(OffsetDateTime.now());
+        rpt.setDataAggiornamentoStato(OffsetDateTime.now());
         return rptRepository.save(rpt);
     }
 
@@ -494,6 +500,10 @@ class RppV2ControllerTest {
         rpt.setVersione("SANP_240");
         rpt.setStato("RPT_ACCETTATA_NODO");
         rpt.setDescrizioneStato("In attesa di riscontro");
+        rpt.setCodStazione("STAZIONE-TEST");
+        rpt.setCodMsgRichiesta("msg-RT900000033");
+        rpt.setDataMsgRichiesta(OffsetDateTime.now());
+        rpt.setDataAggiornamentoStato(OffsetDateTime.now());
         rptRepository.save(rpt);
 
         mockMvc.perform(get("/v2/rpp/{idDominio}/{iuv}/{ccp}/rt", "12345678901", "IUV900000033", "RT900000033"))

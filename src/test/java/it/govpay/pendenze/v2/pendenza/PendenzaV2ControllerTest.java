@@ -10,6 +10,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.jayway.jsonpath.JsonPath;
 
+import java.time.OffsetDateTime;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -303,6 +305,10 @@ class PendenzaV2ControllerTest {
         rpt.setStato("RT_ACCETTATA_PA");
         rpt.setDescrizioneStato("Pagamento eseguito con successo");
         rpt.setXmlRt(fixtureRt("rt-v2-ok.xml"));
+        rpt.setCodStazione("STAZIONE-TEST");
+        rpt.setCodMsgRichiesta("msg-RT900000003");
+        rpt.setDataMsgRichiesta(OffsetDateTime.now());
+        rpt.setDataAggiornamentoStato(OffsetDateTime.now());
         rptRepository.save(rpt);
 
         mockMvc.perform(get("/v2/pendenze/{idA2A}/{idPendenza}", "A2A-TEST", "pendenza-v2-get-rpp-1"))
