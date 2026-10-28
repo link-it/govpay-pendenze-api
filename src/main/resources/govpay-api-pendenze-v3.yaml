@@ -1732,6 +1732,17 @@ components:
           examples:
             - IMU
           pattern: '(^[a-zA-Z0-9\-_\.]{1,35}$)'
+        causale:
+          type: string
+          description: >-
+            Descrizione della singola pendenza (rata), da mostrare sull'avviso
+            di pagamento. Distinta da `descrizione` della posizione debitoria
+            (condivisa da tutte le sue pendenze): opzionale, utile quando il
+            testo deve differenziarsi per singola rata. Se assente, non viene
+            stampato alcun testo specifico della pendenza.
+          examples:
+            - 'Rata 1 di 3'
+          maxLength: 140
         importo:
           type: number
           description: Importo della pendenza. Deve corrispondere alla somma delle singole voci.
@@ -2443,6 +2454,14 @@ components:
           description: Identificativo della tipologia pendenza
           examples:
             - IMU
+        causale:
+          type: string
+          description: >-
+            Descrizione della singola pendenza (rata), se impostata in
+            scrittura. Distinta da `descrizione` della posizione debitoria
+            (condivisa da tutte le sue pendenze).
+          examples:
+            - 'Rata 1 di 3'
         idDominio:
           type: string
           description: >-

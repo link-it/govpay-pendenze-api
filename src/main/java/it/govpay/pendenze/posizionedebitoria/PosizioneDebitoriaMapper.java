@@ -7,6 +7,7 @@ import it.govpay.pendenze.comando.DatiPendenza;
 import it.govpay.pendenze.comando.DatiPosizioneDebitoria;
 import it.govpay.pendenze.comando.DatiSoggettoDebitore;
 import it.govpay.pendenze.comando.ModificaCampo;
+import it.govpay.pendenze.service.CausaleVersamentoCodec;
 
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -779,6 +780,7 @@ public class PosizioneDebitoriaMapper {
         pendenza.setNumeroAvviso(dto.getNumeroAvviso());
         pendenza.setDataValidita(aInizioGiorno(dto.getDataValidita()));
         pendenza.setDataScadenzaAvviso(aInizioGiorno(dto.getDataScadenzaAvviso()));
+        pendenza.setCausaleVersamento(CausaleVersamentoCodec.encode(dto.getCausale()));
 
         for (NuovaVocePendenza voce : dto.getVoci()) {
             pendenza.addVocePendenza(toVocePendenza(voce, idDominioPosizione));
@@ -1181,6 +1183,7 @@ public class PosizioneDebitoriaMapper {
         dto.setIdA2A(risolviCodApplicazione(entity.getIdApplicazione()));
         dto.setIdPendenza(entity.getIdPendenza());
         dto.setIdTipoPendenza(risolviCodTipoVersamento(entity.getIdTipoPendenza()));
+        dto.setCausale(CausaleVersamentoCodec.decode(entity.getCausaleVersamento()));
         dto.setIdDominio(risolviCodDominio(entity.getIdDominio()));
         dto.setStato(StatoPendenza.valueOf(entity.getStato().name()));
         dto.setIuv(entity.getIuv());
@@ -1226,6 +1229,7 @@ public class PosizioneDebitoriaMapper {
         dto.setIdA2A(risolviCodApplicazione(entity.getIdApplicazione()));
         dto.setIdPendenza(entity.getIdPendenza());
         dto.setIdTipoPendenza(risolviCodTipoVersamento(entity.getIdTipoPendenza()));
+        dto.setCausale(CausaleVersamentoCodec.decode(entity.getCausaleVersamento()));
         dto.setIdDominio(risolviCodDominio(entity.getIdDominio()));
         dto.setStato(StatoPendenza.valueOf(entity.getStato().name()));
         dto.setIuv(entity.getIuv());
@@ -1265,6 +1269,7 @@ public class PosizioneDebitoriaMapper {
         dto.setIdA2A(risolviCodApplicazione(entity.getIdApplicazione()));
         dto.setIdPendenza(entity.getIdPendenza());
         dto.setIdTipoPendenza(risolviCodTipoVersamento(entity.getIdTipoPendenza()));
+        dto.setCausale(CausaleVersamentoCodec.decode(entity.getCausaleVersamento()));
         dto.setIdDominio(risolviCodDominio(entity.getIdDominio()));
         dto.setStato(StatoPendenza.valueOf(entity.getStato().name()));
         dto.setIuv(entity.getIuv());

@@ -484,7 +484,7 @@ public class NuovaPendenzaMapper {
         List<DatiVocePendenza> voci = toDatiVoci(dto.getVoci(), idDominio);
         return new DatiPendenza(idPendenza, tvd.getId(), tvd.getTipoVersamento().getId(), codificaIuvEffettiva(tvd),
                 dto.getImporto(), dto.getNumeroAvviso(), null, aInizioGiorno(dto.getDataValidita()),
-                aInizioGiorno(dto.getDataScadenza()), voci);
+                aInizioGiorno(dto.getDataScadenza()), voci, dto.getCausale());
     }
 
     private DatiSoggettoDebitore toDatiSoggettoDebitore(Soggetto dto) {
@@ -519,7 +519,7 @@ public class NuovaPendenzaMapper {
         List<DatiVocePendenza> voci = toDatiVoci(dto.getVoci(), idDominio);
         return new AggiornamentoPendenza(idPendenza, tvd.getId(), tvd.getTipoVersamento().getId(),
                 codificaIuvEffettiva(tvd), dto.getImporto(), dto.getNumeroAvviso(),
-                aInizioGiorno(dto.getDataValidita()), aInizioGiorno(dto.getDataScadenza()), voci);
+                aInizioGiorno(dto.getDataValidita()), aInizioGiorno(dto.getDataScadenza()), voci, dto.getCausale());
     }
 
     /**
@@ -656,16 +656,16 @@ public class NuovaPendenzaMapper {
 
     /**
      * Applica, con i setter dell'entity, i campi di {@code Pendenza}/{@code VocePendenza} che
-     * non hanno un comando dedicato nella libreria ({@code causaleVersamento}, {@code
-     * direzione}, {@code divisione}, {@code tassonomia}, {@code tassonomiaAvviso}, {@code
-     * datiAllegati}, {@code codLotto}, {@code codAnnoTributario}, {@code proprieta}, {@code
-     * sendAbilitato} sulla pendenza; {@code tipoContabilita}/{@code codiceContabilita}/{@code
-     * descrizioneCausaleRpt} sulle sue voci, appaiate per {@code idVocePendenza}) — stesso
-     * principio gia' applicato in una sessione precedente per {@code causaleVersamento}
-     * (vedi {@link CausaleVersamentoCodec}). Va chiamato dopo {@code crea}/{@code
-     * aggiungiPendenza}/{@code aggiornaPendenza}, nella stessa transazione: l'entity
-     * restituita e' gestita, questi setter diretti vengono scaricati su commit senza bisogno
-     * di un {@code save} esplicito.
+     * non hanno un comando dedicato nella libreria ({@code direzione}, {@code divisione},
+     * {@code tassonomia}, {@code tassonomiaAvviso}, {@code datiAllegati}, {@code codLotto},
+     * {@code codAnnoTributario}, {@code proprieta}, {@code sendAbilitato} sulla pendenza;
+     * {@code tipoContabilita}/{@code codiceContabilita}/{@code descrizioneCausaleRpt} sulle
+     * sue voci, appaiate per {@code idVocePendenza}). {@code causaleVersamento} NON e' qui:
+     * ha un comando dedicato ({@code DatiPendenza.causale()}/{@code
+     * AggiornamentoPendenza.causale()}), applicato da {@code crea}/{@code aggiungiPendenza}/
+     * {@code aggiornaPendenza} stessi. Va chiamato dopo quelle chiamate, nella stessa
+     * transazione: l'entity restituita e' gestita, questi setter diretti vengono scaricati su
+     * commit senza bisogno di un {@code save} esplicito.
      *
      * <p>Applicato SIA in creazione SIA in aggiornamento (a differenza di {@code documento}/
      * {@code soggettoPagatore}, ignorati in aggiornamento): questi sono campi della PENDENZA
@@ -674,7 +674,6 @@ public class NuovaPendenzaMapper {
      * del legacy, che li sovrascrive a ogni chiamata.</p>
      */
     public void applicaCampiLegacy(Pendenza pendenza, NuovaPendenza dto) {
-        pendenza.setCausaleVersamento(CausaleVersamentoCodec.encode(dto.getCausale()));
         pendenza.setDirezione(dto.getDirezione());
         pendenza.setDivisione(dto.getDivisione());
         pendenza.setTassonomia(dto.getTassonomia());

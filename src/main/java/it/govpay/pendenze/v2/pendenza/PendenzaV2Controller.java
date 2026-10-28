@@ -689,7 +689,7 @@ public class PendenzaV2Controller implements PendenzeApi {
             if (ratePagabili.size() == 1) {
                 Pendenza pendenza = ratePagabili.get(0);
                 ParametriBilingue bilingue = risolviParametriBilingue(linguaSecondaria, pendenza);
-                payload = avvisoPdfPayloadMapper.toPaymentNotice(pendenza, bilingue.linguaSecondaria(),
+                payload = avvisoPdfPayloadMapper.toPaymentNoticeDocumento(pendenza, bilingue.linguaSecondaria(),
                         bilingue.causaleTradotta(), bilingue.informativaImporto(),
                         bilingue.informativaImportoTradotta());
             } else {

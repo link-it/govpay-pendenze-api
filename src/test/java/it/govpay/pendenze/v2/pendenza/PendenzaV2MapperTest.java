@@ -32,6 +32,7 @@ import it.govpay.pendenze.model.StatoVocePendenza;
 import it.govpay.pendenze.model.TipoRiferimentoVocePendenza;
 import it.govpay.pendenze.model.TipoSoggetto;
 import it.govpay.pendenze.model.TipologiaOpzionePagamento;
+import it.govpay.pendenze.service.CausaleVersamentoCodec;
 
 class PendenzaV2MapperTest {
 

@@ -212,7 +212,7 @@ public class PosizioneDebitoriaController implements PosizioniDebitorieApi {
         if (opzioni.size() == 1) {
             List<Pendenza> pendenzeOpzione = opzioni.get(0);
             PaymentNotice payload = pendenzeOpzione.size() == 1
-                    ? avvisoPdfPayloadMapper.toPaymentNotice(pendenzeOpzione.get(0), null, null, null, null)
+                    ? avvisoPdfPayloadMapper.toPaymentNoticeDocumento(pendenzeOpzione.get(0), null, null, null, null)
                     : avvisoPdfPayloadMapper.toPaymentNoticeRate(pendenzeOpzione);
             chiamataStampe = output -> stampeClient.streamPaymentNotice(payload, output);
         } else if (AvvisoPdfPayloadMapper.sonoRidottoEScontato(opzioni)) {

@@ -29,6 +29,7 @@ import it.govpay.pendenze.entity.SoggettoDebitore;
 import it.govpay.pendenze.entity.VocePendenza;
 import it.govpay.pendenze.model.TipoSoggetto;
 import it.govpay.pendenze.model.TipologiaOpzionePagamento;
+import it.govpay.pendenze.service.CausaleVersamentoCodec;
 import it.govpay.stampe.client.model.CdsViolation;
 import it.govpay.stampe.client.model.Languages;
 import it.govpay.stampe.client.model.PaymentNotice;
@@ -219,13 +220,40 @@ class AvvisoPdfPayloadMapperTest {
         assertThat(AvvisoPdfPayloadMapper.toClientLanguage(null)).isNull();
     }
 
-    // --- title ('oggetto del pagamento'): la descrizione della posizione debitoria ---
+    // --- title ('oggetto del pagamento'): causale della pendenza se presente, altrimenti la
+    //     descrizione della posizione debitoria (fallback) ---
 
     @Test
     void titleEhLaDescrizioneDellaPosizioneDebitoria() {
         PaymentNotice notice = mapper.toPaymentNotice(pendenza(dominio(), "Via Roma"), null, null, null, null);
 
         assertThat(notice.getTitle()).isEqualTo("Diritti di segreteria");
+    }
+
+    /**
+     * {@code toPaymentNoticeDocumento} e' usato quando l'identita' stampata e' il
+     * documento/la posizione (collassato a una sola pendenza da {@code getAvvisiDocumento}/
+     * {@code getStampaPosizioneDebitoria}), non la pendenza stessa: a differenza di
+     * {@code toPaymentNotice}, ignora sempre la causale della pendenza, anche se presente.
+     */
+    @Test
+    void toPaymentNoticeDocumentoIgnoraLaCausaleUsaSempreLaDescrizioneAncheConUnaSolaPendenza() {
+        Pendenza pendenza = pendenza(dominio(), "Via Roma");
+        pendenza.setCausaleVersamento(CausaleVersamentoCodec.encode("Causale specifica della rata"));
+
+        PaymentNotice notice = mapper.toPaymentNoticeDocumento(pendenza, null, null, null, null);
+
+        assertThat(notice.getTitle()).isEqualTo("Diritti di segreteria");
+    }
+
+    @Test
+    void titleEhLaCausaleDellaPendenzaSePresenteInvecePrecedenzaSullaDescrizione() {
+        Pendenza pendenza = pendenza(dominio(), "Via Roma");
+        pendenza.setCausaleVersamento(CausaleVersamentoCodec.encode("Causale specifica della rata"));
+
+        PaymentNotice notice = mapper.toPaymentNotice(pendenza, null, null, null, null);
+
+        assertThat(notice.getTitle()).isEqualTo("Causale specifica della rata");
     }
 
     @Test
@@ -580,6 +608,25 @@ class AvvisoPdfPayloadMapperTest {
         assertThat(notice.getCreditor().getFiscalCode()).isEqualTo(dominio.getCodDominio());
         assertThat(notice.getTitle()).isEqualTo("Diritti di segreteria");
         assertThat(notice.getPostal()).isFalse();
+    }
+
+    /**
+     * A differenza di {@link #titleEhLaCausaleDellaPendenzaSePresenteInvecePrecedenzaSullaDescrizione}
+     * ({@code toPaymentNotice}, rata unica): un avviso cumulativo copre più pendenze, quindi
+     * resta sempre sulla descrizione della posizione anche se la prima pendenza ha una causale
+     * propria — non avrebbe senso mostrare la causale di una sola delle rate come oggetto
+     * dell'intero avviso.
+     */
+    @Test
+    void toPaymentNoticeOpzioniIgnoraLaCausaleDellaPrimaPendenzaUsaSempreLaDescrizione() {
+        DominioEntity dominio = dominio();
+        Pendenza prima = pendenza(dominio, "Via Roma");
+        prima.setCausaleVersamento(CausaleVersamentoCodec.encode("Causale della prima pendenza"));
+        Pendenza seconda = pendenza(dominio, "Via Milano");
+
+        PaymentNotice notice = mapper.toPaymentNoticeOpzioni(List.of(List.of(prima), List.of(seconda)));
+
+        assertThat(notice.getTitle()).isEqualTo("Diritti di segreteria");
     }
 
     // --- reduced_payments: SOLUZIONE_UNICA_ENTRO/OLTRE non vanno in 'full' (perdono la soglia) ---

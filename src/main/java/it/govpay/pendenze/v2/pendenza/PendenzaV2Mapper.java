@@ -28,6 +28,7 @@ import it.govpay.pendenze.entity.SoggettoDebitore;
 import it.govpay.pendenze.entity.VocePendenza;
 import it.govpay.pendenze.avviso.AvvisoMapper;
 import it.govpay.pendenze.model.TipologiaOpzionePagamento;
+import it.govpay.pendenze.service.CausaleVersamentoCodec;
 import it.govpay.pendenze.v2.api.model.Avviso;
 import it.govpay.pendenze.v2.api.model.Documento;
 import it.govpay.pendenze.v2.api.model.Dominio;
@@ -273,9 +274,8 @@ public class PendenzaV2Mapper {
     }
 
     /**
-     * Causale legacy ({@code causaleVersamento}) se presente, altrimenti la descrizione della
-     * posizione debitoria — mai scritta su {@code causaleVersamento}, le pendenze create da
-     * API v3-nativa. Stesso fallback di {@code AvvisoPdfPayloadMapper#descrizioneDi}, usato
+     * Causale della pendenza se presente, altrimenti la descrizione della posizione debitoria
+     * — stesso fallback di {@code AvvisoPdfPayloadMapper#oggettoPagamentoRataUnica}, usato
      * dalla stampa PDF di questo stesso avviso.
      */
     private String risolviDescrizioneAvviso(Pendenza entity) {

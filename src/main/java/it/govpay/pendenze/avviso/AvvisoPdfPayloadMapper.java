@@ -19,6 +19,7 @@ import it.govpay.pendenze.entity.Pendenza;
 import it.govpay.pendenze.entity.SoggettoDebitore;
 import it.govpay.pendenze.entity.VocePendenza;
 import it.govpay.pendenze.model.TipologiaOpzionePagamento;
+import it.govpay.pendenze.service.CausaleVersamentoCodec;
 import it.govpay.stampe.client.model.Amount;
 import it.govpay.stampe.client.model.CdsViolation;
 import it.govpay.stampe.client.model.Creditor;
@@ -74,8 +75,30 @@ public class AvvisoPdfPayloadMapper {
 
     public PaymentNotice toPaymentNotice(Pendenza pendenza, LinguaSecondaria linguaSecondaria,
             String causaleTradotta, String informativaImporto, String informativaImportoTradotta) {
+        return toPaymentNotice(pendenza, oggettoPagamentoRataUnica(pendenza), linguaSecondaria, causaleTradotta,
+                informativaImporto, informativaImportoTradotta);
+    }
+
+    /**
+     * Come {@link #toPaymentNotice(Pendenza, LinguaSecondaria, String, String, String)}, ma per
+     * la stampa cumulativa del documento/posizione debitoria quando resta esattamente una rata
+     * pagabile — equivalente di {@code GET /documenti/.../avvisi} ({@code fromDocumento()}),
+     * anche con una sola riga: titolo sempre la descrizione della posizione, mai la causale
+     * della singola pendenza. A differenza di {@link #toPaymentNotice(Pendenza, LinguaSecondaria,
+     * String, String, String)} (identita' stampata: la pendenza, per NAV), qui l'identita'
+     * stampata resta il documento/la posizione — la scelta del titolo non si deduce dal numero
+     * di pendenze rimaste, la decide il chiamante.
+     */
+    public PaymentNotice toPaymentNoticeDocumento(Pendenza pendenza, LinguaSecondaria linguaSecondaria,
+            String causaleTradotta, String informativaImporto, String informativaImportoTradotta) {
+        return toPaymentNotice(pendenza, descrizioneDi(pendenza), linguaSecondaria, causaleTradotta,
+                informativaImporto, informativaImportoTradotta);
+    }
+
+    private PaymentNotice toPaymentNotice(Pendenza pendenza, String titolo, LinguaSecondaria linguaSecondaria,
+            String causaleTradotta, String informativaImporto, String informativaImportoTradotta) {
         DominioEntity dominio = dominioDi(pendenza);
-        PaymentNotice notice = intestazione(pendenza, dominio);
+        PaymentNotice notice = intestazione(pendenza, dominio, titolo);
         IbanAccreditoEntity postale = ibanPostale(pendenza);
         notice.setPostal(postale != null);
         if (isSogliaTemporale(pendenza)) {
@@ -110,7 +133,7 @@ public class AvvisoPdfPayloadMapper {
         }
         Pendenza prima = rate.get(0);
         DominioEntity dominio = dominioDi(prima);
-        PaymentNotice notice = intestazione(prima, dominio);
+        PaymentNotice notice = intestazione(prima, dominio, descrizioneDi(prima));
         notice.setPostal(rate.stream().allMatch(r -> ibanPostale(r) != null));
         notice.setFull(null);
         List<Instalment> instalments = new ArrayList<>(rate.size());
@@ -140,7 +163,7 @@ public class AvvisoPdfPayloadMapper {
         }
         Pendenza prima = opzioni.get(0).get(0);
         DominioEntity dominio = dominioDi(prima);
-        PaymentNotice notice = intestazione(prima, dominio);
+        PaymentNotice notice = intestazione(prima, dominio, descrizioneDi(prima));
         notice.setPostal(opzioni.stream().flatMap(List::stream).allMatch(p -> ibanPostale(p) != null));
         List<PaymentNoticeOption> options = new ArrayList<>(opzioni.size());
         for (List<Pendenza> pendenzeOpzione : opzioni) {
@@ -169,7 +192,7 @@ public class AvvisoPdfPayloadMapper {
                 .toList();
         Pendenza prima = ordinate.get(0);
         DominioEntity dominio = dominioDi(prima);
-        PaymentNotice notice = intestazione(prima, dominio);
+        PaymentNotice notice = intestazione(prima, dominio, descrizioneDi(prima));
         notice.setPostal(ordinate.stream().allMatch(p -> ibanPostale(p) != null));
         List<ThresholdPayment> reducedPayments = new ArrayList<>(ordinate.size());
         for (Pendenza p : ordinate) {
@@ -303,18 +326,32 @@ public class AvvisoPdfPayloadMapper {
     }
 
     /** Parte comune a rata unica e avviso cumulativo: lingua, creditore, debitore, oggetto, logo. */
-    private PaymentNotice intestazione(Pendenza pendenza, DominioEntity dominio) {
+    private PaymentNotice intestazione(Pendenza pendenza, DominioEntity dominio, String titolo) {
         PaymentNotice notice = new PaymentNotice();
         notice.setLanguage(Languages.IT);
         notice.setCreditor(mapCreditor(dominio));
         notice.setDebtor(mapDebtor(primoSoggettoDebitore(pendenza)));
         // 'title' e' l'oggetto del pagamento (oggetto_del_pagamento/XSD), non un'intestazione
-        // fissa: stesso campo che in console-api porta la causale vera, qui la descrizione
-        // della posizione debitoria (stesso valore gia' usato per Avviso.descrizione nel ramo
-        // JSON, vedi AvvisoMapper).
-        notice.setTitle(descrizioneDi(pendenza));
+        // fissa — il valore esatto varia per chiamante, vedi oggettoPagamentoRataUnica/
+        // descrizioneDi.
+        notice.setTitle(titolo);
         notice.setFirstLogo(logoDi(dominio));
         return notice;
+    }
+
+    /**
+     * Oggetto del pagamento per l'avviso di una SINGOLA rata (equivalente di
+     * {@code GET /avvisi/{idDominio}/{numeroAvviso}} del legacy, {@code
+     * AvvisoPagamentoUtils.fromVersamento()}): la causale della pendenza stessa se presente,
+     * altrimenti la descrizione della posizione debitoria — stesso fallback di
+     * {@code PendenzaV2Mapper#risolviDescrizioneAvviso}. Non usato per gli avvisi cumulativi
+     * ({@link #toPaymentNoticeRate}/{@link #toPaymentNoticeOpzioni}/{@link #toPaymentNoticeSoglie}),
+     * che restano sempre su {@link #descrizioneDi} (equivalente di {@code GET /documenti/.../avvisi},
+     * {@code fromDocumento()}: un avviso che copre più pendenze non ha un'unica causale da mostrare).
+     */
+    private static String oggettoPagamentoRataUnica(Pendenza pendenza) {
+        String causale = CausaleVersamentoCodec.decode(pendenza.getCausaleVersamento());
+        return causale != null ? causale : descrizioneDi(pendenza);
     }
 
     private static String descrizioneDi(Pendenza pendenza) {

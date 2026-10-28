@@ -275,6 +275,41 @@ class GetStampaPosizioneDebitoriaControllerTest {
     }
 
     @Test
+    @DisplayName("un'unica opzione con una sola pendenza che ha una causale propria: il titolo resta "
+            + "la descrizione della posizione, mai la causale della pendenza (identita' stampata: il "
+            + "documento, non la pendenza, anche quando resta solo una rata)")
+    void unaSolaOpzioneConUnaPendenzaConCausalePropriaIlTitoloRestaLaDescrizioneDellaPosizione() throws Exception {
+        String body = """
+                {
+                  "codDocumento": "pos-stampa-causale",
+                  "idDominio": "%s",
+                  "descrizione": "Descrizione della posizione",
+                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y", "anagrafica": "Paola Ferrari" } ],
+                  "opzioniPagamento": [ { "tipologia": "SOLUZIONE_UNICA", "pendenze": [ {
+                    "idPendenza": "pos-stampa-causale-r1",
+                    "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                    "causale": "Causale specifica della rata",
+                    "importo": 10.00,
+                    "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "pos-stampa-causale-voce1",
+                                "importo": 10.00, "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
+                  } ] } ]
+                }
+                """.formatted(ID_DOMINIO);
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}", PRINCIPAL)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isCreated());
+        String idPosizioneDebitoria = IdentificatorePosizioneDebitoria.comporre(PRINCIPAL, ID_DOMINIO,
+                "pos-stampa-causale");
+
+        mockMvc.perform(get(PATH, PRINCIPAL, idPosizioneDebitoria).accept(MediaType.APPLICATION_PDF))
+                .andExpect(status().isOk());
+
+        JsonNode payload = ultimoPayload();
+        assertEquals("Descrizione della posizione", payload.get("title").asString());
+    }
+
+    @Test
     @DisplayName("un'unica opzione con piu' rate: 200, 'instalments' cumulativo, nessuna 'options'")
     void unaSolaOpzioneConPiuRate() throws Exception {
         String idPosizioneDebitoria = creaConUnaOpzione("pos-stampa-instalments", 3);

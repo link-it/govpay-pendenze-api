@@ -739,6 +739,82 @@ class PendenzaControllerTest {
     }
 
     @Test
+    @DisplayName("GET /pendenze/{idA2A}/{idPendenza} restituisce 'causale' della singola pendenza, "
+            + "distinta da 'descrizione' della posizione debitoria (condivisa)")
+    void getPendenzaRestituisceCausaleDistintaDallaDescrizioneDellaPosizione() throws Exception {
+        String body = """
+                {
+                  "codDocumento": "pos-causale-1",
+                  "idDominio": "12345678901",
+                  "descrizione": "Descrizione condivisa della posizione",
+                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y",
+                                           "anagrafica": "Mario Rossi" } ],
+                  "opzioniPagamento": [ {
+                    "tipologia": "SOLUZIONE_UNICA",
+                    "pendenze": [ {
+                      "idPendenza": "pendenza-causale-1",
+                      "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                      "importo": 16.00,
+                      "causale": "Causale specifica della rata",
+                      "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-causale-1",
+                                  "importo": 16.00, "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
+                    } ]
+                  } ]
+                }
+                """;
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}", "A2A-TEST")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST", "pendenza-causale-1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.causale").value("Causale specifica della rata"));
+
+        mockMvc.perform(get("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST",
+                        IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-causale-1")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.descrizione").value("Descrizione condivisa della posizione"));
+    }
+
+    @Test
+    @DisplayName("PUT /pendenze/{idA2A}/{idPendenza} aggiorna 'causale'; omessa nel body la azzera "
+            + "(sostituzione integrale, stessa semantica delle altre date/campi di questo comando)")
+    void updatePendenzaAggiornaCausaleConSuccesso() throws Exception {
+        creaPosizioneConPendenza("pos-patch-causale", "12345678901", "pendenza-patch-causale");
+
+        mockMvc.perform(MockMvcRequestBuilders.put("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+                        "pendenza-patch-causale")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "idPendenza": "pendenza-patch-causale", "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                                  "importo": 16.00, "causale": "Causale aggiornata",
+                                  "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA",
+                                              "idVocePendenza": "voce-pendenza-patch-causale", "importo": 16.00,
+                                              "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ] }
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST", "pendenza-patch-causale"))
+                .andExpect(jsonPath("$.causale").value("Causale aggiornata"));
+
+        mockMvc.perform(MockMvcRequestBuilders.put("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST",
+                        "pendenza-patch-causale")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "idPendenza": "pendenza-patch-causale", "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                                  "importo": 16.00,
+                                  "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA",
+                                              "idVocePendenza": "voce-pendenza-patch-causale", "importo": 16.00,
+                                              "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ] }
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST", "pendenza-patch-causale"))
+                .andExpect(jsonPath("$.causale").doesNotExist());
+    }
+
+    @Test
     @DisplayName("GET /pendenze/{idA2A}/{idPendenza} restituisce 404 se la pendenza non esiste")
     void getPendenzaRestituisce404SeNonEsiste() throws Exception {
         mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST", "pendenza-inesistente"))

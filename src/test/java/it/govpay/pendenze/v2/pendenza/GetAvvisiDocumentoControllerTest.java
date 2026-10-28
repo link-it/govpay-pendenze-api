@@ -269,7 +269,8 @@ class GetAvvisiDocumentoControllerTest {
     }
 
     @Test
-    @DisplayName("documento con una sola pendenza (soluzione unica): 200, PDF a rata unica ('full')")
+    @DisplayName("documento con una sola pendenza (soluzione unica): 200, PDF a rata unica ('full'), "
+            + "titolo la descrizione del documento (mai la causale della pendenza, anche con una sola rata)")
     void documentoConUnaSolaPendenza() throws Exception {
         creaPendenzaSenzaRata("pend-su-1", "DOC-SU-1");
 
@@ -284,6 +285,7 @@ class GetAvvisiDocumentoControllerTest {
         assertNotNull(payload.get("full"));
         assertFalse(payload.get("full").isNull());
         assertTrue(instalmentNumbers(payload).isEmpty());
+        assertEquals("Documento di test", payload.get("title").asString());
     }
 
     @Test
