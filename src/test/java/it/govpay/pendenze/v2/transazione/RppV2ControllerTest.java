@@ -280,6 +280,52 @@ class RppV2ControllerTest {
         return rptRepository.save(rpt);
     }
 
+    @Test
+    void aliasNaRestituisconoRppRptERt() throws Exception {
+        creaPosizioneConPendenza("pos-na", "12345678901", "pend-na");
+        creaRpt(trovaPendenza("pend-na").getId(), "IUV-NA", "n/a");
+        String base = "/v2/rpp/12345678901/IUV-NA/n/a";
+        mockMvc.perform(get(base).accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.pendenza.idPendenza").value("pend-na"));
+        mockMvc.perform(get(base + "/rpt").accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.creditorReferenceId").value("IUV900000003"));
+        mockMvc.perform(get(base + "/rt").accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.receiptId").value("RT900000003"));
+        for (String suffisso : new String[] {"/rpt", "/rt"}) {
+            mockMvc.perform(get(base + suffisso))
+                    .andExpect(status().isOk())
+                    .andExpect(content().contentType(MediaType.APPLICATION_XML));
+        }
+    }
+
+    @Test
+    void aliasNaRestituiscono404SeAssenti() throws Exception {
+        for (String suffisso : new String[] {"", "/rpt", "/rt"}) {
+            mockMvc.perform(get("/v2/rpp/12345678901/IUV-ASSENTE/n/a" + suffisso)
+                            .accept(MediaType.APPLICATION_JSON))
+                    .andExpect(status().isNotFound());
+        }
+    }
+
+    @Test
+    void aliasNaVerificanoIlProprietario() throws Exception {
+        creaPosizioneConPendenza("pos-na-acl", "12345678901", "pend-na-acl");
+        creaRpt(trovaPendenza("pend-na-acl").getId(), "IUV-NA-ACL", "n/a");
+        creaAltraApplicazione("A2A-ALTRO", "altra-password");
+        Pendenza pendenza = trovaPendenza("pend-na-acl");
+        pendenza.setIdApplicazione(applicazioneRepository.findByCodApplicazione("A2A-ALTRO")
+                .orElseThrow().getId());
+        pendenzaRepository.save(pendenza);
+        for (String suffisso : new String[] {"", "/rpt", "/rt"}) {
+            mockMvc.perform(get("/v2/rpp/12345678901/IUV-NA-ACL/n/a" + suffisso)
+                            .accept(MediaType.APPLICATION_JSON))
+                    .andExpect(status().isForbidden());
+        }
+    }
+
     private Pendenza trovaPendenza(String idPendenza) {
         Long idApplicazione = applicazioneRepository.findByCodApplicazione("A2A-TEST").orElseThrow().getId();
         return pendenzaRepository

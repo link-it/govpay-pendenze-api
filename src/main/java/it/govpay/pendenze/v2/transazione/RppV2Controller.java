@@ -14,6 +14,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
@@ -361,6 +362,31 @@ public class RppV2Controller implements TransazioniApi {
             scriviXml(rppContenutoMapper.toRtXml(rpt, pendenza));
         }
         return ResponseEntity.ok().build();
+    }
+
+    /** Alias legacy: "n/a" contiene una slash e non e' catturato dal singolo segmento {ccp}. */
+    @Transactional(readOnly = true)
+    @RequestMapping(method = RequestMethod.GET, value = "/rpp/{idDominio}/{iuv}/n/a",
+            produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<Rpp> getRppNa(@PathVariable("idDominio") String idDominio,
+            @PathVariable("iuv") String iuv) {
+        return getRpp(idDominio, iuv, "n/a");
+    }
+
+    @Transactional(readOnly = true)
+    @RequestMapping(method = RequestMethod.GET, value = "/rpp/{idDominio}/{iuv}/n/a/rpt",
+            produces = MediaType.ALL_VALUE)
+    public ResponseEntity<Object> getRptNa(@PathVariable("idDominio") String idDominio,
+            @PathVariable("iuv") String iuv) {
+        return getRpt(idDominio, iuv, "n/a");
+    }
+
+    @Transactional(readOnly = true)
+    @RequestMapping(method = RequestMethod.GET, value = "/rpp/{idDominio}/{iuv}/n/a/rt",
+            produces = MediaType.ALL_VALUE)
+    public ResponseEntity<org.springframework.core.io.Resource> getRtNa(
+            @PathVariable("idDominio") String idDominio, @PathVariable("iuv") String iuv) {
+        return getRt(idDominio, iuv, "n/a");
     }
 
     private void streamRtPdf(Pendenza pendenza, Rpt rpt) {
