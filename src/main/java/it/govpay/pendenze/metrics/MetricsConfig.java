@@ -17,8 +17,9 @@ import io.micrometer.core.instrument.MeterRegistry;
  *
  * <p>Il breakdown API interno/esterno e il recorder delle chiamate esterne
  * sono forniti da {@code GovpayMetricsAutoConfiguration} (govpay-common).
- * A differenza di govpay-console-api, qui non c'e' Resilience4j sul
- * classpath: nessuna classificazione di outcome aggiuntiva da registrare.
+ * Resilience4j e' sul classpath solo per il circuit breaker verso
+ * govpay-stampe (vedi {@code StampeRawClient}): qui non si registra alcuna
+ * classificazione di outcome aggiuntiva.
  */
 @Configuration
 public class MetricsConfig {
