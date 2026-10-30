@@ -214,6 +214,14 @@
             <artifactId>jackson-databind-nullable</artifactId>
         </dependency>
 
+        <!-- Serializzazione JSON dei bean JAXB (RPT/RT) per il wrapper v2 — stesso modulo
+             usato dal monolite legacy (ConverterUtils), versione gestita dal BOM Jackson
+             di Spring Boot. -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.module</groupId>
+            <artifactId>jackson-module-jakarta-xmlbind-annotations</artifactId>
+        </dependency>
+
         <!-- Swagger Annotations -->
         <dependency>
             <groupId>io.swagger.core.v3</groupId>
@@ -351,13 +359,44 @@
                             <goal>generate</goal>
                         </goals>
                         <configuration>
-                            <inputSpec>${project.basedir}/src/main/resources/govpay-api-pendenze.yaml</inputSpec>
+                            <inputSpec>${project.basedir}/src/main/resources/govpay-api-pendenze-v3.yaml</inputSpec>
                             <generatorName>spring</generatorName>
                             <apiPackage>it.govpay.pendenze.api.rest</apiPackage>
                             <modelPackage>it.govpay.pendenze.api.model</modelPackage>
                             <invokerPackage>it.govpay.pendenze.api</invokerPackage>
                             <output>${project.build.directory}/generated-sources/openapi</output>
                             <configOptions>
+                                <interfaceOnly>true</interfaceOnly>
+                                <useSpringBoot3>true</useSpringBoot3>
+                                <useJakartaEe>true</useJakartaEe>
+                                <useTags>true</useTags>
+                                <skipDefaultInterface>false</skipDefaultInterface>
+                                <openApiNullable>true</openApiNullable>
+                                <documentationProvider>springdoc</documentationProvider>
+                                <serializableModel>true</serializableModel>
+                                <useOneOfInterfaces>true</useOneOfInterfaces>
+                            </configOptions>
+                        </configuration>
+                    </execution>
+                    <!-- Stub server per govpay-api-pendenze-v2.yaml: wrapper verso i client
+                         esterni che non migrano a v3 nell'immediato. Package distinto
+                         (it.govpay.pendenze.v2.*) perche' lo schema v2 ridefinisce nomi
+                         gia' usati da v3 (Pendenza, Dominio, Documento, ...); output
+                         separato per lo stesso motivo lato file generati (es. ApiUtil). -->
+                    <execution>
+                        <id>generate-pendenze-api-v2</id>
+                        <goals>
+                            <goal>generate</goal>
+                        </goals>
+                        <configuration>
+                            <inputSpec>${project.basedir}/src/main/resources/govpay-api-pendenze-v2.yaml</inputSpec>
+                            <generatorName>spring</generatorName>
+                            <apiPackage>it.govpay.pendenze.v2.api.rest</apiPackage>
+                            <modelPackage>it.govpay.pendenze.v2.api.model</modelPackage>
+                            <invokerPackage>it.govpay.pendenze.v2.api</invokerPackage>
+                            <output>${project.build.directory}/generated-sources/openapi-v2</output>
+                            <configOptions>
+                                <configPackage>it.govpay.pendenze.v2.api.configuration</configPackage>
                                 <interfaceOnly>true</interfaceOnly>
                                 <useSpringBoot3>true</useSpringBoot3>
                                 <useJakartaEe>true</useJakartaEe>
@@ -413,6 +452,7 @@
                         <configuration>
                             <sources>
                                 <source>${project.build.directory}/generated-sources/openapi/src/main/java</source>
+                                <source>${project.build.directory}/generated-sources/openapi-v2/src/main/java</source>
                                 <source>${project.build.directory}/generated-sources/govpay-stampe-client/src/main/java</source>
                             </sources>
                         </configuration>

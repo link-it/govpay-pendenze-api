@@ -68,6 +68,7 @@ class LogLevelControllerTest {
         utenza.setPrincipalOriginale(principal);
         utenza.setAbilitato(true);
         utenza.setAutorizzazioneTipiVersStar(false);
+        utenza.setAutorizzazioneDominiStar(false);
         utenza.setPassword(passwordEncoder.encode(PASSWORD));
         utenza = utenzaRepository.save(utenza);
 

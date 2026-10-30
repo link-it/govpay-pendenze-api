@@ -90,9 +90,10 @@ paths:
         debitori (anche in solido) e di una o più opzioni di pagamento
         alternative (es. unica soluzione, piano rateale), ciascuna con le
         proprie pendenze (rate).
-        Un secondo tentativo di creazione con lo stesso idPosizioneDebitoria
-        viene rifiutato (409): l'operazione crea la posizione debitoria
-        esattamente una volta e non aggiorna una posizione esistente. Se
+        Un secondo tentativo di creazione con lo stesso codDocumento per lo
+        stesso idA2A e lo stesso idDominio viene rifiutato (409): l'operazione
+        crea la posizione debitoria esattamente una volta e non aggiorna una
+        posizione esistente. Se
         `navNotifica` è indicato, deve corrispondere al `numeroAvviso` di
         una delle pendenze appena create: la richiesta è rifiutata con 400
         in caso contrario.
@@ -115,7 +116,7 @@ paths:
                   Caso più semplice e più frequente: un'unica pendenza da
                   pagare in un'unica soluzione
                 value:
-                  idPosizioneDebitoria: CERT2026-000058
+                  codDocumento: CERT2026-000058
                   idDominio: '12345678901'
                   descrizione: 'Diritti di segreteria - certificato di residenza'
                   soggettiDebitori:
@@ -139,7 +140,7 @@ paths:
                   Debito pagabile in un'unica soluzione oppure, in
                   alternativa, in 3 rate
                 value:
-                  idPosizioneDebitoria: IMU2026-000017
+                  codDocumento: IMU2026-000017
                   idDominio: '12345678901'
                   descrizione: 'IMU 2026 - immobile in via Garibaldi 5'
                   soggettiDebitori:
@@ -194,7 +195,7 @@ paths:
                   Sanzione con riduzione del 30% se pagata entro 5 giorni,
                   altrimenti a tariffa intera
                 value:
-                  idPosizioneDebitoria: VERBALE2026-000123
+                  codDocumento: VERBALE2026-000123
                   idDominio: '12345678901'
                   descrizione: 'Verbale n. 123/2026 - violazione art. 142 CdS'
                   soggettiDebitori:
@@ -254,7 +255,7 @@ paths:
         '404':
           $ref: '#/components/responses/404NotFound'
         '409':
-          description: Esiste già una posizione debitoria con questo idPosizioneDebitoria per questo idA2A
+          description: Esiste già una posizione debitoria con questo codDocumento per questo idA2A e questo idDominio
           content:
             application/problem+json:
               schema:
@@ -263,7 +264,7 @@ paths:
                 default:
                   value:
                     status: 409
-                    title: Esiste già una posizione debitoria con questo idPosizioneDebitoria per questo idA2A
+                    title: Esiste già una posizione debitoria con questo codDocumento per questo idA2A e questo idDominio
         '500':
           $ref: '#/components/responses/500ServiceUnavailable'
 
@@ -286,11 +287,14 @@ paths:
             pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
         - in: path
           name: idPosizioneDebitoria
-          description: Identificativo della posizione debitoria
+          description: >-
+            Identificativo pubblico della posizione debitoria (IUPD standard
+            pagoPA GPD: idA2A+idDominio+codDocumento concatenati senza
+            separatore) — vedi `PosizioneDebitoria.idPosizioneDebitoria`.
           required: true
           schema:
             type: string
-            pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
+            pattern: '(^[a-zA-Z0-9\-_]{1,81}$)'
       responses:
         '200':
           description: Informazioni dettagliate della posizione debitoria
@@ -330,11 +334,14 @@ paths:
             pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
         - in: path
           name: idPosizioneDebitoria
-          description: Identificativo della posizione debitoria
+          description: >-
+            Identificativo pubblico della posizione debitoria (IUPD standard
+            pagoPA GPD: idA2A+idDominio+codDocumento concatenati senza
+            separatore) — vedi `PosizioneDebitoria.idPosizioneDebitoria`.
           required: true
           schema:
             type: string
-            pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
+            pattern: '(^[a-zA-Z0-9\-_]{1,81}$)'
       requestBody:
         content:
           application/json-patch+json:
@@ -357,6 +364,88 @@ paths:
         '500':
           $ref: '#/components/responses/500ServiceUnavailable'
 
+  '/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/stampa':
+    get:
+      tags:
+        - PosizioniDebitorie
+      summary: Stampa dell'avviso di pagamento di una posizione debitoria
+      operationId: getStampaPosizioneDebitoria
+      description: >-
+        Fornisce la stampa dell'avviso di pagamento della posizione
+        debitoria, in formato PDF. Considera solo le opzioni di pagamento
+        con almeno una rata ancora pagabile: se ne resta esattamente una,
+        l'avviso è quello della sua rata unica o, se ha più rate, quello
+        cumulativo delle sue rate (stesso criterio di
+        `GET /pendenze/{idA2A}/{idPendenza}/stampa`); se ne restano più
+        di una (opzioni alternative, es. "paga tutto" o "paga a rate"
+        sullo stesso debito), l'avviso è un unico PDF con una pagina (o
+        più pagine, se l'opzione ha più rate) per ciascuna opzione, mai
+        condivisa fra due opzioni diverse. Non è disponibile in formato
+        bilingue.
+      parameters:
+        - in: path
+          name: idA2A
+          description: Identificativo del gestionale
+          required: true
+          schema:
+            type: string
+            pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
+        - in: path
+          name: idPosizioneDebitoria
+          description: >-
+            Identificativo pubblico della posizione debitoria (IUPD standard
+            pagoPA GPD: idA2A+idDominio+codDocumento concatenati senza
+            separatore) — vedi `PosizioneDebitoria.idPosizioneDebitoria`.
+          required: true
+          schema:
+            type: string
+            pattern: '(^[a-zA-Z0-9\-_]{1,81}$)'
+      responses:
+        '200':
+          description: Avviso di pagamento in formato PDF
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/401NotAuthenticated'
+        '403':
+          $ref: '#/components/responses/403NotAuthorized'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+        '406':
+          description: 'Header `Accept` non compatibile con `application/pdf`'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: >-
+            L'avviso PDF non è generabile per questa posizione debitoria
+            (nessuna opzione di pagamento con rate ancora pagabili, Marca
+            da Bollo Telematica, o debitore senza anagrafica)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '500':
+          $ref: '#/components/responses/500ServiceUnavailable'
+        '502':
+          description: 'Errore di comunicazione con il microservizio `govpay-stampe`'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: >-
+            Microservizio `govpay-stampe` non configurato
+            (`app.stampe.base-url` mancante)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+
   '/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento':
     post:
       tags:
@@ -376,11 +465,14 @@ paths:
             pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
         - in: path
           name: idPosizioneDebitoria
-          description: Identificativo della posizione debitoria
+          description: >-
+            Identificativo pubblico della posizione debitoria (IUPD standard
+            pagoPA GPD: idA2A+idDominio+codDocumento concatenati senza
+            separatore) — vedi `PosizioneDebitoria.idPosizioneDebitoria`.
           required: true
           schema:
             type: string
-            pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
+            pattern: '(^[a-zA-Z0-9\-_]{1,81}$)'
       requestBody:
         content:
           application/json:
@@ -456,11 +548,14 @@ paths:
             pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
         - in: path
           name: idPosizioneDebitoria
-          description: Identificativo della posizione debitoria
+          description: >-
+            Identificativo pubblico della posizione debitoria (IUPD standard
+            pagoPA GPD: idA2A+idDominio+codDocumento concatenati senza
+            separatore) — vedi `PosizioneDebitoria.idPosizioneDebitoria`.
           required: true
           schema:
             type: string
-            pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
+            pattern: '(^[a-zA-Z0-9\-_]{1,81}$)'
         - in: path
           name: idOpzionePagamento
           description: Identificativo dell'opzione di pagamento
@@ -536,11 +631,14 @@ paths:
             pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
         - in: path
           name: idPosizioneDebitoria
-          description: Identificativo della posizione debitoria
+          description: >-
+            Identificativo pubblico della posizione debitoria (IUPD standard
+            pagoPA GPD: idA2A+idDominio+codDocumento concatenati senza
+            separatore) — vedi `PosizioneDebitoria.idPosizioneDebitoria`.
           required: true
           schema:
             type: string
-            pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
+            pattern: '(^[a-zA-Z0-9\-_]{1,81}$)'
         - in: path
           name: idOpzionePagamento
           description: Identificativo dell'opzione di pagamento
@@ -778,7 +876,7 @@ paths:
           $ref: '#/components/responses/500ServiceUnavailable'
 
   '/pendenze/{idA2A}/{idPendenza}/stampa':
-    get:
+    post:
       tags:
         - Pendenze
       summary: Stampa dell'avviso di una pendenza
@@ -788,8 +886,11 @@ paths:
         formato PDF, identificata tramite gli identificativi del
         gestionale (idA2A e idPendenza) invece che tramite numeroAvviso.
         Le opzioni di personalizzazione testuale/traduzione dell'avviso
-        (lingua secondaria, testi tradotti) si specificano nei parametri
-        di questa chiamata.
+        (lingua secondaria, testi tradotti) si specificano nel corpo
+        della richiesta — POST, non GET, perché sono testo libero: in
+        query string andrebbero percent-encoded e sarebbero esposte a
+        problemi con caratteri speciali/accentati e a limiti di
+        lunghezza dell'URL.
       parameters:
         - in: path
           name: idA2A
@@ -805,10 +906,12 @@ paths:
           schema:
             type: string
             pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
-        - $ref: '#/components/parameters/linguaSecondaria'
-        - $ref: '#/components/parameters/causaleTradotta'
-        - $ref: '#/components/parameters/informativaImporto'
-        - $ref: '#/components/parameters/informativaImportoTradotta'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PersonalizzazioneAvviso'
       responses:
         '200':
           description: Avviso di pagamento in formato PDF
@@ -820,7 +923,7 @@ paths:
         '400':
           description: >-
             Bilinguismo richiesto (`linguaSecondaria`) senza
-            `causaleTradotta`
+            `causaleTradotta` nel corpo della richiesta
           content:
             application/problem+json:
               schema:
@@ -1224,44 +1327,6 @@ components:
       schema:
         type: string
       example: 'dataCreazione:desc'
-    linguaSecondaria:
-      name: linguaSecondaria
-      in: query
-      description: >-
-        Indica se creare l'avviso in modalita' multilingua e quale seconda
-        lingua affiancare all'italiano all'interno dell'avviso.
-      required: false
-      schema:
-        $ref: '#/components/schemas/LinguaSecondaria'
-    causaleTradotta:
-      name: causaleTradotta
-      in: query
-      description: >-
-        Causale della pendenza tradotta nella lingua secondaria, da inserire
-        nell'avviso.
-      required: false
-      schema:
-        type: string
-    informativaImporto:
-      name: informativaImporto
-      in: query
-      description: >-
-        Se valorizzato, sostituisce il testo standard della nota informativa
-        sull'importo. Se valorizzato con stringa vuota, l'informativa viene
-        omessa.
-      required: false
-      schema:
-        type: string
-        maxLength: 255
-    informativaImportoTradotta:
-      name: informativaImportoTradotta
-      in: query
-      description: Versione tradotta di `informativaImporto`, nella lingua secondaria.
-      required: false
-      schema:
-        type: string
-        maxLength: 255
-
   responses:
     400BadRequest:
       description: Richiesta non valida
@@ -1330,19 +1395,23 @@ components:
     NuovaPosizioneDebitoria:
       type: object
       required:
-        - idPosizioneDebitoria
+        - codDocumento
         - idDominio
         - descrizione
         - soggettiDebitori
         - opzioniPagamento
       properties:
-        idPosizioneDebitoria:
+        codDocumento:
           type: string
           description: >-
-            Identificativo della posizione debitoria nel gestionale
-            proprietario. Deve essere univoco per idA2A: la richiesta viene
-            rifiutata con 409 se esiste già una posizione con questo
-            identificativo per lo stesso idA2A.
+            Identificativo della posizione debitoria scelto liberamente dal
+            gestionale proprietario. Deve essere univoco per idA2A+idDominio:
+            la richiesta viene rifiutata con 409 se esiste già una posizione
+            con questo identificativo per lo stesso idA2A e lo stesso
+            idDominio (due domini diversi possono invece riusare lo stesso
+            valore). Non coincide con `idPosizioneDebitoria` esposto in
+            lettura: quello è l'IUPD (standard pagoPA GPD), calcolato da
+            GovPay concatenando idA2A+idDominio+codDocumento.
           examples:
             - abcdef12345
           pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
@@ -1437,6 +1506,8 @@ components:
         - SOLUZIONE_UNICA
         - SOLUZIONE_UNICA_ENTRO
         - SOLUZIONE_UNICA_OLTRE
+        - SOLUZIONE_UNICA_RIDOTTO
+        - SOLUZIONE_UNICA_SCONTATO
       examples:
         - SOLUZIONE_UNICA
 
@@ -1456,6 +1527,8 @@ components:
         - $ref: '#/components/schemas/NuovaOpzionePagamentoSoluzioneUnica'
         - $ref: '#/components/schemas/NuovaOpzionePagamentoSoluzioneUnicaEntro'
         - $ref: '#/components/schemas/NuovaOpzionePagamentoSoluzioneUnicaOltre'
+        - $ref: '#/components/schemas/NuovaOpzionePagamentoSoluzioneUnicaRidotto'
+        - $ref: '#/components/schemas/NuovaOpzionePagamentoSoluzioneUnicaScontato'
       discriminator:
         propertyName: tipologia
         mapping:
@@ -1463,6 +1536,8 @@ components:
           SOLUZIONE_UNICA: '#/components/schemas/NuovaOpzionePagamentoSoluzioneUnica'
           SOLUZIONE_UNICA_ENTRO: '#/components/schemas/NuovaOpzionePagamentoSoluzioneUnicaEntro'
           SOLUZIONE_UNICA_OLTRE: '#/components/schemas/NuovaOpzionePagamentoSoluzioneUnicaOltre'
+          SOLUZIONE_UNICA_RIDOTTO: '#/components/schemas/NuovaOpzionePagamentoSoluzioneUnicaRidotto'
+          SOLUZIONE_UNICA_SCONTATO: '#/components/schemas/NuovaOpzionePagamentoSoluzioneUnicaScontato'
 
     NuovaOpzionePagamentoPianoRateale:
       type: object
@@ -1561,6 +1636,50 @@ components:
           items:
             $ref: '#/components/schemas/NuovaPendenza'
 
+    NuovaOpzionePagamentoSoluzioneUnicaRidotto:
+      type: object
+      description: >-
+        Sanzione del Codice della Strada in misura ridotta. Nessun campo
+        `giorni`: il termine di legge non è un valore dichiarabile dal
+        chiamante.
+      required: [tipologia, pendenze]
+      properties:
+        tipologia:
+          $ref: '#/components/schemas/TipologiaOpzionePagamento'
+        dataInizioValidita:
+          $ref: '#/components/schemas/dataInizioValiditaOpzionePagamento'
+        dataScadenza:
+          $ref: '#/components/schemas/dataScadenzaOpzionePagamento'
+        pendenze:
+          type: array
+          description: Esattamente una pendenza per l'intero importo.
+          minItems: 1
+          maxItems: 1
+          items:
+            $ref: '#/components/schemas/NuovaPendenza'
+
+    NuovaOpzionePagamentoSoluzioneUnicaScontato:
+      type: object
+      description: >-
+        Sanzione del Codice della Strada con sconto per pagamento in forma
+        agevolata. Nessun campo `giorni`: il termine di legge non è un
+        valore dichiarabile dal chiamante.
+      required: [tipologia, pendenze]
+      properties:
+        tipologia:
+          $ref: '#/components/schemas/TipologiaOpzionePagamento'
+        dataInizioValidita:
+          $ref: '#/components/schemas/dataInizioValiditaOpzionePagamento'
+        dataScadenza:
+          $ref: '#/components/schemas/dataScadenzaOpzionePagamento'
+        pendenze:
+          type: array
+          description: Esattamente una pendenza per l'intero importo.
+          minItems: 1
+          maxItems: 1
+          items:
+            $ref: '#/components/schemas/NuovaPendenza'
+
     dataInizioValiditaOpzionePagamento:
       type: string
       format: date
@@ -1613,6 +1732,17 @@ components:
           examples:
             - IMU
           pattern: '(^[a-zA-Z0-9\-_\.]{1,35}$)'
+        causale:
+          type: string
+          description: >-
+            Descrizione della singola pendenza (rata), da mostrare sull'avviso
+            di pagamento. Distinta da `descrizione` della posizione debitoria
+            (condivisa da tutte le sue pendenze): opzionale, utile quando il
+            testo deve differenziarsi per singola rata. Se assente, non viene
+            stampato alcun testo specifico della pendenza.
+          examples:
+            - 'Rata 1 di 3'
+          maxLength: 140
         importo:
           type: number
           description: Importo della pendenza. Deve corrispondere alla somma delle singole voci.
@@ -1801,9 +1931,16 @@ components:
             - A2A-12345
         idPosizioneDebitoria:
           type: string
-          description: Identificativo della posizione debitoria nel gestionale responsabile
+          description: >-
+            Identificativo pubblico della posizione debitoria: l'IUPD
+            (standard pagoPA GPD), calcolato da GovPay concatenando, senza
+            separatore, idA2A+idDominio+codDocumento (idDominio sempre
+            esattamente 11 cifre). Usato nel path di questa e delle altre
+            risorse della posizione. Non è un valore scelto dal chiamante:
+            vedi `codDocumento` nello schema di creazione.
           examples:
-            - abcdef12345
+            - A2A-1234501234567890abcdef12345
+          maxLength: 81
         idDominio:
           type: string
           description: >-
@@ -1855,9 +1992,16 @@ components:
             - A2A-12345
         idPosizioneDebitoria:
           type: string
-          description: Identificativo della posizione debitoria nel gestionale responsabile
+          description: >-
+            Identificativo pubblico della posizione debitoria: l'IUPD
+            (standard pagoPA GPD), calcolato da GovPay concatenando, senza
+            separatore, idA2A+idDominio+codDocumento (idDominio sempre
+            esattamente 11 cifre). Usato nel path di questa e delle altre
+            risorse della posizione. Non è un valore scelto dal chiamante:
+            vedi `codDocumento` nello schema di creazione.
           examples:
-            - abcdef12345
+            - A2A-1234501234567890abcdef12345
+          maxLength: 81
         idDominio:
           type: string
           description: >-
@@ -1907,6 +2051,8 @@ components:
         - $ref: '#/components/schemas/OpzionePagamentoIndexSoluzioneUnica'
         - $ref: '#/components/schemas/OpzionePagamentoIndexSoluzioneUnicaEntro'
         - $ref: '#/components/schemas/OpzionePagamentoIndexSoluzioneUnicaOltre'
+        - $ref: '#/components/schemas/OpzionePagamentoIndexSoluzioneUnicaRidotto'
+        - $ref: '#/components/schemas/OpzionePagamentoIndexSoluzioneUnicaScontato'
       discriminator:
         propertyName: tipologia
         mapping:
@@ -1914,6 +2060,8 @@ components:
           SOLUZIONE_UNICA: '#/components/schemas/OpzionePagamentoIndexSoluzioneUnica'
           SOLUZIONE_UNICA_ENTRO: '#/components/schemas/OpzionePagamentoIndexSoluzioneUnicaEntro'
           SOLUZIONE_UNICA_OLTRE: '#/components/schemas/OpzionePagamentoIndexSoluzioneUnicaOltre'
+          SOLUZIONE_UNICA_RIDOTTO: '#/components/schemas/OpzionePagamentoIndexSoluzioneUnicaRidotto'
+          SOLUZIONE_UNICA_SCONTATO: '#/components/schemas/OpzionePagamentoIndexSoluzioneUnicaScontato'
 
     StatoOpzionePagamento:
       type: string
@@ -2026,6 +2174,46 @@ components:
           type: string
           format: date
 
+    OpzionePagamentoIndexSoluzioneUnicaRidotto:
+      type: object
+      required: [idOpzionePagamento, tipologia, stato]
+      properties:
+        idOpzionePagamento:
+          type: string
+          format: uuid
+          examples:
+            - 3fa85f64-5717-4562-b3fc-2c963f66afa6
+        tipologia:
+          $ref: '#/components/schemas/TipologiaOpzionePagamento'
+        stato:
+          $ref: '#/components/schemas/StatoOpzionePagamento'
+        dataInizioValidita:
+          type: string
+          format: date
+        dataScadenza:
+          type: string
+          format: date
+
+    OpzionePagamentoIndexSoluzioneUnicaScontato:
+      type: object
+      required: [idOpzionePagamento, tipologia, stato]
+      properties:
+        idOpzionePagamento:
+          type: string
+          format: uuid
+          examples:
+            - 3fa85f64-5717-4562-b3fc-2c963f66afa6
+        tipologia:
+          $ref: '#/components/schemas/TipologiaOpzionePagamento'
+        stato:
+          $ref: '#/components/schemas/StatoOpzionePagamento'
+        dataInizioValidita:
+          type: string
+          format: date
+        dataScadenza:
+          type: string
+          format: date
+
     OpzionePagamento:
       type: object
       description: >-
@@ -2040,6 +2228,8 @@ components:
         - $ref: '#/components/schemas/OpzionePagamentoSoluzioneUnica'
         - $ref: '#/components/schemas/OpzionePagamentoSoluzioneUnicaEntro'
         - $ref: '#/components/schemas/OpzionePagamentoSoluzioneUnicaOltre'
+        - $ref: '#/components/schemas/OpzionePagamentoSoluzioneUnicaRidotto'
+        - $ref: '#/components/schemas/OpzionePagamentoSoluzioneUnicaScontato'
       discriminator:
         propertyName: tipologia
         mapping:
@@ -2047,6 +2237,8 @@ components:
           SOLUZIONE_UNICA: '#/components/schemas/OpzionePagamentoSoluzioneUnica'
           SOLUZIONE_UNICA_ENTRO: '#/components/schemas/OpzionePagamentoSoluzioneUnicaEntro'
           SOLUZIONE_UNICA_OLTRE: '#/components/schemas/OpzionePagamentoSoluzioneUnicaOltre'
+          SOLUZIONE_UNICA_RIDOTTO: '#/components/schemas/OpzionePagamentoSoluzioneUnicaRidotto'
+          SOLUZIONE_UNICA_SCONTATO: '#/components/schemas/OpzionePagamentoSoluzioneUnicaScontato'
 
     OpzionePagamentoPianoRateale:
       description: >-
@@ -2170,6 +2362,65 @@ components:
           items:
             $ref: '#/components/schemas/PendenzaOpzionePagamento'
 
+    OpzionePagamentoSoluzioneUnicaRidotto:
+      description: >-
+        Sanzione del Codice della Strada in misura ridotta, comprensiva
+        della pendenza che la compone. Nessun campo `giorni`.
+      type: object
+      required: [idOpzionePagamento, tipologia, stato, pendenze]
+      properties:
+        idOpzionePagamento:
+          type: string
+          format: uuid
+          examples:
+            - 3fa85f64-5717-4562-b3fc-2c963f66afa6
+        tipologia:
+          $ref: '#/components/schemas/TipologiaOpzionePagamento'
+        stato:
+          $ref: '#/components/schemas/StatoOpzionePagamento'
+        dataInizioValidita:
+          type: string
+          format: date
+        dataScadenza:
+          type: string
+          format: date
+        pendenze:
+          type: array
+          minItems: 1
+          maxItems: 1
+          items:
+            $ref: '#/components/schemas/PendenzaOpzionePagamento'
+
+    OpzionePagamentoSoluzioneUnicaScontato:
+      description: >-
+        Sanzione del Codice della Strada con sconto per pagamento in forma
+        agevolata, comprensiva della pendenza che la compone. Nessun campo
+        `giorni`.
+      type: object
+      required: [idOpzionePagamento, tipologia, stato, pendenze]
+      properties:
+        idOpzionePagamento:
+          type: string
+          format: uuid
+          examples:
+            - 3fa85f64-5717-4562-b3fc-2c963f66afa6
+        tipologia:
+          $ref: '#/components/schemas/TipologiaOpzionePagamento'
+        stato:
+          $ref: '#/components/schemas/StatoOpzionePagamento'
+        dataInizioValidita:
+          type: string
+          format: date
+        dataScadenza:
+          type: string
+          format: date
+        pendenze:
+          type: array
+          minItems: 1
+          maxItems: 1
+          items:
+            $ref: '#/components/schemas/PendenzaOpzionePagamento'
+
     # ============================================================
     # PENDENZA - LETTURA
     # ============================================================
@@ -2203,6 +2454,14 @@ components:
           description: Identificativo della tipologia pendenza
           examples:
             - IMU
+        causale:
+          type: string
+          description: >-
+            Descrizione della singola pendenza (rata), se impostata in
+            scrittura. Distinta da `descrizione` della posizione debitoria
+            (condivisa da tutte le sue pendenze).
+          examples:
+            - 'Rata 1 di 3'
         idDominio:
           type: string
           description: >-
@@ -2518,6 +2777,11 @@ components:
           type: string
           examples:
             - mario.rossi@email.it
+        cellulare:
+          type: string
+          examples:
+            - '+39 000-1234567'
+          pattern: '\+[0-9]{2}\s[0-9]{3}\-[0-9]{7}'
     TipoSoggetto:
       description: >-
         tipologia di soggetto, se persona fisica (F) o giuridica (G)
@@ -3538,6 +3802,30 @@ components:
         - 'en'
         - 'fr'
         - 'sl'
+
+    PersonalizzazioneAvviso:
+      type: object
+      description: >-
+        Opzioni di personalizzazione testuale/traduzione dell'avviso di pagamento.
+      properties:
+        linguaSecondaria:
+          $ref: '#/components/schemas/LinguaSecondaria'
+        causaleTradotta:
+          type: string
+          description: >-
+            Causale della pendenza tradotta nella lingua secondaria, da inserire
+            nell'avviso.
+        informativaImporto:
+          type: string
+          maxLength: 255
+          description: >-
+            Se valorizzato, sostituisce il testo standard della nota informativa
+            sull'importo. Se valorizzato con stringa vuota, l'informativa viene
+            omessa.
+        informativaImportoTradotta:
+          type: string
+          maxLength: 255
+          description: Versione tradotta di `informativaImporto`, nella lingua secondaria.
 
     Pagination:
       type: object

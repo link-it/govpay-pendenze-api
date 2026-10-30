@@ -35,6 +35,9 @@ public class UtenzaEntity {
     @Column(name = "abilitato", nullable = false)
     private Boolean abilitato;
 
+    @Column(name = "autorizzazione_domini_star", nullable = false)
+    private Boolean autorizzazioneDominiStar;
+
     @Column(name = "autorizzazione_tipi_vers_star", nullable = false)
     private Boolean autorizzazioneTipiVersStar;
 
@@ -74,6 +77,14 @@ public class UtenzaEntity {
 
     public void setAbilitato(Boolean abilitato) {
         this.abilitato = abilitato;
+    }
+
+    public Boolean getAutorizzazioneDominiStar() {
+        return autorizzazioneDominiStar;
+    }
+
+    public void setAutorizzazioneDominiStar(Boolean autorizzazioneDominiStar) {
+        this.autorizzazioneDominiStar = autorizzazioneDominiStar;
     }
 
     public Boolean getAutorizzazioneTipiVersStar() {

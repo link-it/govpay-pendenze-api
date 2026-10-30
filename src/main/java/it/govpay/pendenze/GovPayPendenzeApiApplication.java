@@ -61,7 +61,7 @@ import it.govpay.common.repository.StazioneRepository;
  */
 @SpringBootApplication(exclude = { UserDetailsServiceAutoConfiguration.class })
 @EnableJpaRepositories(basePackages = { "it.govpay.pendenze.repository", "it.govpay.pendenze.security",
-        "it.govpay.common.repository" },
+        "it.govpay.pendenze.v2.pendenza", "it.govpay.common.repository" },
         excludeFilters = @Filter(type = FilterType.ASSIGNABLE_TYPE,
                 classes = { IntermediarioRepository.class, StazioneRepository.class }))
 public class GovPayPendenzeApiApplication extends SpringBootServletInitializer {
@@ -111,11 +111,14 @@ public class GovPayPendenzeApiApplication extends SpringBootServletInitializer {
      * caricare il BLOB su ogni lettura di {@link DominioEntity}, stesso pattern gia' in uso
      * in govpay-portal-api.</li>
      * </ul>
+     * {@code it.govpay.pendenze.v2.pendenza} e' scansionato dinamicamente come le entity
+     * proprie: contiene {@code AllegatoEntity}, l'unica entity scoped al wrapper v2 (nessun
+     * equivalente nella v3 nativa, vedi Javadoc di classe).
      */
     @Bean
     public PersistenceManagedTypes persistenceManagedTypes(ResourceLoader resourceLoader) {
         PersistenceManagedTypes proprie = new PersistenceManagedTypesScanner(resourceLoader)
-                .scan("it.govpay.pendenze.entity", "it.govpay.pendenze.security");
+                .scan("it.govpay.pendenze.entity", "it.govpay.pendenze.security", "it.govpay.pendenze.v2.pendenza");
 
         List<String> nomiClassi = new ArrayList<>(proprie.getManagedClassNames());
         nomiClassi.add(ApplicazioneEntity.class.getName());
@@ -132,7 +135,8 @@ public class GovPayPendenzeApiApplication extends SpringBootServletInitializer {
         nomiClassi.add(TributoEntity.class.getName());
         nomiClassi.add(IbanAccreditoEntity.class.getName());
 
-        return PersistenceManagedTypes.of(nomiClassi, List.of("it.govpay.pendenze.entity", "it.govpay.pendenze.security"));
+        return PersistenceManagedTypes.of(nomiClassi,
+                List.of("it.govpay.pendenze.entity", "it.govpay.pendenze.security", "it.govpay.pendenze.v2.pendenza"));
     }
 
     /**

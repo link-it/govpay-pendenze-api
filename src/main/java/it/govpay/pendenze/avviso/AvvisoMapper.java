@@ -9,10 +9,10 @@ import it.govpay.common.utils.IuvUtils;
 import it.govpay.pendenze.entity.Pendenza;
 
 /**
- * Qrcode e data di scadenza dell'avviso, riusati da {@link AvvisoPdfPayloadMapper} per il PDF
- * (unico content-type prodotto da {@code GET /pendenze/{idA2A}/{idPendenza}/stampa}).
+ * Qrcode/barcode e data di scadenza dell'avviso, riusati da {@link AvvisoPdfPayloadMapper} per
+ * il PDF e dal wrapper v2 ({@code GET /avvisi/{idDominio}/{numeroAvviso}}) per il JSON.
  */
-final class AvvisoMapper {
+public final class AvvisoMapper {
 
     private AvvisoMapper() {
     }
@@ -28,8 +28,13 @@ final class AvvisoMapper {
         return pendenza.getOpzionePagamento().getDataScadenza();
     }
 
-    static String buildQrcode(Pendenza pendenza, DominioEntity dominio) {
+    public static String buildQrcode(Pendenza pendenza, DominioEntity dominio) {
         return IuvUtils.buildQrCode002(dominio.getCodDominio(), dominio.getAuxDigit(), applicationCodeDi(dominio),
+                pendenza.getIuv(), BigDecimal.valueOf(pendenza.getImporto()), pendenza.getNumeroAvviso());
+    }
+
+    public static String buildBarcode(Pendenza pendenza, DominioEntity dominio) {
+        return IuvUtils.buildBarCode(dominio.getGln(), dominio.getAuxDigit(), applicationCodeDi(dominio),
                 pendenza.getIuv(), BigDecimal.valueOf(pendenza.getImporto()), pendenza.getNumeroAvviso());
     }
 
