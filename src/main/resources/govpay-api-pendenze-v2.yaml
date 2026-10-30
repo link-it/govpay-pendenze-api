@@ -1257,16 +1257,19 @@ components:
         dataValidita:
           type: string
           format: date
+          nullable: true
           description: Data di validita dei dati della pendenza, decorsa la quale la pendenza può subire variazioni.
           example: '2019-12-31'
         dataScadenza:
           type: string
           format: date
+          nullable: true
           description: Data di scadenza della pendenza, decorsa la quale non è più pagabile.
           example: '2020-12-31'
         annoRiferimento:
           type: integer
           format: int32
+          nullable: true
           description: Anno di riferimento della pendenza
           example: 2020
           pattern: "[0-9]4"
@@ -1284,17 +1287,20 @@ components:
         dataNotificaAvviso:
           type: string
           format: date
+          nullable: true
           description: Data in cui inviare il promemoria di pagamento.
           example: '2020-12-31'
         dataPromemoriaScadenza:
           type: string
           format: date
+          nullable: true
           description: Data in cui inviare il promemoria di scadenza della pendenza.
           example: '2020-12-31'
         proprieta:
           $ref: '#/components/schemas/ProprietaPendenza'
         sendAbilitato:
           type: boolean
+          nullable: true
           description: Indica se per questa pendenza e' prevista l'attualizzazione dell'importo con le spese di notifica SEND
           default: false
           example: false
@@ -1690,6 +1696,7 @@ components:
         dataScandenzaAvviso:
           type: string
           format: date
+          nullable: true
           description: se valorizzata, sostituisce la data di scadenza standard.
     QuotaContabilita:
       type: object
@@ -2263,6 +2270,7 @@ components:
         importo: 
           type: number
           format: double
+          nullable: true
           description: importo
           example: 10.01
     VocePendenza:

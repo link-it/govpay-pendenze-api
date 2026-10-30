@@ -382,7 +382,10 @@
                          esterni che non migrano a v3 nell'immediato. Package distinto
                          (it.govpay.pendenze.v2.*) perche' lo schema v2 ridefinisce nomi
                          gia' usati da v3 (Pendenza, Dominio, Documento, ...); output
-                         separato per lo stesso motivo lato file generati (es. ApiUtil). -->
+                         separato per lo stesso motivo lato file generati (es. ApiUtil).
+                         openApiNullable=false: i campi facoltativi nullable dello schema v2
+                         restano tipi semplici (null e campo omesso si equivalgono) invece di
+                         diventare JsonNullable, come nel core GovPay (link-it/govpay#903). -->
                     <execution>
                         <id>generate-pendenze-api-v2</id>
                         <goals>
@@ -402,7 +405,7 @@
                                 <useJakartaEe>true</useJakartaEe>
                                 <useTags>true</useTags>
                                 <skipDefaultInterface>false</skipDefaultInterface>
-                                <openApiNullable>true</openApiNullable>
+                                <openApiNullable>false</openApiNullable>
                                 <documentationProvider>springdoc</documentationProvider>
                                 <serializableModel>true</serializableModel>
                                 <useOneOfInterfaces>true</useOneOfInterfaces>
