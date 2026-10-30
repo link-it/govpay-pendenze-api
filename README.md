@@ -61,6 +61,8 @@ Le operazioni e il modello dei dati sono quelli della libreria [govpay-common-pe
 
 `GET /allegati/{id}` (`getAllegatoPendenza`) è nella specifica v2 ma non è implementato: risponde `501 Not Implemented`.
 
+Una voce di tipo bollo (`tipoBollo`, `hashDocumento`, `provinciaResidenza`) va caricata con `tipoContabilita` e `codiceContabilita`, che ne formano la tassonomia: senza, la richiesta è rifiutata con `400`.
+
 ### Amministrazione
 
 | Metodo e path | Descrizione |
@@ -81,7 +83,7 @@ Questi path non hanno base path. La documentazione interattiva generata dai cont
 - **ACL** (tabella `acl`, dirette sull'utenza o tramite i ruoli in `utenze.ruoli`): servizio `API Pendenze` con diritto `R` per le letture e `W` per le scritture; servizio `Configurazione e manutenzione` per gli endpoint `/admin/logging`.
 - **Domini e tipi pendenza**: nel caricamento di una pendenza con l'API v2, un'applicazione non `trusted` deve essere autorizzata sul dominio e sul tipo pendenza (`utenze_domini`, `utenze_tipo_vers`, o i flag "tutti" dell'utenza).
 
-Gli errori sono restituiti in formato `application/problem+json`.
+Gli errori sono restituiti in formato `application/problem+json`; gli errori della richiesta rilevati prima dell'operazione hanno il codice corrispondente (path inesistente `404`, metodo non ammesso `405` con l'header `Allow`, `Content-Type` non supportato `415`, parametro mancante o non valido `400`).
 
 ## Integrazione con GovPay
 
@@ -110,7 +112,7 @@ mvn clean install -P war     # war, per il deploy su application server
 Il profilo sceglie il packaging; il risultato è in `target/govpay-pendenze-api.jar` o `target/govpay-pendenze-api.war`. La build genera gli stub server dalle due specifiche OpenAPI e il client di govpay-stampe-api, esegue i test (H2 in memoria) e l'analisi OWASP Dependency-Check delle dipendenze; per escludere l'analisi OWASP, per esempio in sviluppo:
 
 ```bash
-mvn clean install -P jar -Dowasp=none
+mvn clean install -P jar -Dowasp.phase=none
 ```
 
 Nessuno dei due artefatti include i driver JDBC: vedi [Esecuzione](#esecuzione).
@@ -123,10 +125,10 @@ Le proprietà si impostano in `application.properties`, da riga di comando (`-D<
 
 | Proprietà | Variabile | Default | Descrizione |
 |-----------|-----------|---------|-------------|
-| `govpay.pendenze.api.v3.base-path` | `PENDENZE_API_V3_BASE_PATH` | vuoto | Prefisso dei path dell'API v3 (es. `/v3`) |
-| `govpay.pendenze.api.v2.base-path` | `PENDENZE_API_V2_BASE_PATH` | vuoto | Prefisso dei path dell'API v2 (es. `/v2`) |
+| `govpay.pendenze.api.v3.base-path` | `PENDENZE_API_V3_BASE_PATH` | `/v3` | Prefisso dei path dell'API v3 |
+| `govpay.pendenze.api.v2.base-path` | `PENDENZE_API_V2_BASE_PATH` | `/v2` | Prefisso dei path dell'API v2 |
 
-Le due versioni sono sempre attive insieme e hanno path in comune (`/pendenze/{idA2A}/{idPendenza}`): **almeno uno dei due base path va impostato**, altrimenti il servizio non parte (`Ambiguous mapping`). Per esporre i path del monolite (`/govpay/backend/api/pendenze/rs/basic/v2`) senza un reverse proxy, impostare il base path a quel valore.
+Con i default l'API v3 risponde su `/v3/...` e la v2 su `/v2/...`. Le due versioni sono sempre attive insieme e hanno path in comune (`/pendenze/{idA2A}/{idPendenza}`): se si cambiano i base path, almeno uno dei due deve restare valorizzato, altrimenti il servizio non parte (`Ambiguous mapping`). Per esporre i path del monolite senza un reverse proxy si usano, per esempio, `/govpay/backend/api/pendenze/rs/basic/v2` e `/govpay/backend/api/pendenze/rs/basic/v3`.
 
 ### Wrapper v2
 
@@ -228,7 +230,7 @@ URL e autenticazione del GDE non sono proprietà del servizio: sono nella config
 | Proprietà | Variabile | Default | Descrizione |
 |-----------|-----------|---------|-------------|
 | `management.server.port` | `MANAGEMENT_SERVER_PORT` | `9090` | Porta dedicata agli endpoint actuator; sulla porta del servizio non sono esposti |
-| `management.endpoints.web.exposure.include` | - | `health,prometheus,loggers` | Endpoint actuator esposti |
+| `management.endpoints.web.exposure.include` | - | `health,prometheus` | Endpoint actuator esposti |
 | `management.metrics.distribution.percentiles-histogram.http.server.requests` | - | `true` | Istogrammi delle latenze delle richieste ricevute |
 | `management.metrics.distribution.percentiles-histogram.http.client.requests` | - | `true` | Istogrammi delle latenze delle chiamate verso stampe e GDE |
 | `management.metrics.distribution.slo.http.server.requests` | - | `100ms,500ms,1s,2s,5s` | Soglie esplicite di latenza, compresa quella SLA pagoPA di 2s |
@@ -260,13 +262,11 @@ java -Dloader.path=./jdbc-drivers \
      -Dspring.datasource.url=jdbc:postgresql://localhost:5432/govpay \
      -Dspring.datasource.username=govpay \
      -Dspring.datasource.password=<password> \
-     -Dgovpay.pendenze.api.v2.base-path=/v2 \
-     -Dgovpay.pendenze.api.v3.base-path=/v3 \
      -Dapp.stampe.base-url=<url-govpay-stampe-api> \
      -jar target/govpay-pendenze-api.jar
 ```
 
-Con questa configurazione l'API v3 risponde su `http://localhost:8080/v3/...`, la v2 su `http://localhost:8080/v2/...`. Per un altro database impostare anche `spring.datasource.driver-class-name` e `spring.jpa.database-platform`.
+L'API v3 risponde su `http://localhost:8080/v3/...`, la v2 su `http://localhost:8080/v2/...`. Per un altro database impostare anche `spring.datasource.driver-class-name` e `spring.jpa.database-platform`.
 
 ### War su application server
 
@@ -283,8 +283,6 @@ docker run -d --name govpay-pendenze-api -p 8080:8080 -p 9090:9090 \
   -e DATASOURCE_URL=jdbc:postgresql://postgres:5432/govpay \
   -e DATASOURCE_USERNAME=govpay \
   -e DATASOURCE_PASSWORD=<password> \
-  -e PENDENZE_API_V2_BASE_PATH=/v2 \
-  -e PENDENZE_API_V3_BASE_PATH=/v3 \
   -e STAMPE_BASE_URL=<url-govpay-stampe-api> \
   eclipse-temurin:21-jre \
   java -Dloader.path=/opt/jdbc-drivers -jar /opt/govpay-pendenze-api.jar
@@ -300,8 +298,8 @@ Variabili d'ambiente lette da `application.properties`, oltre alle proprietà Sp
 | `DATASOURCE_DRIVER` | no | `org.postgresql.Driver` | Classe del driver JDBC |
 | `JPA_DIALECT` | no | `org.hibernate.dialect.PostgreSQLDialect` | Dialetto Hibernate |
 | `HIBERNATE_DDL_AUTO` | no | `validate` | Verifica dello schema all'avvio |
-| `PENDENZE_API_V3_BASE_PATH` | sì, se non c'è `PENDENZE_API_V2_BASE_PATH` | vuoto | Base path dell'API v3 |
-| `PENDENZE_API_V2_BASE_PATH` | sì, se non c'è `PENDENZE_API_V3_BASE_PATH` | vuoto | Base path dell'API v2 |
+| `PENDENZE_API_V3_BASE_PATH` | no | `/v3` | Base path dell'API v3 |
+| `PENDENZE_API_V2_BASE_PATH` | no | `/v2` | Base path dell'API v2 |
 | `PENDENZE_V2_CONVERSIONE_PAGOPA_V1_ENABLE` | no | `false` | RPT e RT nel formato v1 per i client v2 |
 | `PENDENZE_V2_GIORNI_VALIDITA_PENDENZA_SENZA_DATA` | no | - | Giorni di validità per le RPT ricostruite senza scadenza |
 | `STAMPE_BASE_URL` | no | vuoto | URL base di govpay-stampe-api |
@@ -317,10 +315,9 @@ Gli endpoint actuator rispondono solo sulla porta di management (default `9090`)
 ```bash
 curl http://localhost:9090/actuator/health       # stato, senza autenticazione
 curl http://localhost:9090/actuator/prometheus   # metriche in formato Prometheus, senza autenticazione
-curl -u <utenza>:<password> http://localhost:9090/actuator/loggers   # livelli di log del nodo
 ```
 
-`health` restituisce solo lo stato (`UP`/`DOWN`), senza dettagli. `loggers` richiede l'autenticazione BASIC ma non controlla le ACL: la porta di management va tenuta su una rete interna. Per cambiare i livelli su tutti i nodi si usa la riga `log_level` della tabella `configurazione` (o la console di GovPay); gli endpoint `/admin/logging` sulla porta del servizio agiscono sul singolo nodo e richiedono le ACL di `Configurazione e manutenzione`.
+`health` restituisce solo lo stato (`UP`/`DOWN`), senza dettagli; la porta di management va tenuta su una rete interna. L'endpoint actuator `loggers` non è esposto, perché non applicherebbe le ACL: per cambiare i livelli su tutti i nodi si usa la riga `log_level` della tabella `configurazione` (o la console di GovPay); gli endpoint `/admin/logging` sulla porta del servizio agiscono sul singolo nodo e richiedono le ACL di `Configurazione e manutenzione`.
 
 ## Licenza
 
