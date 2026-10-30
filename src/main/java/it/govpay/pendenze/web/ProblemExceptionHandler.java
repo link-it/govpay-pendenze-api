@@ -6,12 +6,15 @@ import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.ErrorResponse;
 import org.springframework.web.HttpMediaTypeNotAcceptableException;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -232,19 +235,55 @@ public class ProblemExceptionHandler {
                 ex);
     }
 
+    /**
+     * Metodo HTTP non previsto per il path (es. {@code GET} su un'operazione {@code POST}): 405
+     * con l'header {@code Allow}, non un errore interno.
+     */
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<Problem> handleMethodNotSupported(HttpRequestMethodNotSupportedException ex,
+            HttpServletRequest request) {
+        HttpHeaders headers = new HttpHeaders();
+        if (ex.getSupportedHttpMethods() != null) {
+            headers.setAllow(ex.getSupportedHttpMethods());
+        }
+        return build(HttpStatus.METHOD_NOT_ALLOWED,
+                "Metodo " + ex.getMethod() + " non ammesso"
+                        + (ex.getSupportedMethods() != null
+                                ? ": metodi ammessi " + String.join(", ", ex.getSupportedMethods())
+                                : "")
+                        + ".",
+                request, ex, headers);
+    }
+
+    /**
+     * Gestore di ultima istanza. Le eccezioni di Spring MVC che descrivono un errore del
+     * client (header mancante, parte multipart mancante, upload troppo grande, ...) portano
+     * gia' il proprio status 4xx ({@link ErrorResponse}): si restituisce quello, non 500.
+     */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Problem> handleGeneric(Exception ex, HttpServletRequest request) {
+        if (ex instanceof ErrorResponse errorResponse && errorResponse.getStatusCode().is4xxClientError()) {
+            HttpStatus status = HttpStatus.valueOf(errorResponse.getStatusCode().value());
+            String detail = errorResponse.getBody().getDetail();
+            return build(status, detail != null ? detail : status.getReasonPhrase(), request, ex,
+                    errorResponse.getHeaders());
+        }
         return build(HttpStatus.INTERNAL_SERVER_ERROR, "Errore interno del servizio.", request, ex);
     }
 
     private ResponseEntity<Problem> build(HttpStatus status, String detail, HttpServletRequest request,
             Exception ex) {
+        return build(status, detail, request, ex, HttpHeaders.EMPTY);
+    }
+
+    private ResponseEntity<Problem> build(HttpStatus status, String detail, HttpServletRequest request,
+            Exception ex, HttpHeaders headers) {
         Problem problem = new Problem(status.value())
                 .title(status.getReasonPhrase())
                 .detail(detail)
                 .instance(URI.create(request.getRequestURI()));
         logException(status, request, ex);
-        return ResponseEntity.status(status).contentType(PROBLEM_JSON).body(problem);
+        return ResponseEntity.status(status).headers(headers).contentType(PROBLEM_JSON).body(problem);
     }
 
     private void logException(HttpStatus status, HttpServletRequest request, Exception ex) {
