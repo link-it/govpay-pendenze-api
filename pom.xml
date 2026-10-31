@@ -521,6 +521,7 @@
                         <suppressionFile>${owasp.falsePositives.dir}/CVE-2026-14686.xml</suppressionFile>
                         <suppressionFile>${owasp.falsePositives.dir}/CVE-2026-47838.xml</suppressionFile>
                         <suppressionFile>${owasp.falsePositives.dir}/CVE-2026-47842.xml</suppressionFile>
+                        <suppressionFile>${owasp.falsePositives.dir}/DOMPurify-3.4.16.xml</suppressionFile>
                     </suppressionFiles>
                     <nvdApiKey>${nvdApiKey}</nvdApiKey>
                     <ossIndexUsername>${ossIndexUsername}</ossIndexUsername>

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<suppressions xmlns="https://jeremylong.github.io/DependencyCheck/dependency-suppression.1.3.xsd">
+    <suppress until="2027-01-31Z">
+        <notes><![CDATA[
+        CVE-2026-116802, CVE-2026-116803, CVE-2026-116804 (CVSS 3.1: 6.1 MEDIUM): bypass della
+        sanitizzazione XSS in DOMPurify prima della 3.4.17.
+        DOMPurify 3.4.16 e' nel bundle di swagger-ui 5.34.0, portato da springdoc-openapi 3.2.0
+        (ultima versione). swagger-ui 5.34.1 contiene la 3.4.17, ma non si puo' fissare da
+        govpay-bom: springdoc legge la versione della webjar da springdoc.config.properties
+        (5.34.0) e con un'altra versione la Swagger UI risponde 404.
+        Rischio residuo basso: DOMPurify sanitizza nel browser le descrizioni markdown della
+        specifica OpenAPI, che e' quella del servizio stesso e non contiene input di terzi.
+        Soppressione temporanea (until): da togliere quando springdoc porta swagger-ui 5.34.1
+        o successiva. Alla scadenza la segnalazione torna attiva.
+        Data analisi: 2026-10-31
+        ]]></notes>
+        <packageUrl regex="true">^pkg:javascript/DOMPurify@3\.4\.16$</packageUrl>
+        <vulnerabilityName regex="true">^CVE-2026-11680[234]$</vulnerabilityName>
+    </suppress>
+</suppressions>
