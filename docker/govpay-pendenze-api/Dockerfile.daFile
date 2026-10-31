@@ -1,0 +1,51 @@
+FROM eclipse-temurin:25-jre-alpine
+
+ARG govpay_pendenze_api_fullversion=local
+ARG govpay_pendenze_api_home=/opt/govpay-pendenze-api
+ARG govpay_pendenze_api_log=/var/log/govpay-pendenze-api
+
+LABEL maintainer="Link.it s.r.l."
+LABEL description="GovPay Pendenze REST API - Local Build"
+LABEL govpay.pendenze-api.version="${govpay_pendenze_api_fullversion}"
+USER root
+
+ENV GOVPAY_PENDENZE_API_FULLVERSION=${govpay_pendenze_api_fullversion} \
+GOVPAY_PENDENZE_API_LOGDIR=${govpay_pendenze_api_log} \
+GOVPAY_PENDENZE_API_HOME=${govpay_pendenze_api_home} \
+TZ=Europe/Rome
+
+
+RUN set -eux; \
+apk update; \
+apk upgrade; \
+# Solo cio' che serve a runtime: bash per l'entrypoint, tzdata per il fuso
+# orario. tar, unzip, netcat e curl non sono usati dall'entrypoint, e ogni
+# pacchetto in piu' e' superficie esposta e segnalazioni della scansione.
+apk add --no-cache bash tzdata; \
+rm -rf /var/cache/apk/*; \
+echo "${TZ}" > /etc/timezone; \
+addgroup -S govpay ; \
+adduser -S -G govpay govpay; \
+mkdir -p ${GOVPAY_PENDENZE_API_HOME} ${GOVPAY_PENDENZE_API_LOGDIR} /opt/jdbc-drivers; \
+chown -R govpay:govpay ${GOVPAY_PENDENZE_API_HOME} ${GOVPAY_PENDENZE_API_LOGDIR}
+
+WORKDIR ${GOVPAY_PENDENZE_API_HOME}
+
+# Copy JAR from local build (buildcontext/)
+COPY govpay-pendenze-api.jar ${GOVPAY_PENDENZE_API_HOME}/govpay-pendenze-api.jar
+
+# Copy entrypoint and initialization scripts
+COPY commons/entrypoint.sh /usr/local/bin/
+RUN chown -R govpay:0 /usr/local/bin/entrypoint.sh ${GOVPAY_PENDENZE_API_HOME} ${GOVPAY_PENDENZE_API_LOGDIR} \
+&& chmod -Rf g+rwX ${GOVPAY_PENDENZE_API_HOME} ${GOVPAY_PENDENZE_API_LOGDIR} \
+&& chmod ug=rx /usr/local/bin/entrypoint.sh \
+&& chown govpay:govpay ${GOVPAY_PENDENZE_API_HOME}/govpay-pendenze-api.jar
+
+
+USER govpay
+
+ENV LOGGING_FILE_NAME=${GOVPAY_PENDENZE_API_LOGDIR}/govpay-pendenze-api.log
+
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD []

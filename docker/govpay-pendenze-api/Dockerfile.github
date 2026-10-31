@@ -1,0 +1,63 @@
+FROM eclipse-temurin:25-jre-alpine
+
+ARG govpay_pendenze_api_fullversion
+# sha256 del jar della release: la pipeline lo calcola dall'artifact della
+# build, build_image.sh lo legge dalle API delle release di GitHub.
+ARG govpay_pendenze_api_sha256
+ARG govpay_pendenze_api_home=/opt/govpay-pendenze-api
+ARG govpay_pendenze_api_log=/var/log/govpay-pendenze-api
+
+LABEL maintainer="Link.it s.r.l."
+LABEL description="GovPay Pendenze REST API"
+LABEL govpay.pendenze-api.version="${govpay_pendenze_api_fullversion}"
+USER root
+
+ENV GOVPAY_PENDENZE_API_FULLVERSION=${govpay_pendenze_api_fullversion} \
+GOVPAY_PENDENZE_API_LOGDIR=${govpay_pendenze_api_log} \
+GOVPAY_PENDENZE_API_HOME=${govpay_pendenze_api_home} \
+TZ=Europe/Rome
+
+
+RUN set -eux; \
+apk update; \
+apk upgrade; \
+# Solo cio' che serve a runtime: bash per l'entrypoint, tzdata per il fuso
+# orario. tar, unzip, netcat e curl non sono usati dall'entrypoint, e ogni
+# pacchetto in piu' e' superficie esposta e segnalazioni della scansione.
+apk add --no-cache bash tzdata; \
+rm -rf /var/cache/apk/*; \
+echo "${TZ}" > /etc/timezone; \
+addgroup -S govpay ; \
+adduser -S -G govpay govpay; \
+mkdir -p ${GOVPAY_PENDENZE_API_HOME} ${GOVPAY_PENDENZE_API_LOGDIR} /opt/jdbc-drivers; \
+chown -R govpay:govpay ${GOVPAY_PENDENZE_API_HOME} ${GOVPAY_PENDENZE_API_LOGDIR}
+
+WORKDIR ${GOVPAY_PENDENZE_API_HOME}
+
+# Download del jar dalla release GitHub, con verifica del certificato e del
+# checksum: senza checksum l'immagine conterrebbe qualunque file venisse
+# servito a quell'indirizzo. curl serve solo qui: installato e rimosso nello
+# stesso passo, non resta nell'immagine.
+RUN set -eux; \
+apk add --no-cache --virtual .download curl; \
+test -n "${govpay_pendenze_api_sha256}" || { echo "Manca il build-arg govpay_pendenze_api_sha256 (sha256 del jar della release)"; exit 1; }; \
+curl -fL -sS -o /opt/govpay-pendenze-api/govpay-pendenze-api.jar "https://github.com/link-it/govpay-pendenze-api/releases/download/${GOVPAY_PENDENZE_API_FULLVERSION}/govpay-pendenze-api-${GOVPAY_PENDENZE_API_FULLVERSION}.jar"; \
+echo "${govpay_pendenze_api_sha256}  /opt/govpay-pendenze-api/govpay-pendenze-api.jar" | sha256sum -c -; \
+apk del .download
+
+
+# Copy entrypoint and initialization scripts
+COPY commons/entrypoint.sh /usr/local/bin/
+RUN chown -R govpay:0 /usr/local/bin/entrypoint.sh ${GOVPAY_PENDENZE_API_HOME} ${GOVPAY_PENDENZE_API_LOGDIR} \
+&& chmod -Rf g+rwX ${GOVPAY_PENDENZE_API_HOME} ${GOVPAY_PENDENZE_API_LOGDIR} \
+&& chmod ug=rx /usr/local/bin/entrypoint.sh
+
+
+
+USER govpay
+
+ENV LOGGING_FILE_NAME=${GOVPAY_PENDENZE_API_LOGDIR}/govpay-pendenze-api.log
+
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD []
