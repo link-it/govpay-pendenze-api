@@ -270,7 +270,133 @@ L'API v3 risponde su `http://localhost:8080/v3/...`, la v2 su `http://localhost:
 
 ### War su application server
 
-Il war usa il datasource dell'application server, indicato con `spring.datasource.jndi-name` (es. `java:comp/env/it.govpay.datasource`); il driver JDBC va installato nell'application server. Il war si produce con `mvn clean install -P war` in `target/govpay-pendenze-api.war`; non è ancora pubblicato come artefatto di release.
+Il war usa il datasource dell'application server, indicato con `spring.datasource.jndi-name` (es. `java:comp/env/it.govpay.datasource`); il driver JDBC va installato nell'application server. Dove si trova il war:
+
+| Origine | Dove |
+|---------|------|
+| Release (tag) | Allegato alla [release GitHub](https://github.com/link-it/govpay-pendenze-api/releases) come `govpay-pendenze-api-<tag>.war` |
+| Qualsiasi build | Artifact `govpay-pendenze-api` della run di GitHub Actions (retention 90 giorni) |
+| Build locale | `mvn clean install -P war`, in `target/govpay-pendenze-api.war` |
+
+## Esecuzione con Docker
+
+L'immagine è pubblicata su Docker Hub come [linkitaly/govpay-pendenze-api](https://hub.docker.com/r/linkitaly/govpay-pendenze-api) (release) e `linkitaly/govpay-pendenze-api-dev` (sviluppo, a ogni push su `main` con versione SNAPSHOT). Nel container il servizio risponde sulla porta `10005`, gli endpoint actuator sulla `9090`.
+
+I driver JDBC non sono nell'immagine: si montano in `/opt/jdbc-drivers` (directory indicata da `GOVPAY_DS_JDBC_LIBS`), da cui l'entrypoint li carica con `loader.path`; per i download vedi [docker/jdbc-drivers/README.md](docker/jdbc-drivers/README.md). L'entrypoint costruisce URL JDBC, driver e dialetto dalle variabili `GOVPAY_DB_*`:
+
+```bash
+docker run -d --name govpay-pendenze-api -p 10005:10005 -p 9090:9090 \
+  -v ./jdbc-drivers:/opt/jdbc-drivers:ro \
+  -e GOVPAY_DB_TYPE=postgresql \
+  -e GOVPAY_DB_SERVER=postgres:5432 \
+  -e GOVPAY_DB_NAME=govpay \
+  -e GOVPAY_DB_USER=govpay \
+  -e GOVPAY_DB_PASSWORD=<password> \
+  -e STAMPE_BASE_URL=<url-govpay-stampe-api> \
+  linkitaly/govpay-pendenze-api
+```
+
+L'API v3 risponde su `http://localhost:10005/v3/...`, la v2 su `http://localhost:10005/v2/...`. In alternativa alle `GOVPAY_DB_*` si possono passare direttamente `DATASOURCE_URL`, `DATASOURCE_USERNAME`, `DATASOURCE_PASSWORD`, `DATASOURCE_DRIVER` e `JPA_DIALECT`.
+
+Variabili d'ambiente dell'immagine, lette dall'entrypoint:
+
+| Variabile | Obbligatoria | Default | Descrizione |
+|-----------|--------------|---------|-------------|
+| `GOVPAY_DB_TYPE` | sì (se manca `DATASOURCE_URL`) | - | Tipo di database: `postgresql`, `mysql`, `mariadb`, `oracle`, `sqlserver` |
+| `GOVPAY_DB_SERVER` | sì (se manca `DATASOURCE_URL`) | - | Server del database, `host` o `host:porta` (porta di default del database se omessa) |
+| `GOVPAY_DB_NAME` | sì (se manca `DATASOURCE_URL`) | - | Nome del database (per Oracle, service name o SID) |
+| `GOVPAY_DB_USER` | sì (se manca `DATASOURCE_URL`) | - | Utente del database |
+| `GOVPAY_DB_PASSWORD` | sì (se manca `DATASOURCE_URL`) | - | Password del database |
+| `GOVPAY_DS_CONN_PARAM` | no | - | Parametri aggiunti all'URL JDBC (es. `zeroDateTimeBehavior=convertToNull` per MySQL) |
+| `GOVPAY_DS_JDBC_LIBS` | no | `/opt/jdbc-drivers` | Directory dei driver JDBC |
+| `GOVPAY_ORACLE_JDBC_URL_TYPE` | no | `servicename` | Formato dell'URL Oracle: `servicename` o `sid` |
+| `ORACLE_TNS_ADMIN` | no | - | Directory dei file TNS di Oracle |
+| `GOVPAY_PENDENZE_API_MIN_POOL` | no | `2` | Connessioni minime inattive del pool |
+| `GOVPAY_PENDENZE_API_MAX_POOL` | no | `5` | Connessioni massime del pool |
+| `SERVER_PORT` | no | `10005` | Porta HTTP del servizio |
+| `MANAGEMENT_SERVER_PORT` | no | `9090` | Porta degli endpoint actuator |
+| `GOVPAY_PENDENZE_API_JVM_MAX_RAM_PERCENTAGE` | no | `80` | `-XX:MaxRAMPercentage` della JVM |
+| `GOVPAY_PENDENZE_API_JVM_INITIAL_RAM_PERCENTAGE` | no | - | `-XX:InitialRAMPercentage` della JVM |
+| `GOVPAY_PENDENZE_API_JVM_MIN_RAM_PERCENTAGE` | no | - | `-XX:MinRAMPercentage` della JVM |
+| `GOVPAY_PENDENZE_API_JVM_MAX_METASPACE_SIZE` | no | - | `-XX:MaxMetaspaceSize` della JVM |
+| `GOVPAY_PENDENZE_API_JVM_MAX_DIRECT_MEMORY_SIZE` | no | - | `-XX:MaxDirectMemorySize` della JVM |
+| `JAVA_OPTS` | no | - | Opzioni aggiuntive della JVM |
+| `LOGGING_FILE_NAME` | no | `/var/log/govpay-pendenze-api/govpay-pendenze-api.log` | File di log |
+| `TZ` | no | `Europe/Rome` | Fuso orario del container |
+
+Variabili lette da `application.properties`, oltre alle proprietà Spring Boot in forma di variabile (es. `LOGGING_LEVEL_IT_GOVPAY=DEBUG`):
+
+| Variabile | Obbligatoria | Default | Descrizione |
+|-----------|--------------|---------|-------------|
+| `DATASOURCE_URL` | sì (se mancano le `GOVPAY_DB_*`) | - | URL JDBC del database di GovPay |
+| `DATASOURCE_USERNAME` | sì (se mancano le `GOVPAY_DB_*`) | - | Utente del database |
+| `DATASOURCE_PASSWORD` | sì (se mancano le `GOVPAY_DB_*`) | - | Password del database |
+| `DATASOURCE_DRIVER` | no | `org.postgresql.Driver` | Classe del driver JDBC |
+| `JPA_DIALECT` | no | `org.hibernate.dialect.PostgreSQLDialect` | Dialetto Hibernate |
+| `HIBERNATE_DDL_AUTO` | no | `validate` | Verifica dello schema all'avvio |
+| `PENDENZE_API_V3_BASE_PATH` | no | `/v3` | Base path dell'API v3 |
+| `PENDENZE_API_V2_BASE_PATH` | no | `/v2` | Base path dell'API v2 |
+| `PENDENZE_V2_CONVERSIONE_PAGOPA_V1_ENABLE` | no | `false` | RPT e RT nel formato v1 per i client v2 |
+| `PENDENZE_V2_GIORNI_VALIDITA_PENDENZA_SENZA_DATA` | no | - | Giorni di validità per le RPT ricostruite senza scadenza |
+| `STAMPE_BASE_URL` | no | vuoto | URL base di govpay-stampe-api |
+| `STAMPE_CONNECT_TIMEOUT_MS` | no | `5000` | Timeout di connessione verso govpay-stampe-api, in ms |
+| `STAMPE_READ_TIMEOUT_MS` | no | `30000` | Timeout di lettura da govpay-stampe-api, in ms |
+| `LOG_LEVEL_REFRESH_INTERVAL` | no | `60s` | Intervallo di rilettura dei livelli di log dal database |
+
+Costruzione dell'immagine in locale (`docker/build_image.sh`, con `-l target/govpay-pendenze-api.jar` per usare il jar appena compilato) e scansione delle vulnerabilità sono descritte in [docker/SCANSIONE.md](docker/SCANSIONE.md).
+
+## Monitoraggio
+
+| Proprietà | Variabile | Default | Descrizione |
+|-----------|-----------|---------|-------------|
+| `management.server.port` | `MANAGEMENT_SERVER_PORT` | `9090` | Porta dedicata agli endpoint actuator; sulla porta del servizio non sono esposti |
+| `management.endpoints.web.exposure.include` | - | `health,prometheus` | Endpoint actuator esposti |
+| `management.metrics.distribution.percentiles-histogram.http.server.requests` | - | `true` | Istogrammi delle latenze delle richieste ricevute |
+| `management.metrics.distribution.percentiles-histogram.http.client.requests` | - | `true` | Istogrammi delle latenze delle chiamate verso stampe e GDE |
+| `management.metrics.distribution.slo.http.server.requests` | - | `100ms,500ms,1s,2s,5s` | Soglie esplicite di latenza, compresa quella SLA pagoPA di 2s |
+| `management.metrics.tags.application` | - | `govpay-pendenze-api` | Tag che identifica il servizio nelle metriche |
+| `govpay.metrics.enabled` | - | `false` | Metriche custom di govpay-common (chiamate interne ed esterne) |
+
+## Esecuzione
+
+### Driver JDBC
+
+I driver JDBC **non sono inclusi** nel fat jar e vanno forniti a runtime. Creare una directory (es. `jdbc-drivers/`) e copiarvi il driver del database utilizzato:
+
+| Database   | Driver |
+|------------|--------|
+| PostgreSQL | [postgresql-42.7.14.jar](https://repo1.maven.org/maven2/org/postgresql/postgresql/42.7.14/postgresql-42.7.14.jar) |
+| MySQL      | [mysql-connector-j-26.10.0.jar](https://repo1.maven.org/maven2/com/mysql/mysql-connector-j/26.10.0/mysql-connector-j-26.10.0.jar) |
+| Oracle     | [ojdbc11-23.26.3.0.0.jar](https://repo1.maven.org/maven2/com/oracle/database/jdbc/ojdbc11/23.26.3.0.0/ojdbc11-23.26.3.0.0.jar) |
+| SQL Server | [mssql-jdbc-13.6.1.jre11.jar](https://repo1.maven.org/maven2/com/microsoft/sqlserver/mssql-jdbc/13.6.1.jre11/mssql-jdbc-13.6.1.jre11.jar) |
+| H2         | [h2-2.5.252.jar](https://repo1.maven.org/maven2/com/h2database/h2/2.5.252/h2-2.5.252.jar) |
+
+### Jar standalone
+
+Il jar usa `PropertiesLauncher`: la proprietà `loader.path` indica la directory dei driver JDBC. Configurazione minima per PostgreSQL:
+
+```bash
+java -Dloader.path=./jdbc-drivers \
+     -Dserver.port=8080 \
+     -Dmanagement.server.port=9090 \
+     -Dspring.datasource.url=jdbc:postgresql://localhost:5432/govpay \
+     -Dspring.datasource.username=govpay \
+     -Dspring.datasource.password=<password> \
+     -Dapp.stampe.base-url=<url-govpay-stampe-api> \
+     -jar target/govpay-pendenze-api.jar
+```
+
+L'API v3 risponde su `http://localhost:8080/v3/...`, la v2 su `http://localhost:8080/v2/...`. Per un altro database impostare anche `spring.datasource.driver-class-name` e `spring.jpa.database-platform`.
+
+### War su application server
+
+Il war usa il datasource dell'application server, indicato con `spring.datasource.jndi-name` (es. `java:comp/env/it.govpay.datasource`); il driver JDBC va installato nell'application server. Dove si trova il war:
+
+| Origine | Dove |
+|---------|------|
+| Release (tag) | Allegato alla [release GitHub](https://github.com/link-it/govpay-pendenze-api/releases) come `govpay-pendenze-api-<tag>.war` |
+| Qualsiasi build | Artifact `govpay-pendenze-api` della run di GitHub Actions (retention 90 giorni) |
+| Build locale | `mvn clean install -P war`, in `target/govpay-pendenze-api.war` |
 
 ## Esecuzione con Docker
 
@@ -318,6 +444,18 @@ curl http://localhost:9090/actuator/prometheus   # metriche in formato Prometheu
 ```
 
 `health` restituisce solo lo stato (`UP`/`DOWN`), senza dettagli; la porta di management va tenuta su una rete interna. L'endpoint actuator `loggers` non è esposto, perché non applicherebbe le ACL: per cambiare i livelli su tutti i nodi si usa la riga `log_level` della tabella `configurazione` (o la console di GovPay); gli endpoint `/admin/logging` sulla porta del servizio agiscono sul singolo nodo e richiedono le ACL di `Configurazione e manutenzione`.
+
+## Pipeline CI
+
+La pipeline GitHub Actions (`.github/workflows/maven.yml`) esegue:
+
+- build di war e jar, test, report di copertura JaCoCo e analisi OWASP Dependency-Check;
+- analisi SonarCloud e verifica delle licenze delle dipendenze di terze parti;
+- scansione OSV e generazione dell'SBOM CycloneDX, con upload su Dependency-Track;
+- costruzione e scansione dell'immagine Docker; su push su `main` con versione SNAPSHOT, pubblicazione dell'immagine di sviluppo;
+- su tag, creazione della release GitHub (war, jar e report) e pubblicazione dell'immagine Docker.
+
+Il tag deve coincidere con la versione del `pom.xml`, che non deve essere una SNAPSHOT. Il workflow `.github/workflows/refresh-owasp-db.yml` aggiorna ogni notte la cache del database NVD usata da OWASP Dependency-Check.
 
 ## Licenza
 
