@@ -601,11 +601,19 @@ public class NuovaPendenzaMapper {
         String tipoBollo = null;
         String hashDocumento = null;
         String provinciaResidenza = null;
+        String tassonomia = null;
 
         if (v.getTipoBollo() != null && v.getHashDocumento() != null && v.getProvinciaResidenza() != null) {
             tipoBollo = v.getTipoBollo().getValue();
             hashDocumento = v.getHashDocumento();
             provinciaResidenza = v.getProvinciaResidenza();
+            // Una voce di tipo BOLLO e' classificata solo dalla tassonomia
+            // (tipoContabilita/codiceContabilita), che govpay-common-pendenze valida gia' in
+            // creazione: va passata nel comando, applicaCampiLegacy arriverebbe troppo tardi.
+            if (v.getTipoContabilita() != null && v.getCodiceContabilita() != null) {
+                tassonomia = TipoContabilita.valueOf(v.getTipoContabilita().name()).getCodifica() + "/"
+                        + v.getCodiceContabilita();
+            }
         } else if (v.getCodEntrata() != null) {
             idTributo = risolviIdTributo(v.getCodEntrata(), idDominioEffettivo);
         } else if (v.getIbanAccredito() != null && v.getTipoContabilita() != null
@@ -619,7 +627,7 @@ public class NuovaPendenzaMapper {
         }
 
         return new DatiVocePendenza(v.getIdVocePendenza(), v.getImporto(), v.getDescrizione(), idDominioEffettivo,
-                idTributo, idIbanAccredito, idIbanAppoggio, null, tipoBollo, hashDocumento, provinciaResidenza,
+                idTributo, idIbanAccredito, idIbanAppoggio, tassonomia, tipoBollo, hashDocumento, provinciaResidenza,
                 List.of());
     }
 

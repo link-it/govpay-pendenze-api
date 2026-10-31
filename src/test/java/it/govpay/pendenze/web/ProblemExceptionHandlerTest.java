@@ -5,6 +5,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import java.util.List;
+import java.util.Set;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -16,6 +17,9 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.HttpMediaTypeNotAcceptableException;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
+import org.springframework.web.bind.ServletRequestBindingException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.servlet.NoHandlerFoundException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
@@ -111,5 +115,51 @@ class ProblemExceptionHandlerTest {
 
         assertThat(risposta.getStatusCode()).isEqualTo(HttpStatus.NOT_ACCEPTABLE);
         assertThat(risposta.getBody().getStatus()).isEqualTo(406);
+    }
+
+    @Test
+    @DisplayName("metodo HTTP non ammesso diventa 405, non 500, con header Allow")
+    void metodoNonAmmessoDiventa405() {
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        when(request.getMethod()).thenReturn("GET");
+        when(request.getRequestURI()).thenReturn("/pendenze/A2A-TEST/pend-1/stampa");
+
+        ResponseEntity<Problem> risposta = handler.handleMethodNotSupported(
+                new HttpRequestMethodNotSupportedException("GET", Set.of("POST")), request);
+
+        assertThat(risposta.getStatusCode()).isEqualTo(HttpStatus.METHOD_NOT_ALLOWED);
+        assertThat(risposta.getBody().getStatus()).isEqualTo(405);
+        assertThat(risposta.getHeaders().getAllow()).containsExactly(HttpMethod.POST);
+        assertThat(risposta.getBody().getDetail()).contains("GET").contains("POST");
+    }
+
+    @Test
+    @DisplayName("un errore del client di Spring MVC senza gestore dedicato mantiene il suo 4xx, non 500")
+    void erroreClientSpringMvcMantieneLoStatus() {
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        when(request.getMethod()).thenReturn("GET");
+        when(request.getRequestURI()).thenReturn("/pendenze/A2A-TEST");
+
+        ResponseEntity<Problem> header = handler.handleGeneric(
+                new ServletRequestBindingException("Header obbligatorio mancante: X-Test"), request);
+        assertThat(header.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(header.getBody().getStatus()).isEqualTo(400);
+
+        ResponseEntity<Problem> upload = handler.handleGeneric(new MaxUploadSizeExceededException(1024), request);
+        assertThat(upload.getStatusCode().value()).isEqualTo(413);
+    }
+
+    @Test
+    @DisplayName("un'eccezione applicativa non prevista resta 500, senza dettagli interni")
+    void eccezioneNonPrevistaResta500() {
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        when(request.getMethod()).thenReturn("GET");
+        when(request.getRequestURI()).thenReturn("/pendenze/A2A-TEST");
+
+        ResponseEntity<Problem> risposta = handler.handleGeneric(new IllegalStateException("dettaglio interno"),
+                request);
+
+        assertThat(risposta.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
+        assertThat(risposta.getBody().getDetail()).doesNotContain("dettaglio interno");
     }
 }

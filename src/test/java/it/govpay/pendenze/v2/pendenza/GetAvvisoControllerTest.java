@@ -401,7 +401,7 @@ class GetAvvisoControllerTest {
                   "documento": { "identificativo": "DOC-AVV-MBT", "descrizione": "test" },
                   "voci": [ { "idVocePendenza": "voce-mbt", "importo": 16.00, "descrizione": "test",
                               "tipoBollo": "01", "hashDocumento": "aGFzaA==", "provinciaResidenza": "RM",
-                              "tassonomia": "9/0101002IM/" } ]
+                              "tipoContabilita": "ALTRO", "codiceContabilita": "0101002IM" } ]
                 }
                 """.formatted(ID_DOMINIO);
         mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-avv-mbt")
