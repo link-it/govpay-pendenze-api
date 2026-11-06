@@ -51,16 +51,14 @@ public class RendicontazioneMapper {
         Rendicontazione dto = new Rendicontazione();
         dto.setIuv(entity.getIuv());
         dto.setIur(entity.getIur());
-        if (entity.getIndiceDati() != null) {
-            dto.setIndice(BigDecimal.valueOf(entity.getIndiceDati()));
-        }
+        dto.setIndice(entity.getIndiceDati());
         dto.setImporto(BigDecimal.valueOf(entity.getImportoPagato()));
         if (entity.getEsito() == null) {
             throw new RendicontazioneNonLeggibileException(
                     "La rendicontazione [iuv:" + entity.getIuv() + ", iur:" + entity.getIur()
                             + "] ha esito nullo: pagoPA ha inviato un codice esito non riconosciuto.");
         }
-        dto.setEsito(Rendicontazione.EsitoEnum.fromValue(BigDecimal.valueOf(entity.getEsito())));
+        dto.setEsito(Rendicontazione.EsitoEnum.fromValue(entity.getEsito()));
         dto.setData(entity.getData().toLocalDate());
         dto.setStato(StatoRendicontazione.fromValue(entity.getStato().name()));
         dto.setFlusso(toFlussoRendicontazioneDto(entity.getFlusso()));
@@ -76,9 +74,7 @@ public class RendicontazioneMapper {
         dto.setDataRegolamento(entity.getDataRegolamento());
         dto.setIdPsp(entity.getCodPsp());
         dto.setBicRiversamento(entity.getBicRiversamento());
-        if (entity.getNumeroPagamenti() != null) {
-            dto.setNumeroPagamenti(BigDecimal.valueOf(entity.getNumeroPagamenti()));
-        }
+        dto.setNumeroPagamenti(entity.getNumeroPagamenti());
         dto.setImportoTotale(entity.getImportoTotale());
         dto.setStato(StatoFlussoRendicontazione.fromValue(entity.getStato().name()));
         return dto;

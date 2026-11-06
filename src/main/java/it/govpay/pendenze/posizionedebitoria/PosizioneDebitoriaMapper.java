@@ -1317,7 +1317,7 @@ public class PosizioneDebitoriaMapper {
             dto.setIdVocePendenza(entity.getIdVocePendenza());
             dto.setImporto(BigDecimal.valueOf(entity.getImporto()));
             dto.setDescrizione(entity.getDescrizione());
-            dto.setIndice(BigDecimal.valueOf(entity.getIndice()));
+            dto.setIndice(entity.getIndice());
             dto.setStato(stato);
             dto.setIdDominio(idDominio);
             dto.setCodEntrata(risolviCodEntrata(entity.getIdTributo()));
@@ -1329,7 +1329,7 @@ public class PosizioneDebitoriaMapper {
             dto.setIdVocePendenza(entity.getIdVocePendenza());
             dto.setImporto(BigDecimal.valueOf(entity.getImporto()));
             dto.setDescrizione(entity.getDescrizione());
-            dto.setIndice(BigDecimal.valueOf(entity.getIndice()));
+            dto.setIndice(entity.getIndice());
             dto.setStato(stato);
             dto.setIdDominio(idDominio);
             dto.setIbanAccredito(risolviCodIban(entity.getIdIbanAccredito()));
@@ -1343,7 +1343,7 @@ public class PosizioneDebitoriaMapper {
             dto.setIdVocePendenza(entity.getIdVocePendenza());
             dto.setImporto(BigDecimal.valueOf(entity.getImporto()));
             dto.setDescrizione(entity.getDescrizione());
-            dto.setIndice(BigDecimal.valueOf(entity.getIndice()));
+            dto.setIndice(entity.getIndice());
             dto.setStato(stato);
             dto.setIdDominio(idDominio);
             dto.setTipoBollo(VocePendenzaBollo.TipoBolloEnum.fromValue(entity.getTipoBollo()));

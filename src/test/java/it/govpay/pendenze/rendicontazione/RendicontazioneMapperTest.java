@@ -51,7 +51,7 @@ class RendicontazioneMapperTest {
 
         assertThat(dto.getIuv()).isEqualTo("01000000202012345");
         assertThat(dto.getIur()).isEqualTo("1234acdc");
-        assertThat(dto.getIndice()).isEqualTo(BigDecimal.valueOf(1));
+        assertThat(dto.getIndice()).isEqualTo(1);
         assertThat(dto.getImporto()).isEqualTo(BigDecimal.valueOf(10.01));
         assertThat(dto.getEsito()).isEqualTo(Rendicontazione.EsitoEnum.NUMBER_0);
         assertThat(dto.getData()).isEqualTo(LocalDate.of(2026, 10, 3));
@@ -104,7 +104,7 @@ class RendicontazioneMapperTest {
                 .isEqualTo(OffsetDateTime.parse("2026-10-03T10:27:27.903+02:00"));
         assertThat(dto.getFlusso().getIdPsp()).isEqualTo("ABI-12345");
         assertThat(dto.getFlusso().getBicRiversamento()).isEqualTo("BIC-12345");
-        assertThat(dto.getFlusso().getNumeroPagamenti()).isEqualTo(BigDecimal.valueOf(3));
+        assertThat(dto.getFlusso().getNumeroPagamenti()).isEqualTo(3L);
         assertThat(dto.getFlusso().getImportoTotale()).isEqualTo(100.01);
         assertThat(dto.getFlusso().getStato()).isEqualTo(StatoFlussoRendicontazione.ACCETTATA);
     }

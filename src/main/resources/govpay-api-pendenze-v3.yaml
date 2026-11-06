@@ -20,6 +20,15 @@ info:
     scopi, nei payload inviati. Coerentemente, gli schemi di questa
     specifica non vincolano l'insieme di proprietà accettate/restituite a
     quello esplicitamente documentato.
+
+    Correlazione delle richieste: il client può inviare in ogni richiesta
+    l'header `X-Correlation-ID` (in alternativa `X-Request-ID`), con un
+    valore di al massimo 128 caratteri tra lettere, cifre e `.`, `_`, `:`,
+    `-`. Il servizio lo registra nei propri log e lo restituisce
+    nell'header di risposta `X-Correlation-ID`; se è assente o non valido
+    ne genera uno nuovo. Ogni risposta riporta inoltre in
+    `X-Transaction-ID` l'identificativo della transazione assegnato dal
+    servizio.
   contact:
     name: GitHub Project Page
     url: 'https://github.com/link-it/GovPay/'
@@ -27,7 +36,10 @@ info:
     name: GPL
     url: 'https://github.com/link-it/GovPay/blob/master/LICENSE'
 servers:
-  - url: /govpay/backend/api/pendenze/rs/basic/v3/
+  - url: /v3
+    description: Base path predefinito del servizio
+  - url: /govpay/backend/api/pendenze/rs/basic/v3
+    description: Base path compatibile con il monolite GovPay, da configurare
 tags:
   - name: PosizioniDebitorie
     description: Alimentazione e consultazione delle posizioni debitorie
@@ -68,6 +80,13 @@ paths:
       responses:
         '200':
           description: Elenco delle posizioni debitorie che rispettano i filtri di ricerca
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
           content:
             application/json:
               schema:
@@ -238,6 +257,12 @@ paths:
             contenuto di una GET sulla risorsa appena creata (comprese le
             opzioni di pagamento e le pendenze generate).
           headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
             Location:
               description: URL della posizione debitoria creata (`/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}`)
               schema:
@@ -256,6 +281,13 @@ paths:
           $ref: '#/components/responses/404NotFound'
         '409':
           description: Esiste già una posizione debitoria con questo codDocumento per questo idA2A e questo idDominio
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
           content:
             application/problem+json:
               schema:
@@ -265,6 +297,8 @@ paths:
                   value:
                     status: 409
                     title: Esiste già una posizione debitoria con questo codDocumento per questo idA2A e questo idDominio
+        '415':
+          $ref: '#/components/responses/415UnsupportedMediaType'
         '500':
           $ref: '#/components/responses/500ServiceUnavailable'
 
@@ -298,10 +332,19 @@ paths:
       responses:
         '200':
           description: Informazioni dettagliate della posizione debitoria
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/PosizioneDebitoria'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
         '401':
           $ref: '#/components/responses/401NotAuthenticated'
         '403':
@@ -353,6 +396,13 @@ paths:
       responses:
         '200':
           description: Posizione debitoria aggiornata con successo
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
         '400':
           $ref: '#/components/responses/400BadRequest'
         '401':
@@ -361,6 +411,16 @@ paths:
           $ref: '#/components/responses/403NotAuthorized'
         '404':
           $ref: '#/components/responses/404NotFound'
+        '409':
+          description: >-
+            La posizione debitoria è stata modificata concorrentemente da
+            un'altra richiesta: rileggerla e riprovare.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '415':
+          $ref: '#/components/responses/415UnsupportedMediaType'
         '500':
           $ref: '#/components/responses/500ServiceUnavailable'
 
@@ -403,11 +463,20 @@ paths:
       responses:
         '200':
           description: Avviso di pagamento in formato PDF
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
           content:
             application/pdf:
               schema:
                 type: string
                 format: binary
+        '400':
+          $ref: '#/components/responses/400BadRequest'
         '401':
           $ref: '#/components/responses/401NotAuthenticated'
         '403':
@@ -416,6 +485,13 @@ paths:
           $ref: '#/components/responses/404NotFound'
         '406':
           description: 'Header `Accept` non compatibile con `application/pdf`'
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
           content:
             application/problem+json:
               schema:
@@ -425,6 +501,13 @@ paths:
             L'avviso PDF non è generabile per questa posizione debitoria
             (nessuna opzione di pagamento con rate ancora pagabili, Marca
             da Bollo Telematica, o debitore senza anagrafica)
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
           content:
             application/problem+json:
               schema:
@@ -433,6 +516,13 @@ paths:
           $ref: '#/components/responses/500ServiceUnavailable'
         '502':
           description: 'Errore di comunicazione con il microservizio `govpay-stampe`'
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
           content:
             application/problem+json:
               schema:
@@ -441,6 +531,13 @@ paths:
           description: >-
             Microservizio `govpay-stampe` non configurato
             (`app.stampe.base-url` mancante)
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
           content:
             application/problem+json:
               schema:
@@ -481,6 +578,13 @@ paths:
       responses:
         '201':
           description: Opzione di pagamento creata
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
           content:
             application/json:
               schema:
@@ -500,6 +604,13 @@ paths:
             alternative. Oppure una pendenza della nuova opzione ha un
             idPendenza già usato da un'altra pendenza della stessa
             applicazione.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
           content:
             application/problem+json:
               schema:
@@ -519,6 +630,8 @@ paths:
                     title: >-
                       Una pendenza della nuova opzione ha un idPendenza già
                       usato da un'altra pendenza della stessa applicazione
+        '415':
+          $ref: '#/components/responses/415UnsupportedMediaType'
         '500':
           $ref: '#/components/responses/500ServiceUnavailable'
 
@@ -574,6 +687,13 @@ paths:
       responses:
         '200':
           description: Opzione di pagamento aggiornata con successo
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
         '400':
           $ref: '#/components/responses/400BadRequest'
         '401':
@@ -586,6 +706,13 @@ paths:
           description: >-
             L'opzione di pagamento è già ATTIVATA da un pagamento e non può
             essere annullata né ripristinata
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
           content:
             application/problem+json:
               schema:
@@ -605,6 +732,8 @@ paths:
                     title: >-
                       L'opzione di pagamento è già ATTIVATA da un pagamento
                       e non può essere ripristinata
+        '415':
+          $ref: '#/components/responses/415UnsupportedMediaType'
         '500':
           $ref: '#/components/responses/500ServiceUnavailable'
 
@@ -654,6 +783,13 @@ paths:
       responses:
         '201':
           description: Pendenza creata
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
           content:
             application/json:
               schema:
@@ -671,6 +807,13 @@ paths:
             L'opzione di pagamento non è DISPONIBILE, oppure la nuova
             pendenza ha un idPendenza già usato da un'altra pendenza della
             stessa applicazione
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
           content:
             application/problem+json:
               schema:
@@ -691,6 +834,8 @@ paths:
                     title: >-
                       la nuova pendenza ha un idPendenza già usato da
                       un'altra pendenza della stessa applicazione
+        '415':
+          $ref: '#/components/responses/415UnsupportedMediaType'
         '500':
           $ref: '#/components/responses/500ServiceUnavailable'
 
@@ -727,10 +872,19 @@ paths:
       responses:
         '200':
           description: Elenco delle pendenze che rispettano i filtri di ricerca
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Pendenze'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
         '401':
           $ref: '#/components/responses/401NotAuthenticated'
         '403':
@@ -792,6 +946,13 @@ paths:
       responses:
         '200':
           description: Pendenza aggiornata con successo
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
         '400':
           $ref: '#/components/responses/400BadRequest'
         '401':
@@ -806,6 +967,13 @@ paths:
             (deve essere NON_ESEGUITO o ANNULLATO), oppure la richiesta
             cambia `numeroAvviso` già assegnato o il tributo/IBAN di
             accredito di riferimento di una voce esistente
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
           content:
             application/problem+json:
               schema:
@@ -833,6 +1001,8 @@ paths:
                       la voce [idVocePendenza] non può cambiare il
                       riferimento (tributo/IBAN di accredito) rispetto
                       all'originale
+        '415':
+          $ref: '#/components/responses/415UnsupportedMediaType'
         '500':
           $ref: '#/components/responses/500ServiceUnavailable'
     get:
@@ -862,10 +1032,19 @@ paths:
       responses:
         '200':
           description: Informazioni dettagliate della pendenza
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Pendenza'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
         '401':
           $ref: '#/components/responses/401NotAuthenticated'
         '403':
@@ -915,6 +1094,13 @@ paths:
       responses:
         '200':
           description: Avviso di pagamento in formato PDF
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
           content:
             application/pdf:
               schema:
@@ -924,6 +1110,13 @@ paths:
           description: >-
             Bilinguismo richiesto (`linguaSecondaria`) senza
             `causaleTradotta` nel corpo della richiesta
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
           content:
             application/problem+json:
               schema:
@@ -936,14 +1129,30 @@ paths:
           $ref: '#/components/responses/404NotFound'
         '406':
           description: 'Header `Accept` non compatibile con `application/pdf`'
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/Problem'
+        '415':
+          $ref: '#/components/responses/415UnsupportedMediaType'
         '422':
           description: >-
             L'avviso PDF non è generabile per questa pendenza (Marca da
             Bollo Telematica, o debitore senza anagrafica)
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
           content:
             application/problem+json:
               schema:
@@ -952,6 +1161,13 @@ paths:
           $ref: '#/components/responses/500ServiceUnavailable'
         '502':
           description: 'Errore di comunicazione con il microservizio `govpay-stampe`'
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
           content:
             application/problem+json:
               schema:
@@ -960,6 +1176,13 @@ paths:
           description: >-
             Microservizio `govpay-stampe` non configurato
             (`app.stampe.base-url` mancante)
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
           content:
             application/problem+json:
               schema:
@@ -999,10 +1222,19 @@ paths:
       responses:
         '200':
           description: Elenco delle ricevute di pagamento della pendenza
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Ricevute'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
         '401':
           $ref: '#/components/responses/401NotAuthenticated'
         '403':
@@ -1048,6 +1280,13 @@ paths:
       responses:
         '200':
           description: Ricevuta di pagamento
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
           content:
             application/json:
               schema:
@@ -1091,6 +1330,8 @@ paths:
                         transferCategory: '9/0101002IM/'
                     paymentNote: Pagamento effettuato tramite AppIO
                     standIn: false
+        '400':
+          $ref: '#/components/responses/400BadRequest'
         '401':
           $ref: '#/components/responses/401NotAuthenticated'
         '403':
@@ -1133,11 +1374,20 @@ paths:
       responses:
         '200':
           description: Ricevuta di pagamento in formato PDF
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
           content:
             application/pdf:
               schema:
                 type: string
                 format: binary
+        '400':
+          $ref: '#/components/responses/400BadRequest'
         '401':
           $ref: '#/components/responses/401NotAuthenticated'
         '403':
@@ -1146,6 +1396,13 @@ paths:
           $ref: '#/components/responses/404NotFound'
         '406':
           description: 'Header `Accept` non compatibile con `application/pdf`'
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
           content:
             application/problem+json:
               schema:
@@ -1154,6 +1411,13 @@ paths:
           $ref: '#/components/responses/500ServiceUnavailable'
         '502':
           description: 'Errore di comunicazione con il microservizio `govpay-stampe`'
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
           content:
             application/problem+json:
               schema:
@@ -1162,6 +1426,13 @@ paths:
           description: >-
             Microservizio `govpay-stampe` non configurato
             (`app.stampe.base-url` mancante)
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
           content:
             application/problem+json:
               schema:
@@ -1202,10 +1473,19 @@ paths:
       responses:
         '200':
           description: Elenco delle rendicontazioni della pendenza
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Rendicontazioni'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
         '401':
           $ref: '#/components/responses/401NotAuthenticated'
         '403':
@@ -1277,6 +1557,7 @@ components:
       required: false
       schema:
         type: integer
+        format: int32
         minimum: 1
         default: 1
       example: 1
@@ -1327,9 +1608,44 @@ components:
       schema:
         type: string
       example: 'dataCreazione:desc'
+  headers:
+    CacheControl:
+      description: >-
+        Il caching delle risposte è disabilitato: il servizio restituisce
+        sempre `no-cache, no-store, max-age=0, must-revalidate`.
+      schema:
+        type: string
+      example: 'no-cache, no-store, max-age=0, must-revalidate'
+    CorrelationId:
+      description: >-
+        Identificativo di correlazione della richiesta, utile per
+        ricondurre la chiamata ai log del servizio. È il valore ricevuto
+        nell'header di richiesta `X-Correlation-ID` (o `X-Request-ID`) se
+        presente e valido, altrimenti è generato dal servizio. Lo stesso
+        valore è restituito anche nell'header `X-Request-ID`.
+      schema:
+        type: string
+        maxLength: 128
+      example: 'b5a1c3e2-7f4d-4c1a-9e8b-2d6f0a9c1e34'
+    TransactionId:
+      description: >-
+        Identificativo univoco della transazione, generato dal servizio a
+        ogni richiesta e mai accettato dal client. Lo stesso valore è
+        restituito anche nell'header `X-Govpay-IdTransazione`.
+      schema:
+        type: string
+      example: '0f2c9d7e-3a41-4b8e-9c55-61e2b7a0d913'
+
   responses:
     400BadRequest:
       description: Richiesta non valida
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControl'
+        X-Correlation-ID:
+          $ref: '#/components/headers/CorrelationId'
+        X-Transaction-ID:
+          $ref: '#/components/headers/TransactionId'
       content:
         application/problem+json:
           schema:
@@ -1342,6 +1658,13 @@ components:
                 detail: "Il campo 'importo' non può essere negativo"
     401NotAuthenticated:
       description: Utenza non autenticata
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControl'
+        X-Correlation-ID:
+          $ref: '#/components/headers/CorrelationId'
+        X-Transaction-ID:
+          $ref: '#/components/headers/TransactionId'
       content:
         application/problem+json:
           schema:
@@ -1353,6 +1676,13 @@ components:
                 title: Utenza non autenticata
     403NotAuthorized:
       description: Utenza non autorizzata a eseguire l'operazione richiesta
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControl'
+        X-Correlation-ID:
+          $ref: '#/components/headers/CorrelationId'
+        X-Transaction-ID:
+          $ref: '#/components/headers/TransactionId'
       content:
         application/problem+json:
           schema:
@@ -1364,6 +1694,13 @@ components:
                 title: Utenza non autorizzata a eseguire l'operazione richiesta
     404NotFound:
       description: Risorsa non trovata
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControl'
+        X-Correlation-ID:
+          $ref: '#/components/headers/CorrelationId'
+        X-Transaction-ID:
+          $ref: '#/components/headers/TransactionId'
       content:
         application/problem+json:
           schema:
@@ -1373,8 +1710,35 @@ components:
               value:
                 status: 404
                 title: Risorsa non trovata
+    415UnsupportedMediaType:
+      description: >-
+        Content-Type della richiesta non supportato: il corpo va inviato
+        con il media type indicato per l'operazione
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControl'
+        X-Correlation-ID:
+          $ref: '#/components/headers/CorrelationId'
+        X-Transaction-ID:
+          $ref: '#/components/headers/TransactionId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            default:
+              value:
+                status: 415
+                title: Unsupported Media Type
     500ServiceUnavailable:
       description: Errore interno del servizio
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControl'
+        X-Correlation-ID:
+          $ref: '#/components/headers/CorrelationId'
+        X-Transaction-ID:
+          $ref: '#/components/headers/TransactionId'
       content:
         application/problem+json:
           schema:
@@ -1704,6 +2068,7 @@ components:
 
     giornoOpzionePagamento:
       type: integer
+      format: int32
       minimum: 1
       maximum: 3650
       description: >-
@@ -1745,6 +2110,7 @@ components:
           maxLength: 140
         importo:
           type: number
+          format: decimal128
           description: Importo della pendenza. Deve corrispondere alla somma delle singole voci.
           examples:
             - 10.01
@@ -1836,6 +2202,7 @@ components:
           maxLength: 35
         importo:
           type: number
+          format: decimal128
           description: Importo della voce
           examples:
             - 10.01
@@ -2486,6 +2853,7 @@ components:
           $ref: '#/components/schemas/OpzionePagamentoIndex'
         numeroRata:
           type: integer
+          format: int32
           minimum: 1
           description: >-
             Numero di rata della pendenza all'interno della sua opzione di
@@ -2499,6 +2867,7 @@ components:
             - 1
         importo:
           type: number
+          format: decimal128
           description: Importo della pendenza. Deve corrispondere alla somma delle singole voci.
           examples:
             - 10.01
@@ -2537,6 +2906,7 @@ components:
             - '2020-12-15'
         speseNotificaSendImporto:
           type: number
+          format: decimal128
           readOnly: true
           description: >-
             Importo delle spese di notifica SEND quantificato da GovPay al
@@ -2646,6 +3016,7 @@ components:
           maxLength: 35
         importo:
           type: number
+          format: decimal128
           description: Importo della voce
           examples:
             - 10.01
@@ -2659,7 +3030,8 @@ components:
           minLength: 1
           maxLength: 140
         indice:
-          type: number
+          type: integer
+          format: int32
           description: indice di voce all'interno della pendenza
           examples:
             - 1
@@ -2771,8 +3143,10 @@ components:
             - RM
         nazione:
           type: string
+          description: Codice ISO 3166-1 alpha-2 della nazione.
           examples:
             - IT
+          pattern: '[A-Z]{2,2}'
         email:
           type: string
           examples:
@@ -3234,6 +3608,7 @@ components:
           type: string
         nazione:
           type: string
+          description: Codice ISO 3166-1 alpha-2 della nazione, come riportato da pagoPA.
         email:
           type: string
 
@@ -3262,6 +3637,7 @@ components:
       properties:
         singoloImportoPagato:
           type: number
+          format: decimal128
           description: Importo versato. Se il pagamento non è stato eseguito, vale 0.00.
         esitoSingoloPagamento:
           type: string
@@ -3282,8 +3658,10 @@ components:
             "tipo contabilità"/"codice contabilità".
         commissioniApplicatePSP:
           type: number
+          format: decimal128
         commissioniApplicatePA:
           type: number
+          format: decimal128
         allegatoRicevuta:
           $ref: '#/components/schemas/RTAllegatoRicevuta'
 
@@ -3344,6 +3722,7 @@ components:
           properties:
             codiceEsitoPagamento:
               type: integer
+              format: int32
               description: >-
                 Esito del pagamento:
                  * 0 = Pagamento eseguito
@@ -3359,6 +3738,7 @@ components:
                 - 4
             importoTotalePagato:
               type: number
+              format: decimal128
             identificativoUnivocoVersamento:
               type: string
             codiceContestoPagamento:
@@ -3418,6 +3798,7 @@ components:
           type: string
         country:
           type: string
+          description: Codice ISO 3166-1 alpha-2 della nazione, come riportato da pagoPA.
         email:
           type: string
 
@@ -3436,6 +3817,7 @@ components:
           type: string
         transferAmount:
           type: number
+          format: decimal128
         fiscalCodePA:
           type: string
         IBAN:
@@ -3461,6 +3843,7 @@ components:
           type: string
         transferAmount:
           type: number
+          format: decimal128
         fiscalCodePA:
           type: string
         companyName:
@@ -3512,6 +3895,7 @@ components:
           type: string
         paymentAmount:
           type: number
+          format: decimal128
         description:
           type: string
         companyName:
@@ -3538,6 +3922,7 @@ components:
           type: string
         fee:
           type: number
+          format: decimal128
         paymentDateTime:
           type: string
           format: date-time
@@ -3591,6 +3976,7 @@ components:
               type: string
             primaryCiIncurredFee:
               type: number
+              format: decimal128
             idBundle:
               type: string
             idCiBundle:
@@ -3636,7 +4022,8 @@ components:
           examples:
             - '1234acdc'
         indice:
-          type: number
+          type: integer
+          format: int32
           description: >-
             Indice dell'occorrenza del pagamento all'interno della
             struttura `datiSingoloPagamento` della ricevuta telematica.
@@ -3644,11 +4031,13 @@ components:
             - 1
         importo:
           type: number
+          format: decimal128
           description: Importo rendicontato.
           examples:
             - 10.01
         esito:
-          type: number
+          type: integer
+          format: int32
           description: >-
             Codice di esito dell'operazione rendicontata:
              * 0 = Pagamento eseguito
@@ -3733,7 +4122,8 @@ components:
           examples:
             - BIC-12345
         numeroPagamenti:
-          type: number
+          type: integer
+          format: int64
           description: Numero di pagamenti oggetto della rendicontazione.
           examples:
             - 3
@@ -3841,11 +4231,13 @@ components:
       properties:
         page:
           type: integer
+          format: int32
           description: Numero della pagina restituita.
           examples:
             - 1
         limit:
           type: integer
+          format: int32
           description: Numero massimo di risultati per pagina usato per produrre questa risposta.
           examples:
             - 25
@@ -3856,6 +4248,7 @@ components:
             - true
         totalResults:
           type: integer
+          format: int32
           description: >-
             Numero totale di risultati che rispettano i filtri di
             ricerca. Presente solo se richiesto con `total=true`.
@@ -3863,6 +4256,7 @@ components:
             - 100
         totalPages:
           type: integer
+          format: int32
           description: >-
             Numero totale di pagine, calcolato da `totalResults` e
             `limit`. Presente solo se richiesto con `total=true`.
@@ -3895,6 +4289,7 @@ components:
 
     Limit:
       type: integer
+      format: int32
       default: 25
       maximum: 200
 
@@ -3962,6 +4357,7 @@ components:
             - Richiesta non valida
         status:
           type: integer
+          format: int32
           description: Codice di stato HTTP di questa occorrenza del problema.
           examples:
             - 400
