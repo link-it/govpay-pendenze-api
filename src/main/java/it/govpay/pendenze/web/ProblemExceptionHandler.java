@@ -5,6 +5,7 @@ import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -35,6 +36,7 @@ import it.govpay.pendenze.exception.RisorsaGiaEsistenteException;
 import it.govpay.pendenze.exception.RisorsaNonTrovataException;
 import it.govpay.pendenze.exception.TransizioneStatoNonAmmessaException;
 import it.govpay.pendenze.exception.ValidazioneNonSuperataException;
+import it.govpay.pendenze.stato.ServizioNonDisponibileException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
 
@@ -51,6 +53,13 @@ public class ProblemExceptionHandler {
     private static final Logger log = LoggerFactory.getLogger(ProblemExceptionHandler.class);
 
     private static final MediaType PROBLEM_JSON = MediaType.valueOf("application/problem+json");
+
+    /**
+     * Secondi indicati in {@code Retry-After} sulle risposte 503 ({@code RAC_ROBUSTEZZA_002}).
+     * Inizializzato anche fuori dal contesto Spring, per i test che istanziano l'handler.
+     */
+    @Value("${govpay.pendenze.api.retry-after-secondi:60}")
+    private long retryAfterSecondi = 60;
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<Problem> handleMethodArgumentNotValid(MethodArgumentNotValidException ex,
@@ -159,10 +168,11 @@ public class ProblemExceptionHandler {
         return build(HttpStatus.BAD_GATEWAY, ex.getMessage(), request, ex);
     }
 
-    @ExceptionHandler(StampeNotConfiguredException.class)
-    public ResponseEntity<Problem> handleStampeNotConfigured(StampeNotConfiguredException ex,
-            HttpServletRequest request) {
-        return build(HttpStatus.SERVICE_UNAVAILABLE, ex.getMessage(), request, ex);
+    @ExceptionHandler({ StampeNotConfiguredException.class, ServizioNonDisponibileException.class })
+    public ResponseEntity<Problem> handleServizioNonDisponibile(RuntimeException ex, HttpServletRequest request) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.set(HttpHeaders.RETRY_AFTER, Long.toString(retryAfterSecondi));
+        return build(HttpStatus.SERVICE_UNAVAILABLE, ex.getMessage(), request, ex, headers);
     }
 
     @ExceptionHandler(AccessoNegatoException.class)

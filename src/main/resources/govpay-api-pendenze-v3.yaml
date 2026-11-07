@@ -29,6 +29,17 @@ info:
     ne genera uno nuovo. Ogni risposta riporta inoltre in
     `X-Transaction-ID` l'identificativo della transazione assegnato dal
     servizio.
+
+    Limiti di utilizzo: il rate limiting è applicato dal gateway di
+    erogazione (es. GovWay) secondo le politiche configurate. Quando una
+    politica è attiva, ogni risposta riporta gli header `X-RateLimit-Limit`,
+    `X-RateLimit-Remaining` e `X-RateLimit-Reset`; al superamento del limite
+    la risposta è `429 Too Many Requests` con l'header `Retry-After`. Anche
+    le risposte `503 Service Unavailable` riportano `Retry-After`, con i
+    secondi dopo i quali ripetere la richiesta.
+
+    Stato del servizio: `GET /status` risponde senza autenticazione `200`
+    se il servizio è operativo, `503` altrimenti.
   contact:
     name: GitHub Project Page
     url: 'https://github.com/link-it/GovPay/'
@@ -45,9 +56,56 @@ tags:
     description: Alimentazione e consultazione delle posizioni debitorie
   - name: Pendenze
     description: Consultazione e aggiornamento puntuale delle singole pendenze (rate)
+  - name: Stato
+    description: Stato del servizio
 security:
   - basicAuth: []
 paths:
+
+  # ============================================================
+  # STATO DEL SERVIZIO
+  # ============================================================
+
+  '/status':
+    get:
+      tags:
+        - Stato
+      summary: Stato del servizio
+      description: >-
+        Restituisce lo stato del servizio: `200` se è operativo, `503` se una
+        delle sue dipendenze (es. il database) non è disponibile. Non richiede
+        autenticazione.
+      operationId: getStatus
+      security: []
+      responses:
+        '200':
+          description: Il servizio è operativo
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                default:
+                  value:
+                    status: 200
+                    title: OK
+        '429':
+          $ref: '#/components/responses/429TooManyRequests'
+        '503':
+          $ref: '#/components/responses/503ServiceUnavailable'
 
   # ============================================================
   # POSIZIONI DEBITORIE
@@ -87,6 +145,12 @@ paths:
               $ref: '#/components/headers/CorrelationId'
             X-Transaction-ID:
               $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
             application/json:
               schema:
@@ -97,6 +161,8 @@ paths:
           $ref: '#/components/responses/401NotAuthenticated'
         '403':
           $ref: '#/components/responses/403NotAuthorized'
+        '429':
+          $ref: '#/components/responses/429TooManyRequests'
         '500':
           $ref: '#/components/responses/500ServiceUnavailable'
     post:
@@ -263,6 +329,12 @@ paths:
               $ref: '#/components/headers/CorrelationId'
             X-Transaction-ID:
               $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
             Location:
               description: URL della posizione debitoria creata (`/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}`)
               schema:
@@ -288,6 +360,12 @@ paths:
               $ref: '#/components/headers/CorrelationId'
             X-Transaction-ID:
               $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
             application/problem+json:
               schema:
@@ -299,6 +377,8 @@ paths:
                     title: Esiste già una posizione debitoria con questo codDocumento per questo idA2A e questo idDominio
         '415':
           $ref: '#/components/responses/415UnsupportedMediaType'
+        '429':
+          $ref: '#/components/responses/429TooManyRequests'
         '500':
           $ref: '#/components/responses/500ServiceUnavailable'
 
@@ -339,6 +419,12 @@ paths:
               $ref: '#/components/headers/CorrelationId'
             X-Transaction-ID:
               $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
             application/json:
               schema:
@@ -351,6 +437,8 @@ paths:
           $ref: '#/components/responses/403NotAuthorized'
         '404':
           $ref: '#/components/responses/404NotFound'
+        '429':
+          $ref: '#/components/responses/429TooManyRequests'
         '500':
           $ref: '#/components/responses/500ServiceUnavailable'
     patch:
@@ -403,6 +491,12 @@ paths:
               $ref: '#/components/headers/CorrelationId'
             X-Transaction-ID:
               $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
         '400':
           $ref: '#/components/responses/400BadRequest'
         '401':
@@ -421,6 +515,8 @@ paths:
                 $ref: '#/components/schemas/Problem'
         '415':
           $ref: '#/components/responses/415UnsupportedMediaType'
+        '429':
+          $ref: '#/components/responses/429TooManyRequests'
         '500':
           $ref: '#/components/responses/500ServiceUnavailable'
 
@@ -470,6 +566,12 @@ paths:
               $ref: '#/components/headers/CorrelationId'
             X-Transaction-ID:
               $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
             application/pdf:
               schema:
@@ -492,6 +594,12 @@ paths:
               $ref: '#/components/headers/CorrelationId'
             X-Transaction-ID:
               $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
             application/problem+json:
               schema:
@@ -508,10 +616,18 @@ paths:
               $ref: '#/components/headers/CorrelationId'
             X-Transaction-ID:
               $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/Problem'
+        '429':
+          $ref: '#/components/responses/429TooManyRequests'
         '500':
           $ref: '#/components/responses/500ServiceUnavailable'
         '502':
@@ -523,6 +639,12 @@ paths:
               $ref: '#/components/headers/CorrelationId'
             X-Transaction-ID:
               $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
             application/problem+json:
               schema:
@@ -532,12 +654,20 @@ paths:
             Microservizio `govpay-stampe` non configurato
             (`app.stampe.base-url` mancante)
           headers:
+            Retry-After:
+              $ref: '#/components/headers/RetryAfter'
             Cache-Control:
               $ref: '#/components/headers/CacheControl'
             X-Correlation-ID:
               $ref: '#/components/headers/CorrelationId'
             X-Transaction-ID:
               $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
             application/problem+json:
               schema:
@@ -585,6 +715,12 @@ paths:
               $ref: '#/components/headers/CorrelationId'
             X-Transaction-ID:
               $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
             application/json:
               schema:
@@ -611,6 +747,12 @@ paths:
               $ref: '#/components/headers/CorrelationId'
             X-Transaction-ID:
               $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
             application/problem+json:
               schema:
@@ -632,6 +774,8 @@ paths:
                       usato da un'altra pendenza della stessa applicazione
         '415':
           $ref: '#/components/responses/415UnsupportedMediaType'
+        '429':
+          $ref: '#/components/responses/429TooManyRequests'
         '500':
           $ref: '#/components/responses/500ServiceUnavailable'
 
@@ -694,6 +838,12 @@ paths:
               $ref: '#/components/headers/CorrelationId'
             X-Transaction-ID:
               $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
         '400':
           $ref: '#/components/responses/400BadRequest'
         '401':
@@ -713,6 +863,12 @@ paths:
               $ref: '#/components/headers/CorrelationId'
             X-Transaction-ID:
               $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
             application/problem+json:
               schema:
@@ -734,6 +890,8 @@ paths:
                       e non può essere ripristinata
         '415':
           $ref: '#/components/responses/415UnsupportedMediaType'
+        '429':
+          $ref: '#/components/responses/429TooManyRequests'
         '500':
           $ref: '#/components/responses/500ServiceUnavailable'
 
@@ -790,6 +948,12 @@ paths:
               $ref: '#/components/headers/CorrelationId'
             X-Transaction-ID:
               $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
             application/json:
               schema:
@@ -814,6 +978,12 @@ paths:
               $ref: '#/components/headers/CorrelationId'
             X-Transaction-ID:
               $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
             application/problem+json:
               schema:
@@ -836,6 +1006,8 @@ paths:
                       un'altra pendenza della stessa applicazione
         '415':
           $ref: '#/components/responses/415UnsupportedMediaType'
+        '429':
+          $ref: '#/components/responses/429TooManyRequests'
         '500':
           $ref: '#/components/responses/500ServiceUnavailable'
 
@@ -879,6 +1051,12 @@ paths:
               $ref: '#/components/headers/CorrelationId'
             X-Transaction-ID:
               $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
             application/json:
               schema:
@@ -889,6 +1067,8 @@ paths:
           $ref: '#/components/responses/401NotAuthenticated'
         '403':
           $ref: '#/components/responses/403NotAuthorized'
+        '429':
+          $ref: '#/components/responses/429TooManyRequests'
         '500':
           $ref: '#/components/responses/500ServiceUnavailable'
 
@@ -953,6 +1133,12 @@ paths:
               $ref: '#/components/headers/CorrelationId'
             X-Transaction-ID:
               $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
         '400':
           $ref: '#/components/responses/400BadRequest'
         '401':
@@ -974,6 +1160,12 @@ paths:
               $ref: '#/components/headers/CorrelationId'
             X-Transaction-ID:
               $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
             application/problem+json:
               schema:
@@ -1003,6 +1195,8 @@ paths:
                       all'originale
         '415':
           $ref: '#/components/responses/415UnsupportedMediaType'
+        '429':
+          $ref: '#/components/responses/429TooManyRequests'
         '500':
           $ref: '#/components/responses/500ServiceUnavailable'
     get:
@@ -1039,6 +1233,12 @@ paths:
               $ref: '#/components/headers/CorrelationId'
             X-Transaction-ID:
               $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
             application/json:
               schema:
@@ -1051,6 +1251,8 @@ paths:
           $ref: '#/components/responses/403NotAuthorized'
         '404':
           $ref: '#/components/responses/404NotFound'
+        '429':
+          $ref: '#/components/responses/429TooManyRequests'
         '500':
           $ref: '#/components/responses/500ServiceUnavailable'
 
@@ -1101,6 +1303,12 @@ paths:
               $ref: '#/components/headers/CorrelationId'
             X-Transaction-ID:
               $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
             application/pdf:
               schema:
@@ -1117,6 +1325,12 @@ paths:
               $ref: '#/components/headers/CorrelationId'
             X-Transaction-ID:
               $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
             application/problem+json:
               schema:
@@ -1136,6 +1350,12 @@ paths:
               $ref: '#/components/headers/CorrelationId'
             X-Transaction-ID:
               $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
             application/problem+json:
               schema:
@@ -1153,10 +1373,18 @@ paths:
               $ref: '#/components/headers/CorrelationId'
             X-Transaction-ID:
               $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/Problem'
+        '429':
+          $ref: '#/components/responses/429TooManyRequests'
         '500':
           $ref: '#/components/responses/500ServiceUnavailable'
         '502':
@@ -1168,6 +1396,12 @@ paths:
               $ref: '#/components/headers/CorrelationId'
             X-Transaction-ID:
               $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
             application/problem+json:
               schema:
@@ -1177,12 +1411,20 @@ paths:
             Microservizio `govpay-stampe` non configurato
             (`app.stampe.base-url` mancante)
           headers:
+            Retry-After:
+              $ref: '#/components/headers/RetryAfter'
             Cache-Control:
               $ref: '#/components/headers/CacheControl'
             X-Correlation-ID:
               $ref: '#/components/headers/CorrelationId'
             X-Transaction-ID:
               $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
             application/problem+json:
               schema:
@@ -1229,6 +1471,12 @@ paths:
               $ref: '#/components/headers/CorrelationId'
             X-Transaction-ID:
               $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
             application/json:
               schema:
@@ -1241,6 +1489,8 @@ paths:
           $ref: '#/components/responses/403NotAuthorized'
         '404':
           $ref: '#/components/responses/404NotFound'
+        '429':
+          $ref: '#/components/responses/429TooManyRequests'
         '500':
           $ref: '#/components/responses/500ServiceUnavailable'
 
@@ -1287,6 +1537,12 @@ paths:
               $ref: '#/components/headers/CorrelationId'
             X-Transaction-ID:
               $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
             application/json:
               schema:
@@ -1338,6 +1594,8 @@ paths:
           $ref: '#/components/responses/403NotAuthorized'
         '404':
           $ref: '#/components/responses/404NotFound'
+        '429':
+          $ref: '#/components/responses/429TooManyRequests'
         '500':
           $ref: '#/components/responses/500ServiceUnavailable'
 
@@ -1381,6 +1639,12 @@ paths:
               $ref: '#/components/headers/CorrelationId'
             X-Transaction-ID:
               $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
             application/pdf:
               schema:
@@ -1403,10 +1667,18 @@ paths:
               $ref: '#/components/headers/CorrelationId'
             X-Transaction-ID:
               $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/Problem'
+        '429':
+          $ref: '#/components/responses/429TooManyRequests'
         '500':
           $ref: '#/components/responses/500ServiceUnavailable'
         '502':
@@ -1418,6 +1690,12 @@ paths:
               $ref: '#/components/headers/CorrelationId'
             X-Transaction-ID:
               $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
             application/problem+json:
               schema:
@@ -1427,12 +1705,20 @@ paths:
             Microservizio `govpay-stampe` non configurato
             (`app.stampe.base-url` mancante)
           headers:
+            Retry-After:
+              $ref: '#/components/headers/RetryAfter'
             Cache-Control:
               $ref: '#/components/headers/CacheControl'
             X-Correlation-ID:
               $ref: '#/components/headers/CorrelationId'
             X-Transaction-ID:
               $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
             application/problem+json:
               schema:
@@ -1480,6 +1766,12 @@ paths:
               $ref: '#/components/headers/CorrelationId'
             X-Transaction-ID:
               $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
             application/json:
               schema:
@@ -1492,6 +1784,8 @@ paths:
           $ref: '#/components/responses/403NotAuthorized'
         '404':
           $ref: '#/components/responses/404NotFound'
+        '429':
+          $ref: '#/components/responses/429TooManyRequests'
         '500':
           $ref: '#/components/responses/500ServiceUnavailable'
 
@@ -1635,6 +1929,40 @@ components:
       schema:
         type: string
       example: '0f2c9d7e-3a41-4b8e-9c55-61e2b7a0d913'
+    RateLimitLimit:
+      description: >-
+        Numero massimo di richieste ammesse nella finestra temporale corrente.
+        Valorizzato dal gateway di erogazione (es. GovWay) quando è attiva una
+        politica di rate limiting; assente altrimenti.
+      schema:
+        type: integer
+        format: int32
+      example: 100
+    RateLimitRemaining:
+      description: >-
+        Numero di richieste ancora disponibili nella finestra temporale
+        corrente. Valorizzato dal gateway di erogazione quando è attiva una
+        politica di rate limiting; assente altrimenti.
+      schema:
+        type: integer
+        format: int32
+      example: 99
+    RateLimitReset:
+      description: >-
+        Secondi mancanti all'inizio della prossima finestra temporale.
+        Valorizzato dal gateway di erogazione quando è attiva una politica di
+        rate limiting; assente altrimenti.
+      schema:
+        type: integer
+        format: int32
+      example: 60
+    RetryAfter:
+      description: >-
+        Secondi dopo i quali il client può ripetere la richiesta.
+      schema:
+        type: integer
+        format: int32
+      example: 60
 
   responses:
     400BadRequest:
@@ -1646,6 +1974,12 @@ components:
           $ref: '#/components/headers/CorrelationId'
         X-Transaction-ID:
           $ref: '#/components/headers/TransactionId'
+        X-RateLimit-Limit:
+          $ref: '#/components/headers/RateLimitLimit'
+        X-RateLimit-Remaining:
+          $ref: '#/components/headers/RateLimitRemaining'
+        X-RateLimit-Reset:
+          $ref: '#/components/headers/RateLimitReset'
       content:
         application/problem+json:
           schema:
@@ -1665,6 +1999,12 @@ components:
           $ref: '#/components/headers/CorrelationId'
         X-Transaction-ID:
           $ref: '#/components/headers/TransactionId'
+        X-RateLimit-Limit:
+          $ref: '#/components/headers/RateLimitLimit'
+        X-RateLimit-Remaining:
+          $ref: '#/components/headers/RateLimitRemaining'
+        X-RateLimit-Reset:
+          $ref: '#/components/headers/RateLimitReset'
       content:
         application/problem+json:
           schema:
@@ -1683,6 +2023,12 @@ components:
           $ref: '#/components/headers/CorrelationId'
         X-Transaction-ID:
           $ref: '#/components/headers/TransactionId'
+        X-RateLimit-Limit:
+          $ref: '#/components/headers/RateLimitLimit'
+        X-RateLimit-Remaining:
+          $ref: '#/components/headers/RateLimitRemaining'
+        X-RateLimit-Reset:
+          $ref: '#/components/headers/RateLimitReset'
       content:
         application/problem+json:
           schema:
@@ -1701,6 +2047,12 @@ components:
           $ref: '#/components/headers/CorrelationId'
         X-Transaction-ID:
           $ref: '#/components/headers/TransactionId'
+        X-RateLimit-Limit:
+          $ref: '#/components/headers/RateLimitLimit'
+        X-RateLimit-Remaining:
+          $ref: '#/components/headers/RateLimitRemaining'
+        X-RateLimit-Reset:
+          $ref: '#/components/headers/RateLimitReset'
       content:
         application/problem+json:
           schema:
@@ -1721,6 +2073,12 @@ components:
           $ref: '#/components/headers/CorrelationId'
         X-Transaction-ID:
           $ref: '#/components/headers/TransactionId'
+        X-RateLimit-Limit:
+          $ref: '#/components/headers/RateLimitLimit'
+        X-RateLimit-Remaining:
+          $ref: '#/components/headers/RateLimitRemaining'
+        X-RateLimit-Reset:
+          $ref: '#/components/headers/RateLimitReset'
       content:
         application/problem+json:
           schema:
@@ -1730,6 +2088,60 @@ components:
               value:
                 status: 415
                 title: Unsupported Media Type
+    429TooManyRequests:
+      description: >-
+        Raggiunto il limite di richieste ammesse. Restituita dal gateway di
+        erogazione quando è attiva una politica di rate limiting.
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControl'
+        X-Correlation-ID:
+          $ref: '#/components/headers/CorrelationId'
+        X-Transaction-ID:
+          $ref: '#/components/headers/TransactionId'
+        X-RateLimit-Limit:
+          $ref: '#/components/headers/RateLimitLimit'
+        X-RateLimit-Remaining:
+          $ref: '#/components/headers/RateLimitRemaining'
+        X-RateLimit-Reset:
+          $ref: '#/components/headers/RateLimitReset'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            default:
+              value:
+                status: 429
+                title: Too Many Requests
+    503ServiceUnavailable:
+      description: Servizio temporaneamente non disponibile
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControl'
+        X-Correlation-ID:
+          $ref: '#/components/headers/CorrelationId'
+        X-Transaction-ID:
+          $ref: '#/components/headers/TransactionId'
+        X-RateLimit-Limit:
+          $ref: '#/components/headers/RateLimitLimit'
+        X-RateLimit-Remaining:
+          $ref: '#/components/headers/RateLimitRemaining'
+        X-RateLimit-Reset:
+          $ref: '#/components/headers/RateLimitReset'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            default:
+              value:
+                status: 503
+                title: Service Unavailable
     500ServiceUnavailable:
       description: Errore interno del servizio
       headers:
@@ -1739,6 +2151,12 @@ components:
           $ref: '#/components/headers/CorrelationId'
         X-Transaction-ID:
           $ref: '#/components/headers/TransactionId'
+        X-RateLimit-Limit:
+          $ref: '#/components/headers/RateLimitLimit'
+        X-RateLimit-Remaining:
+          $ref: '#/components/headers/RateLimitRemaining'
+        X-RateLimit-Reset:
+          $ref: '#/components/headers/RateLimitReset'
       content:
         application/problem+json:
           schema:

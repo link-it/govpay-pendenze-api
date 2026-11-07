@@ -24,6 +24,8 @@ import org.springframework.web.servlet.NoHandlerFoundException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import it.govpay.pendenze.api.model.Problem;
+import it.govpay.pendenze.avviso.StampeNotConfiguredException;
+import it.govpay.pendenze.stato.ServizioNonDisponibileException;
 import jakarta.servlet.http.HttpServletRequest;
 
 /**
@@ -161,5 +163,23 @@ class ProblemExceptionHandlerTest {
 
         assertThat(risposta.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
         assertThat(risposta.getBody().getDetail()).doesNotContain("dettaglio interno");
+    }
+
+    @Test
+    @DisplayName("le risposte 503 riportano Retry-After (RAC_ROBUSTEZZA_002)")
+    void servizioNonDisponibileDiventa503ConRetryAfter() {
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        when(request.getMethod()).thenReturn("GET");
+        when(request.getRequestURI()).thenReturn("/v3/status");
+
+        ResponseEntity<Problem> risposta = handler.handleServizioNonDisponibile(
+                new ServizioNonDisponibileException("stato DOWN"), request);
+        ResponseEntity<Problem> rispostaStampe = handler.handleServizioNonDisponibile(
+                new StampeNotConfiguredException(), request);
+
+        assertThat(risposta.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(risposta.getHeaders().getFirst(HttpHeaders.RETRY_AFTER)).isEqualTo("60");
+        assertThat(rispostaStampe.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(rispostaStampe.getHeaders().getFirst(HttpHeaders.RETRY_AFTER)).isEqualTo("60");
     }
 }
