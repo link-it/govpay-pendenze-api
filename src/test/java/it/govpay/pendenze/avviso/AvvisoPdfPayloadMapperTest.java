@@ -179,8 +179,8 @@ class AvvisoPdfPayloadMapperTest {
     }
 
     @Test
-    void nessunaLinguaSecondariaConFalse() {
-        PaymentNotice notice = mapper.toPaymentNotice(pendenza(dominio(), "Via Roma"), LinguaSecondaria.FALSE, null,
+    void nessunaLinguaSecondariaSeAssente() {
+        PaymentNotice notice = mapper.toPaymentNotice(pendenza(dominio(), "Via Roma"), null, null,
                 null, null);
 
         assertThat(notice.getSecondLanguage()).isNull();
@@ -208,11 +208,6 @@ class AvvisoPdfPayloadMapperTest {
     @Test
     void slMapsToClientSL() {
         assertThat(AvvisoPdfPayloadMapper.toClientLanguage(LinguaSecondaria.SL)).isEqualTo(Languages.SL);
-    }
-
-    @Test
-    void falseMapsToNull() {
-        assertThat(AvvisoPdfPayloadMapper.toClientLanguage(LinguaSecondaria.FALSE)).isNull();
     }
 
     @Test

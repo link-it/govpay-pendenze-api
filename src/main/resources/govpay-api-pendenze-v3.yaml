@@ -3724,7 +3724,8 @@ components:
               type: integer
               format: int32
               description: >-
-                Esito del pagamento:
+                Esito del pagamento. Resta numerico perché riporta tale e quale il
+                campo `codiceEsitoPagamento` della ricevuta telematica (paSendRT):
                  * 0 = Pagamento eseguito
                  * 1 = Pagamento non eseguito
                  * 2 = Pagamento parzialmente eseguito
@@ -4036,23 +4037,23 @@ components:
           examples:
             - 10.01
         esito:
-          type: integer
-          format: int32
+          type: string
           description: >-
-            Codice di esito dell'operazione rendicontata:
-             * 0 = Pagamento eseguito
-             * 3 = Pagamento revocato
-             * 4 = Pagamento eseguito in standin
-             * 8 = Pagamento eseguito in standin, in assenza di RPT
-             * 9 = Pagamento eseguito in assenza di RPT
+            Esito dell'operazione rendicontata, con i valori di `payStatus` del flusso
+            di rendicontazione pagoPA (tra parentesi il codice numerico del tracciato):
+             * EXECUTED = Pagamento eseguito (0)
+             * REVOKED = Pagamento revocato (3)
+             * STAND_IN = Pagamento eseguito in standin (4)
+             * STAND_IN_NO_RPT = Pagamento eseguito in standin, in assenza di RPT (8)
+             * NO_RPT = Pagamento eseguito in assenza di RPT (9)
           enum:
-            - 0
-            - 3
-            - 4
-            - 8
-            - 9
+            - EXECUTED
+            - REVOKED
+            - STAND_IN
+            - STAND_IN_NO_RPT
+            - NO_RPT
           examples:
-            - 0
+            - EXECUTED
         data:
           type: string
           format: date
@@ -4183,11 +4184,13 @@ components:
         - NON_ESEGUITO
 
     LinguaSecondaria:
+      description: >-
+        Lingua secondaria dell'avviso bilingue, come codice ISO 639-1. Se assente,
+        l'avviso è solo in italiano.
       examples:
-        - 'false'
+        - 'en'
       type: string
       enum:
-        - 'false'
         - 'de'
         - 'en'
         - 'fr'

@@ -664,7 +664,7 @@ class PendenzaControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.results.length()").value(1))
                 .andExpect(jsonPath("$.results[0].iur").value("iur-rend-1"))
-                .andExpect(jsonPath("$.results[0].esito").value(0))
+                .andExpect(jsonPath("$.results[0].esito").value("EXECUTED"))
                 .andExpect(jsonPath("$.results[0].stato").value("OK"))
                 .andExpect(jsonPath("$.results[0].flusso.idFlusso").value("flusso-rend-1"))
                 .andExpect(jsonPath("$.results[0].flusso.trn").value("trn-flusso-rend-1"))

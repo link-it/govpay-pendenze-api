@@ -296,7 +296,7 @@ public class PendenzaController implements PendenzeApi {
      * generico invece di un 400 chiaro e azionabile.
      */
     private void rifiutaBilingueSenzaCausaleTradotta(LinguaSecondaria linguaSecondaria, String causaleTradotta) {
-        boolean bilingue = linguaSecondaria != null && linguaSecondaria != LinguaSecondaria.FALSE;
+        boolean bilingue = linguaSecondaria != null;
         if (bilingue && causaleTradotta == null) {
             throw new ValidazioneNonSuperataException(
                     "il parametro 'causaleTradotta' e' obbligatorio quando 'linguaSecondaria' e' specificato: "
