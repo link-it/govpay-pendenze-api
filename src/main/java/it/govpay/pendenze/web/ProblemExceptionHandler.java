@@ -54,12 +54,22 @@ public class ProblemExceptionHandler {
 
     private static final MediaType PROBLEM_JSON = MediaType.valueOf("application/problem+json");
 
+    /** Content-Type degli errori v3: charset dichiarato come da contratto ({@code BP-CONFIG-3}). */
+    private static final MediaType PROBLEM_JSON_UTF8 = MediaType.valueOf("application/problem+json;charset=UTF-8");
+
     /**
      * Secondi indicati in {@code Retry-After} sulle risposte 503 ({@code RAC_ROBUSTEZZA_002}).
      * Inizializzato anche fuori dal contesto Spring, per i test che istanziano l'handler.
      */
     @Value("${govpay.pendenze.api.retry-after-secondi:60}")
     private long retryAfterSecondi = 60;
+
+    /**
+     * Le richieste v2 mantengono il Content-Type degli errori senza charset: il contratto v2 e'
+     * in produzione e non cambia, la dichiarazione del charset riguarda solo la v3.
+     */
+    @Value("${govpay.pendenze.api.v2.base-path:/v2}")
+    private String v2BasePath = "/v2";
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<Problem> handleMethodArgumentNotValid(MethodArgumentNotValidException ex,
@@ -293,7 +303,13 @@ public class ProblemExceptionHandler {
                 .detail(detail)
                 .instance(URI.create(request.getRequestURI()));
         logException(status, request, ex);
-        return ResponseEntity.status(status).headers(headers).contentType(PROBLEM_JSON).body(problem);
+        return ResponseEntity.status(status).headers(headers).contentType(problemJson(request)).body(problem);
+    }
+
+    private MediaType problemJson(HttpServletRequest request) {
+        String contextPath = request.getContextPath();
+        String path = request.getRequestURI().substring(contextPath == null ? 0 : contextPath.length());
+        return path.equals(v2BasePath) || path.startsWith(v2BasePath + "/") ? PROBLEM_JSON : PROBLEM_JSON_UTF8;
     }
 
     private void logException(HttpStatus status, HttpServletRequest request, Exception ex) {

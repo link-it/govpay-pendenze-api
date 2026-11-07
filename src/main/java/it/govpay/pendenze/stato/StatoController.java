@@ -23,7 +23,7 @@ import it.govpay.pendenze.api.rest.StatoApi;
 @RequestMapping("${govpay.pendenze.api.v3.base-path:}")
 public class StatoController implements StatoApi {
 
-    private static final MediaType PROBLEM_JSON = MediaType.valueOf("application/problem+json");
+    private static final MediaType PROBLEM_JSON = MediaType.valueOf("application/problem+json;charset=UTF-8");
 
     private final HealthEndpoint healthEndpoint;
 

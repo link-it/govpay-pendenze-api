@@ -182,4 +182,24 @@ class ProblemExceptionHandlerTest {
         assertThat(rispostaStampe.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
         assertThat(rispostaStampe.getHeaders().getFirst(HttpHeaders.RETRY_AFTER)).isEqualTo("60");
     }
+
+    @Test
+    @DisplayName("gli errori v3 dichiarano charset=UTF-8 (BP-CONFIG-3), quelli v2 restano invariati")
+    void charsetDichiaratoSoloSugliErroriV3() {
+        HttpServletRequest richiestaV3 = mock(HttpServletRequest.class);
+        when(richiestaV3.getRequestURI()).thenReturn("/govpay/v3/pendenze/A2A-TEST/pend-1");
+        when(richiestaV3.getContextPath()).thenReturn("/govpay");
+        HttpServletRequest richiestaV2 = mock(HttpServletRequest.class);
+        when(richiestaV2.getRequestURI()).thenReturn("/govpay/v2/pendenze/A2A-TEST/pend-1");
+        when(richiestaV2.getContextPath()).thenReturn("/govpay");
+
+        ResponseEntity<Problem> rispostaV3 = handler.handleOptimisticLockingFailure(
+                new OptimisticLockingFailureException("conflitto simulato"), richiestaV3);
+        ResponseEntity<Problem> rispostaV2 = handler.handleOptimisticLockingFailure(
+                new OptimisticLockingFailureException("conflitto simulato"), richiestaV2);
+
+        assertThat(rispostaV3.getHeaders().getContentType())
+                .isEqualTo(MediaType.valueOf("application/problem+json;charset=UTF-8"));
+        assertThat(rispostaV2.getHeaders().getContentType()).isEqualTo(MediaType.valueOf("application/problem+json"));
+    }
 }

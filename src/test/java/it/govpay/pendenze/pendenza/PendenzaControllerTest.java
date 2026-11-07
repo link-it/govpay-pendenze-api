@@ -364,7 +364,7 @@ class PendenzaControllerTest {
     void findPendenzeRestituisce400SeNumeroAvvisoMancante() throws Exception {
         mockMvc.perform(get("/pendenze/{idA2A}", "A2A-TEST"))
                 .andExpect(status().isBadRequest())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(400));
     }
 
@@ -502,7 +502,7 @@ class PendenzaControllerTest {
                         .param("page", "1")
                         .param("cursor", ""))
                 .andExpect(status().isBadRequest())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(400));
     }
 
@@ -599,7 +599,7 @@ class PendenzaControllerTest {
                         .param("page", "1")
                         .param("cursor", ""))
                 .andExpect(status().isBadRequest())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(400));
     }
 
@@ -714,7 +714,7 @@ class PendenzaControllerTest {
                         .param("page", "1")
                         .param("cursor", ""))
                 .andExpect(status().isBadRequest())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(400));
     }
 
@@ -726,7 +726,7 @@ class PendenzaControllerTest {
 
         mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST", "pendenza-get-1"))
                 .andExpect(status().isOk())
-                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(content().contentType(MediaType.valueOf("application/json;charset=UTF-8")))
                 .andExpect(jsonPath("$.idA2A").value("A2A-TEST"))
                 .andExpect(jsonPath("$.idPendenza").value("pendenza-get-1"))
                 .andExpect(jsonPath("$.idDominio").value("12345678901"))
@@ -824,7 +824,7 @@ class PendenzaControllerTest {
     void getPendenzaRestituisce404SeNonEsiste() throws Exception {
         mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}", "A2A-TEST", "pendenza-inesistente"))
                 .andExpect(status().isNotFound())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(404));
     }
 
@@ -1108,7 +1108,7 @@ class PendenzaControllerTest {
                                   "idTipoPendenza": "DIRITTI_SEGRETERIA", "importo": 0.00, "voci": [] }
                                 """))
                 .andExpect(status().isBadRequest())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(400));
     }
 
@@ -1138,7 +1138,7 @@ class PendenzaControllerTest {
                                   ] }
                                 """))
                 .andExpect(status().isBadRequest())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(400));
     }
 
@@ -1173,7 +1173,7 @@ class PendenzaControllerTest {
                                   ] }
                                 """))
                 .andExpect(status().isBadRequest())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(400));
     }
 
@@ -1196,7 +1196,7 @@ class PendenzaControllerTest {
                                   "voci": [ null ] }
                                 """))
                 .andExpect(status().isBadRequest())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(400));
     }
 
@@ -1218,7 +1218,7 @@ class PendenzaControllerTest {
                                               "codEntrata": "DIRITTI_SEGRETERIA" } ] }
                                 """))
                 .andExpect(status().isBadRequest())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(400));
     }
 
@@ -1238,7 +1238,7 @@ class PendenzaControllerTest {
                                               "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ] }
                                 """))
                 .andExpect(status().isBadRequest())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(400));
     }
 
@@ -1260,7 +1260,7 @@ class PendenzaControllerTest {
                                               "descrizione": "test", "codEntrata": "ALTRO_TRIBUTO" } ] }
                                 """))
                 .andExpect(status().isConflict())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(409));
     }
 
@@ -1281,7 +1281,7 @@ class PendenzaControllerTest {
                                               "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ] }
                                 """))
                 .andExpect(status().isBadRequest())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(400));
     }
 
@@ -1305,7 +1305,7 @@ class PendenzaControllerTest {
                                               "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ] }
                                 """))
                 .andExpect(status().isBadRequest())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(400));
     }
 
@@ -1325,7 +1325,7 @@ class PendenzaControllerTest {
                                               "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ] }
                                 """))
                 .andExpect(status().isBadRequest())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(400));
     }
 
@@ -1343,7 +1343,7 @@ class PendenzaControllerTest {
                                               "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ] }
                                 """))
                 .andExpect(status().isNotFound())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(404));
     }
 
@@ -1365,7 +1365,7 @@ class PendenzaControllerTest {
                                               "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ] }
                                 """))
                 .andExpect(status().isConflict())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(409));
     }
 
@@ -1470,7 +1470,7 @@ class PendenzaControllerTest {
         mockMvc.perform(post("/pendenze/{idA2A}/{idPendenza}/stampa", "A2A-TEST", "pendenza-inesistente")
                         .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isNotFound())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(404));
     }
 
@@ -1575,7 +1575,7 @@ class PendenzaControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .accept(MediaType.APPLICATION_PDF))
                 .andExpect(status().isServiceUnavailable())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(503));
     }
 
@@ -1638,7 +1638,7 @@ class PendenzaControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .accept(MediaType.APPLICATION_PDF))
                 .andExpect(status().isUnprocessableEntity())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(422));
     }
 
@@ -1680,7 +1680,7 @@ class PendenzaControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .accept(MediaType.APPLICATION_PDF))
                 .andExpect(status().isUnprocessableEntity())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(422));
     }
 
@@ -1692,7 +1692,7 @@ class PendenzaControllerTest {
                         "pendenza-inesistente", "iur-qualsiasi")
                         .accept(MediaType.APPLICATION_PDF))
                 .andExpect(status().isNotFound())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(404));
     }
 
@@ -1743,7 +1743,7 @@ class PendenzaControllerTest {
                         "pendenza-stampa-ric-503", "RT900000003")
                         .accept(MediaType.APPLICATION_PDF))
                 .andExpect(status().isServiceUnavailable())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(503));
     }
 

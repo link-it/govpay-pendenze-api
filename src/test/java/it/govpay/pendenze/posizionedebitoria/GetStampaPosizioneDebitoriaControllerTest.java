@@ -401,7 +401,7 @@ class GetStampaPosizioneDebitoriaControllerTest {
 
         mockMvc.perform(get(PATH, PRINCIPAL, idPosizioneDebitoria).accept(MediaType.APPLICATION_PDF))
                 .andExpect(status().isUnprocessableContent())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(422));
         assertEquals(0, CHIAMATE.get());
     }

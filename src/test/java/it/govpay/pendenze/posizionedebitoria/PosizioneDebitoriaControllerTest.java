@@ -353,7 +353,7 @@ class PosizioneDebitoriaControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isCreated())
-                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(content().contentType(MediaType.valueOf("application/json;charset=UTF-8")))
                 .andExpect(jsonPath("$.idA2A").value("A2A-TEST"))
                 .andExpect(jsonPath("$.idPosizioneDebitoria")
                         .value(IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "CERT2026-000058")))
@@ -493,7 +493,7 @@ class PosizioneDebitoriaControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isBadRequest())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(400));
     }
 
@@ -528,7 +528,7 @@ class PosizioneDebitoriaControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isBadRequest())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(400));
     }
 
@@ -563,7 +563,7 @@ class PosizioneDebitoriaControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isBadRequest())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(400));
     }
 
@@ -600,7 +600,7 @@ class PosizioneDebitoriaControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isBadRequest())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(400));
     }
 
@@ -635,7 +635,7 @@ class PosizioneDebitoriaControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isBadRequest())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(400));
     }
 
@@ -847,7 +847,7 @@ class PosizioneDebitoriaControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isForbidden())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(403));
     }
 
@@ -936,7 +936,7 @@ class PosizioneDebitoriaControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isForbidden())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(403));
     }
 
@@ -961,7 +961,7 @@ class PosizioneDebitoriaControllerTest {
         mockMvc.perform(get("/posizioni-debitorie/{idA2A}/pos-qualsiasi", principal)
                         .with(comeApplicazione(principal, password)))
                 .andExpect(status().isForbidden())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(403));
     }
 
@@ -1320,7 +1320,7 @@ class PosizioneDebitoriaControllerTest {
 
         mockMvc.perform(get("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-get-1")))
                 .andExpect(status().isOk())
-                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(content().contentType(MediaType.valueOf("application/json;charset=UTF-8")))
                 .andExpect(jsonPath("$.idA2A").value("A2A-TEST"))
                 .andExpect(jsonPath("$.idPosizioneDebitoria")
                         .value(IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-get-1")))
@@ -1373,7 +1373,7 @@ class PosizioneDebitoriaControllerTest {
     void getPosizioneDebitoriaRestituisce404SeNonEsiste() throws Exception {
         mockMvc.perform(get("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", "pos-inesistente"))
                 .andExpect(status().isNotFound())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(404));
     }
 
@@ -1460,7 +1460,7 @@ class PosizioneDebitoriaControllerTest {
     void findPosizioniDebitorieRestituisce400SeMancaIdDebitoreObbligatorio() throws Exception {
         mockMvc.perform(get("/posizioni-debitorie/{idA2A}", "A2A-TEST"))
                 .andExpect(status().isBadRequest())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(400));
     }
 
@@ -1471,7 +1471,7 @@ class PosizioneDebitoriaControllerTest {
                         .param("idDebitore", "FRRPLA90C41H501Y")
                         .param("page", "abc"))
                 .andExpect(status().isBadRequest())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(400));
     }
 
@@ -1532,7 +1532,7 @@ class PosizioneDebitoriaControllerTest {
                         .param("page", "1")
                         .param("cursor", ""))
                 .andExpect(status().isBadRequest())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(400));
     }
 
@@ -1544,7 +1544,7 @@ class PosizioneDebitoriaControllerTest {
                         .param("cursor", "")
                         .param("sort", "dataCreazione:asc"))
                 .andExpect(status().isBadRequest())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(400));
     }
 
@@ -1556,7 +1556,7 @@ class PosizioneDebitoriaControllerTest {
                         .param("cursor", "")
                         .param("total", "true"))
                 .andExpect(status().isBadRequest())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(400));
     }
 
@@ -1567,7 +1567,7 @@ class PosizioneDebitoriaControllerTest {
                         .param("idDebitore", "FRRPLA90C41H501Y")
                         .param("cursor", "non-e-un-cursore-valido"))
                 .andExpect(status().isBadRequest())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(400));
     }
 
@@ -1654,7 +1654,7 @@ class PosizioneDebitoriaControllerTest {
                                 [ { "op": "replace", "path": "/navNotifica", "value": "999999999999999999" } ]
                                 """))
                 .andExpect(status().isBadRequest())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(400));
     }
 
@@ -1694,7 +1694,7 @@ class PosizioneDebitoriaControllerTest {
                                 [ { "op": "replace", "path": "/opzioniPagamento", "value": [] } ]
                                 """))
                 .andExpect(status().isBadRequest())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(400));
     }
 
@@ -1795,7 +1795,7 @@ class PosizioneDebitoriaControllerTest {
                         .contentType(PATCH_MEDIA_TYPE)
                         .content("[ null ]"))
                 .andExpect(status().isBadRequest())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(400));
     }
 
@@ -1811,7 +1811,7 @@ class PosizioneDebitoriaControllerTest {
                                 [ { "op": "replace", "path": "/soggettiDebitori", "value": null } ]
                                 """))
                 .andExpect(status().isBadRequest())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(400));
     }
 
@@ -1827,7 +1827,7 @@ class PosizioneDebitoriaControllerTest {
                                 [ { "op": "replace", "path": "/soggettiDebitori", "value": [ null ] } ]
                                 """))
                 .andExpect(status().isBadRequest())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(400));
     }
 
@@ -1844,7 +1844,7 @@ class PosizioneDebitoriaControllerTest {
                                 [ { "op": "replace", "path": "/descrizione", "value": "%s" } ]
                                 """.formatted(descrizione141)))
                 .andExpect(status().isBadRequest())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(400));
     }
 
@@ -1891,7 +1891,7 @@ class PosizioneDebitoriaControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isForbidden())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(403));
     }
 
@@ -1918,7 +1918,7 @@ class PosizioneDebitoriaControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isCreated())
-                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(content().contentType(MediaType.valueOf("application/json;charset=UTF-8")))
                 .andExpect(jsonPath("$.idOpzionePagamento").value(notNullValue()))
                 .andExpect(jsonPath("$.tipologia").value("SOLUZIONE_UNICA"))
                 .andExpect(jsonPath("$.stato").value("DISPONIBILE"))
@@ -1953,7 +1953,7 @@ class PosizioneDebitoriaControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isNotFound())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(404));
     }
 
@@ -1966,7 +1966,7 @@ class PosizioneDebitoriaControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("null"))
                 .andExpect(status().isBadRequest())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(400));
     }
 
@@ -2044,7 +2044,7 @@ class PosizioneDebitoriaControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isConflict())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(409));
     }
 
@@ -2109,7 +2109,7 @@ class PosizioneDebitoriaControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isConflict())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(409));
     }
 
@@ -2143,7 +2143,7 @@ class PosizioneDebitoriaControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isCreated())
-                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(content().contentType(MediaType.valueOf("application/json;charset=UTF-8")))
                 .andExpect(jsonPath("$.idPendenza").value("pos-add-pendenza-seconda"))
                 .andExpect(jsonPath("$.numeroAvviso").value(notNullValue()))
                 .andExpect(jsonPath("$.iuv").value(notNullValue()));
@@ -2170,7 +2170,7 @@ class PosizioneDebitoriaControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isNotFound())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(404));
     }
 
@@ -2185,7 +2185,7 @@ class PosizioneDebitoriaControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("null"))
                 .andExpect(status().isBadRequest())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(400));
     }
 
@@ -2214,7 +2214,7 @@ class PosizioneDebitoriaControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isConflict())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(409));
     }
 
@@ -2260,7 +2260,7 @@ class PosizioneDebitoriaControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(bodyNuovaPendenza))
                 .andExpect(status().isBadRequest())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(400));
     }
 
@@ -2283,7 +2283,7 @@ class PosizioneDebitoriaControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isConflict())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(409));
     }
 
@@ -2344,7 +2344,7 @@ class PosizioneDebitoriaControllerTest {
                                 [ { "op": "replace", "path": "/stato", "value": "DISPONIBILE" } ]
                                 """))
                 .andExpect(status().isConflict())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(409));
     }
 
@@ -2388,7 +2388,7 @@ class PosizioneDebitoriaControllerTest {
                                 [ { "op": "replace", "path": "/stato", "value": "DISPONIBILE" } ]
                                 """))
                 .andExpect(status().isConflict())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(409));
     }
 
@@ -2404,7 +2404,7 @@ class PosizioneDebitoriaControllerTest {
                                 [ { "op": "replace", "path": "/tipologia", "value": "PIANO_RATEALE" } ]
                                 """))
                 .andExpect(status().isBadRequest())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(400));
     }
 
@@ -2450,7 +2450,7 @@ class PosizioneDebitoriaControllerTest {
                                 [ { "op": "replace", "path": "/stato", "value": "ANNULLATA" } ]
                                 """))
                 .andExpect(status().isNotFound())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(404));
     }
 
@@ -2493,7 +2493,7 @@ class PosizioneDebitoriaControllerTest {
                                 [ { "op": "replace", "path": "/stato", "value": "ANNULLATA" } ]
                                 """))
                 .andExpect(status().isConflict())
-                .andExpect(content().contentType(MediaType.valueOf("application/problem+json")))
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(409));
     }
 }
