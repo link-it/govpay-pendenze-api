@@ -8,10 +8,18 @@
 -- stesse tabelle per i propri test con ddl-auto=validate. Se le entita'
 -- cambiano, riallineare prima quella copia, poi replicare qui.
 --
--- Provenienza: nessun DDL di produzione esiste ancora (nessuna migrazione dati
---   scritta finora) — questo schema e' derivato colonna per colonna dalle
---   annotazioni JPA delle entita' di govpay-common-pendenze
---   (it.govpay.pendenze.entity), che restano la fonte di verita'.
+-- Provenienza: lo schema SQL del core GovPay 3.11.x e' la fonte
+--   (src/main/resources/db/sql/postgresql/gov_pay.sql, patch 3.11.0, Issue #901
+--   del core). Le tabelle mappate dalle entita' di src/main/java/it/govpay/pendenze/entity
+--   riportano tutte le colonne del core, con gli stessi tipi, nullabilita' e default,
+--   anche quelle che le entita' non mappano: cosi' un INSERT della libreria che
+--   dimentica una colonna NOT NULL senza default fallisce qui come in produzione.
+--   Se il core cambia una di queste tabelle, questo file va riallineato; se una
+--   entita' mappa una colonna nuova, la colonna va prima aggiunta al core. I test
+--   verificano il mapping con spring.jpa.hibernate.ddl-auto=validate.
+--
+--   Le differenze dal core sono solo di sintassi H2 e di vincoli: niente foreign key
+--   verso l'anagrafica, niente indici non univoci.
 --
 -- Non sono presenti foreign key verso l'anagrafica (domini, unita' operative,
 -- tipi pendenza), che qui non esiste: la libreria mappa quelle colonne come
@@ -317,6 +325,8 @@ CREATE TABLE IF NOT EXISTS documenti
 	data_creazione TIMESTAMP NOT NULL,
 	data_ultimo_aggiornamento TIMESTAMP NOT NULL,
 	versione BIGINT NOT NULL DEFAULT 0,
+	anomalo BOOLEAN NOT NULL,
+	descrizione_stato VARCHAR(255),
 	-- fk/pk columns
 	id BIGINT DEFAULT nextval('seq_documenti') NOT NULL,
 	id_dominio BIGINT NOT NULL,
@@ -409,8 +419,11 @@ CREATE TABLE IF NOT EXISTS versamenti
 	tassonomia_avviso VARCHAR(35),
 	tassonomia VARCHAR(35),
 	cod_lotto VARCHAR(35),
+	cod_versamento_lotto VARCHAR(35),
 	cod_anno_tributario VARCHAR(35),
+	cod_bundlekey VARCHAR(256),
 	dati_allegati TEXT,
+	incasso VARCHAR(1),
 	anomalie TEXT,
 	iuv_versamento VARCHAR(35),
 	numero_avviso VARCHAR(35),
@@ -437,6 +450,10 @@ CREATE TABLE IF NOT EXISTS versamenti
 	tipo VARCHAR(35) NOT NULL,
 	data_notifica_avviso TIMESTAMP,
 	avviso_notificato BOOLEAN,
+	avv_mail_data_prom_scadenza TIMESTAMP,
+	avv_mail_prom_scad_notificato BOOLEAN,
+	avv_app_io_data_prom_scadenza TIMESTAMP,
+	avv_app_io_prom_scad_notificat BOOLEAN,
 	proprieta TEXT,
 	data_ultima_modifica_aca TIMESTAMP,
 	data_ultima_comunicazione_aca TIMESTAMP,
@@ -448,6 +465,7 @@ CREATE TABLE IF NOT EXISTS versamenti
 	id_tipo_versamento_dominio BIGINT NOT NULL,
 	id_tipo_versamento BIGINT NOT NULL,
 	id_dominio BIGINT NOT NULL,
+	id_uo BIGINT,
 	id_applicazione BIGINT NOT NULL,
 	id_documento BIGINT,
 	id_opzione_pagamento BIGINT,
@@ -456,7 +474,8 @@ CREATE TABLE IF NOT EXISTS versamenti
 	-- fk/pk keys constraints
 	-- Nessuna FK verso tipi_vers_domini/tipi_versamento/applicazioni (M4, stessa ragione di
 	-- documenti sopra) — presenti invece nel legacy reale.
-	CONSTRAINT fk_vrs_id_documento FOREIGN KEY (id_documento) REFERENCES documenti(id),
+	-- Nessuna FK su id_documento, come nel core: gov_pay.sql toglie fk_vrs_id_documento per
+	-- le prestazioni.
 	CONSTRAINT fk_vrs_id_opzione_pagamento FOREIGN KEY (id_opzione_pagamento) REFERENCES opzioni_pagamento(id),
 	CONSTRAINT pk_versamenti PRIMARY KEY (id)
 );
@@ -477,6 +496,7 @@ CREATE TABLE IF NOT EXISTS singoli_versamenti
 	tipo_contabilita VARCHAR(1),
 	codice_contabilita VARCHAR(255),
 	descrizione VARCHAR(256),
+	dati_allegati TEXT,
 	indice_dati INT NOT NULL,
 	contabilita TEXT,
 	metadata TEXT,
@@ -495,7 +515,8 @@ CREATE TABLE IF NOT EXISTS singoli_versamenti
 	-- unique constraints
 	CONSTRAINT unique_sng_id_voce UNIQUE (id_versamento, indice_dati),
 	-- fk/pk keys constraints
-	CONSTRAINT fk_sng_id_versamento FOREIGN KEY (id_versamento) REFERENCES versamenti(id),
+	-- Nessuna FK su id_versamento, come nel core: gov_pay.sql toglie fk_sng_id_versamento per
+	-- le prestazioni.
 	CONSTRAINT pk_singoli_versamenti PRIMARY KEY (id)
 );
 
@@ -517,9 +538,10 @@ CREATE TABLE IF NOT EXISTS id_messaggio_relativo
 );
 
 -- ---------------------------------------------------------------------------
--- Anagrafica di govpay-common necessaria a GeneratoreIuvStandard: stesso DDL di
--- test di govpay-common (src/test/resources/schema.sql), non una definizione
--- indipendente. Tutte le tabelle di it.govpay.common.entity sono richieste
+-- Anagrafica di govpay-common necessaria a GeneratoreIuvStandard: le colonne mappate
+-- dalle entita' di govpay-common, con i tipi e la nullabilita' del core (gov_pay.sql
+-- 3.11.x); id IDENTITY come nello schema di test di govpay-common, che genera le chiavi
+-- di queste entita' in modo diverso dal core (sequenze). Tutte le tabelle di it.govpay.common.entity sono richieste
 -- perche' @EntityScan(basePackageClasses = DominioEntity.class) in
 -- PendenzeTestApplication scansiona l'intero package, non le singole classi —
 -- incluso it.govpay.common.entity.batch (le tre tabelle standard di Spring
@@ -577,27 +599,27 @@ CREATE TABLE IF NOT EXISTS configurazione (
 
 CREATE TABLE IF NOT EXISTS intermediari (
     id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-    cod_intermediario VARCHAR(255) NOT NULL,
-    cod_connettore_pdd VARCHAR(255),
-    cod_connettore_recupero_rt VARCHAR(255),
-    cod_connettore_aca VARCHAR(255),
-    cod_connettore_gpd VARCHAR(255),
-    cod_connettore_fr VARCHAR(255),
-    cod_connettore_backoffice_ec VARCHAR(255),
-    denominazione VARCHAR(255),
-    principal VARCHAR(255),
-    principal_originale VARCHAR(255),
+    cod_intermediario VARCHAR(35) NOT NULL,
+    cod_connettore_pdd VARCHAR(35) NOT NULL,
+    cod_connettore_recupero_rt VARCHAR(35),
+    cod_connettore_aca VARCHAR(35),
+    cod_connettore_gpd VARCHAR(35),
+    cod_connettore_fr VARCHAR(35),
+    cod_connettore_backoffice_ec VARCHAR(35),
+    denominazione VARCHAR(255) NOT NULL,
+    principal VARCHAR(4000) NOT NULL,
+    principal_originale VARCHAR(4000) NOT NULL,
     abilitato BOOLEAN NOT NULL,
     CONSTRAINT uk_intermediari_cod UNIQUE (cod_intermediario)
 );
 
 CREATE TABLE IF NOT EXISTS stazioni (
     id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-    cod_stazione VARCHAR(255) NOT NULL,
-    password VARCHAR(255),
+    cod_stazione VARCHAR(35) NOT NULL,
+    password VARCHAR(35) NOT NULL,
     abilitato BOOLEAN NOT NULL,
-    application_code INTEGER,
-    versione VARCHAR(255),
+    application_code INT NOT NULL,
+    versione VARCHAR(35) NOT NULL,
     id_intermediario BIGINT NOT NULL,
     CONSTRAINT uk_stazioni_cod UNIQUE (cod_stazione),
     CONSTRAINT fk_stazioni_intermediario FOREIGN KEY (id_intermediario) REFERENCES intermediari(id)
@@ -676,7 +698,7 @@ CREATE TABLE IF NOT EXISTS domini (
     segregation_code INT,
     -- Mappata da DominioLogoEntity (proiezione della stessa tabella per il solo BLOB del
     -- logo), non da DominioEntity: serve comunque perche' e' nello stesso package scansionato.
-    logo VARBINARY(255),
+    logo BYTEA,
     cbill VARCHAR(255),
     aut_stampa_poste VARCHAR(255),
     cod_connettore_my_pivot VARCHAR(255),
@@ -714,25 +736,46 @@ CREATE TABLE IF NOT EXISTS rpt
 	cod_stazione VARCHAR(35) NOT NULL,
 	cod_msg_richiesta VARCHAR(35) NOT NULL,
 	tipo_versamento VARCHAR(35),
+	tipo_identificativo_attestante VARCHAR(1),
+	identificativo_attestante VARCHAR(35),
+	denominazione_attestante VARCHAR(70),
 	stato VARCHAR(35) NOT NULL,
 	descrizione_stato TEXT,
+	cod_sessione VARCHAR(255),
+	cod_sessione_portale VARCHAR(255),
+	psp_redirect_url VARCHAR(512),
 	xml_rt BYTEA,
+	cod_canale VARCHAR(35),
+	cod_psp VARCHAR(35),
+	cod_intermediario_psp VARCHAR(35),
 	xml_rpt BYTEA,
 	data_msg_ricevuta TIMESTAMP,
 	data_msg_richiesta TIMESTAMP NOT NULL,
 	data_aggiornamento_stato TIMESTAMP NOT NULL,
+	callback_url TEXT,
 	cod_esito_pagamento INT,
+	importo_totale_pagato DOUBLE PRECISION,
 	versione VARCHAR(35) NOT NULL,
 	cod_carrello VARCHAR(35),
 	modello_pagamento VARCHAR(16),
+	cod_msg_ricevuta VARCHAR(35),
 	cod_transazione_rpt VARCHAR(36),
+	cod_transazione_rt VARCHAR(36),
+	stato_conservazione VARCHAR(35),
+	descrizione_stato_cons VARCHAR(512),
+	data_conservazione TIMESTAMP,
+	bloccante BOOLEAN NOT NULL DEFAULT true,
 	-- fk/pk columns
 	id BIGINT DEFAULT nextval('seq_rpt') NOT NULL,
-	id_versamento BIGINT NOT NULL,
+	-- Nullable dall'issue #6/govpay-pafornode-api: una ricevuta senza pendenza (stazione in
+	-- broadcast) viene comunque salvata. id_applicazione e' popolata solo in quel caso (vedi
+	-- Javadoc di classe di Rpt). Nessuna FK su rpt, come nel core: gov_pay.sql toglie
+	-- fk_rpt_id_versamento per le prestazioni e non dichiara FK su id_applicazione.
+	id_versamento BIGINT,
+	id_applicazione BIGINT,
 	-- unique constraints
 	CONSTRAINT unique_rpt_id_transazione UNIQUE (iuv, ccp, cod_dominio),
 	-- fk/pk keys constraints
-	CONSTRAINT fk_rpt_id_versamento FOREIGN KEY (id_versamento) REFERENCES versamenti(id),
 	CONSTRAINT pk_rpt PRIMARY KEY (id)
 );
 
@@ -790,15 +833,26 @@ CREATE TABLE IF NOT EXISTS pagamenti
 	importo_pagato DOUBLE PRECISION NOT NULL,
 	data_acquisizione TIMESTAMP NOT NULL,
 	data_pagamento TIMESTAMP NOT NULL,
+	commissioni_psp DOUBLE PRECISION,
+	tipo_allegato VARCHAR(2),
+	allegato BYTEA,
+	data_acquisizione_revoca TIMESTAMP,
+	causale_revoca VARCHAR(140),
+	dati_revoca VARCHAR(140),
+	importo_revocato DOUBLE PRECISION,
+	esito_revoca VARCHAR(140),
+	dati_esito_revoca VARCHAR(140),
 	stato VARCHAR(35),
 	tipo VARCHAR(35) NOT NULL,
 	-- fk/pk columns
 	id BIGINT DEFAULT nextval('seq_pagamenti') NOT NULL,
 	id_rpt BIGINT,
+	id_singolo_versamento BIGINT,
+	id_incasso BIGINT,
 	-- unique constraints
 	CONSTRAINT unique_pag_id_riscossione UNIQUE (cod_dominio, iuv, iur, indice_dati),
 	-- fk/pk keys constraints
-	CONSTRAINT fk_pag_id_rpt FOREIGN KEY (id_rpt) REFERENCES rpt(id),
+	-- Nessuna FK su id_rpt, come nel core: gov_pay.sql toglie fk_pag_id_rpt per le prestazioni.
 	CONSTRAINT pk_pagamenti PRIMARY KEY (id)
 );
 
@@ -815,13 +869,20 @@ CREATE TABLE IF NOT EXISTS fr
 	data_regolamento TIMESTAMP,
 	cod_psp VARCHAR(35) NOT NULL,
 	cod_bic_riversamento VARCHAR(35),
+	xml BYTEA,
+	ragione_sociale_psp VARCHAR(255),
+	ragione_sociale_dominio VARCHAR(255),
 	numero_pagamenti BIGINT,
 	importo_totale_pagamenti DOUBLE PRECISION,
 	stato VARCHAR(35) NOT NULL,
+	descrizione_stato TEXT,
 	revisione BIGINT,
 	obsoleto BOOLEAN NOT NULL,
+	data_ora_pubblicazione TIMESTAMP,
+	data_ora_aggiornamento TIMESTAMP,
 	-- fk/pk columns
 	id BIGINT DEFAULT nextval('seq_fr') NOT NULL,
+	id_incasso BIGINT,
 	-- unique constraints
 	CONSTRAINT unique_fr_1 UNIQUE (id_dominio, cod_flusso, data_ora_flusso),
 	CONSTRAINT unique_fr_2 UNIQUE (id_dominio, cod_flusso, cod_psp, revisione),
@@ -841,6 +902,8 @@ CREATE TABLE IF NOT EXISTS rendicontazioni
 	data TIMESTAMP,
 	stato VARCHAR(35) NOT NULL,
 	anomalie TEXT,
+	esegui_recupero_rt BOOLEAN NOT NULL DEFAULT true,
+	notifica_inviata BOOLEAN NOT NULL DEFAULT false,
 	-- fk/pk columns
 	id BIGINT DEFAULT nextval('seq_rendicontazioni') NOT NULL,
 	id_fr BIGINT NOT NULL,
