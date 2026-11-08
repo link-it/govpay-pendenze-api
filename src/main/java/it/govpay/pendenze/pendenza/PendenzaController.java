@@ -333,7 +333,7 @@ public class PendenzaController implements PendenzeApi {
      */
     @Override
     @Transactional(readOnly = true)
-    public ResponseEntity<Pendenze> findPendenze(String idA2A, String numeroAvviso, String idDominio, Integer page,
+    public ResponseEntity<Pendenze> findPendenze(String idA2A, String numeroAvviso, String idDominio, Integer offset,
             String cursor, Integer limit, String sort, String fields, Boolean total) {
         aclAuthorizer.richiedeLettura();
         currentApplicazioneService.verificaIdA2A(idA2A);
@@ -362,11 +362,11 @@ public class PendenzaController implements PendenzeApi {
                 dto.setNextCursor(CursorCodec.encode(ultima.getDataCreazione(), ultima.getId()));
             }
         } else {
-            int paginaEffettiva = QueryParamUtils.isExplicit(currentRequest, "page") ? page : 1;
+            int offsetEffettivo = QueryParamUtils.isExplicit(currentRequest, "offset") ? offset : 0;
             Sort ordinamento = CriteriOrdinamento.parse(sort, CAMPI_ORDINABILI);
-            Pageable pageable = OffsetPageRequest.of((long) (paginaEffettiva - 1) * limit, limit, ordinamento);
+            Pageable pageable = OffsetPageRequest.of(offsetEffettivo, limit, ordinamento);
 
-            Pagination pagination = new Pagination(paginaEffettiva, limit, false);
+            Pagination pagination = new Pagination(offsetEffettivo, limit, false);
             if (Boolean.TRUE.equals(total)) {
                 PaginaRisultati<Pendenza> pagina = posizioneDebitoriaService.cercaPendenze(idA2A, numeroAvviso,
                         idDominioRisolto, pageable);
@@ -392,7 +392,7 @@ public class PendenzaController implements PendenzeApi {
     private static final Map<String, String> CAMPI_ORDINABILI_RICEVUTE = Map.of("data", "dataMsgRicevuta");
 
     /**
-     * Stesso pattern page/cursor/limit/sort/fields/total di {@link #findPendenze} (vedi il suo
+     * Stesso pattern offset/cursor/limit/sort/fields/total di {@link #findPendenze} (vedi il suo
      * Javadoc per le due modalita' di paginazione), qui su {@link RicevutaRendicontazioneService}
      * invece che su {@link PosizioneDebitoriaService}.
      *
@@ -407,7 +407,7 @@ public class PendenzaController implements PendenzeApi {
      */
     @Override
     @Transactional(readOnly = true)
-    public ResponseEntity<Ricevute> findRicevutePendenza(String idA2A, String idPendenza, Integer page,
+    public ResponseEntity<Ricevute> findRicevutePendenza(String idA2A, String idPendenza, Integer offset,
             String cursor, Integer limit, String sort, String fields, Boolean total) {
         aclAuthorizer.richiedeLettura();
         currentApplicazioneService.verificaIdA2A(idA2A);
@@ -431,11 +431,11 @@ public class PendenzaController implements PendenzeApi {
                 dto.setNextCursor(CursorCodec.encode(ultima.getDataMsgRicevuta(), ultima.getId()));
             }
         } else {
-            int paginaEffettiva = QueryParamUtils.isExplicit(currentRequest, "page") ? page : 1;
+            int offsetEffettivo = QueryParamUtils.isExplicit(currentRequest, "offset") ? offset : 0;
             Sort ordinamento = CriteriOrdinamento.parse(sort, CAMPI_ORDINABILI_RICEVUTE);
-            Pageable pageable = OffsetPageRequest.of((long) (paginaEffettiva - 1) * limit, limit, ordinamento);
+            Pageable pageable = OffsetPageRequest.of(offsetEffettivo, limit, ordinamento);
 
-            Pagination pagination = new Pagination(paginaEffettiva, limit, false);
+            Pagination pagination = new Pagination(offsetEffettivo, limit, false);
             PaginaRisultati<RicevutaElenco> pagina = ricevutaRendicontazioneService.cercaRicevute(pendenza.getId(),
                     pageable);
             risultati = pagina.risultati().stream().map(ricevutaMapper::toRicevutaIndexDto).toList();
@@ -512,7 +512,7 @@ public class PendenzaController implements PendenzeApi {
     private static final Map<String, String> CAMPI_ORDINABILI_RENDICONTAZIONI = Map.of("data", "data");
 
     /**
-     * Stesso pattern page/cursor/limit/sort/fields/total di {@link #findRicevutePendenza}, qui
+     * Stesso pattern offset/cursor/limit/sort/fields/total di {@link #findRicevutePendenza}, qui
      * su {@link RicevutaRendicontazioneService#cercaRendicontazioni}/
      * {@link RicevutaRendicontazioneService#cercaRendicontazioniDaCursore}.
      *
@@ -522,7 +522,7 @@ public class PendenzaController implements PendenzeApi {
      */
     @Override
     @Transactional(readOnly = true)
-    public ResponseEntity<Rendicontazioni> findRendicontazioniPendenza(String idA2A, String idPendenza, Integer page,
+    public ResponseEntity<Rendicontazioni> findRendicontazioniPendenza(String idA2A, String idPendenza, Integer offset,
             String cursor, Integer limit, String sort, String fields, Boolean total) {
         aclAuthorizer.richiedeLettura();
         currentApplicazioneService.verificaIdA2A(idA2A);
@@ -548,11 +548,11 @@ public class PendenzaController implements PendenzeApi {
                 dto.setNextCursor(CursorCodec.encode(ultima.getFlusso().getDataOraFlusso(), ultima.getId()));
             }
         } else {
-            int paginaEffettiva = QueryParamUtils.isExplicit(currentRequest, "page") ? page : 1;
+            int offsetEffettivo = QueryParamUtils.isExplicit(currentRequest, "offset") ? offset : 0;
             Sort ordinamento = CriteriOrdinamento.parse(sort, CAMPI_ORDINABILI_RENDICONTAZIONI);
-            Pageable pageable = OffsetPageRequest.of((long) (paginaEffettiva - 1) * limit, limit, ordinamento);
+            Pageable pageable = OffsetPageRequest.of(offsetEffettivo, limit, ordinamento);
 
-            Pagination pagination = new Pagination(paginaEffettiva, limit, false);
+            Pagination pagination = new Pagination(offsetEffettivo, limit, false);
             PaginaRisultati<it.govpay.pendenze.entity.Rendicontazione> pagina = ricevutaRendicontazioneService
                     .cercaRendicontazioni(pendenza.getId(), pageable);
             risultati = pagina.risultati().stream().map(rendicontazioneMapper::toRendicontazioneDto).toList();
@@ -574,10 +574,10 @@ public class PendenzaController implements PendenzeApi {
      * (entrambi implementano interfacce generate diverse).
      */
     private void rifiutaSeIncompatibiliConCursore(String sort, Boolean total) {
-        if (QueryParamUtils.isExplicit(currentRequest, "page")) {
+        if (QueryParamUtils.isExplicit(currentRequest, "offset")) {
             throw new ValidazioneNonSuperataException(
-                    "parametri 'page' e 'cursor' mutuamente esclusivi: usare solo uno dei due "
-                            + "(cursor per paginazione keyset, page per paginazione a offset)");
+                    "parametri 'offset' e 'cursor' mutuamente esclusivi: usare solo uno dei due "
+                            + "(cursor per paginazione keyset, offset per paginazione a offset)");
         }
         if (sort != null && !sort.isBlank()) {
             throw new ValidazioneNonSuperataException(
