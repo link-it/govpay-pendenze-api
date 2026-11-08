@@ -51,9 +51,9 @@ class RendicontazioneMapperTest {
 
         assertThat(dto.getIuv()).isEqualTo("01000000202012345");
         assertThat(dto.getIur()).isEqualTo("1234acdc");
-        assertThat(dto.getIndice()).isEqualTo(BigDecimal.valueOf(1));
+        assertThat(dto.getIndice()).isEqualTo(1);
         assertThat(dto.getImporto()).isEqualTo(BigDecimal.valueOf(10.01));
-        assertThat(dto.getEsito()).isEqualTo(Rendicontazione.EsitoEnum.NUMBER_0);
+        assertThat(dto.getEsito()).isEqualTo(Rendicontazione.EsitoEnum.EXECUTED);
         assertThat(dto.getData()).isEqualTo(LocalDate.of(2026, 10, 3));
         assertThat(dto.getStato()).isEqualTo(StatoRendicontazione.OK);
     }
@@ -64,7 +64,7 @@ class RendicontazioneMapperTest {
         it.govpay.pendenze.entity.Rendicontazione entity = rendicontazione();
         entity.setEsito(4);
 
-        assertThat(mapper.toRendicontazioneDto(entity).getEsito()).isEqualTo(Rendicontazione.EsitoEnum.NUMBER_4);
+        assertThat(mapper.toRendicontazioneDto(entity).getEsito()).isEqualTo(Rendicontazione.EsitoEnum.STAND_IN);
     }
 
     @Test
@@ -72,7 +72,7 @@ class RendicontazioneMapperTest {
         it.govpay.pendenze.entity.Rendicontazione entity = rendicontazione();
         entity.setEsito(8);
 
-        assertThat(mapper.toRendicontazioneDto(entity).getEsito()).isEqualTo(Rendicontazione.EsitoEnum.NUMBER_8);
+        assertThat(mapper.toRendicontazioneDto(entity).getEsito()).isEqualTo(Rendicontazione.EsitoEnum.STAND_IN_NO_RPT);
     }
 
     @Test
@@ -104,7 +104,7 @@ class RendicontazioneMapperTest {
                 .isEqualTo(OffsetDateTime.parse("2026-10-03T10:27:27.903+02:00"));
         assertThat(dto.getFlusso().getIdPsp()).isEqualTo("ABI-12345");
         assertThat(dto.getFlusso().getBicRiversamento()).isEqualTo("BIC-12345");
-        assertThat(dto.getFlusso().getNumeroPagamenti()).isEqualTo(BigDecimal.valueOf(3));
+        assertThat(dto.getFlusso().getNumeroPagamenti()).isEqualTo(3L);
         assertThat(dto.getFlusso().getImportoTotale()).isEqualTo(100.01);
         assertThat(dto.getFlusso().getStato()).isEqualTo(StatoFlussoRendicontazione.ACCETTATA);
     }
@@ -119,6 +119,16 @@ class RendicontazioneMapperTest {
                 .isInstanceOf(RendicontazioneNonLeggibileException.class)
                 .hasMessageContaining(entity.getIuv())
                 .hasMessageContaining(entity.getIur());
+    }
+
+    @Test
+    void esitoNonPrevistoSollevaEccezioneLeggibile() {
+        it.govpay.pendenze.entity.Rendicontazione entity = rendicontazione();
+        entity.setEsito(1);
+
+        assertThatThrownBy(() -> mapper.toRendicontazioneDto(entity))
+                .isInstanceOf(RendicontazioneNonLeggibileException.class)
+                .hasMessageContaining("esito 1");
     }
 
     @Test

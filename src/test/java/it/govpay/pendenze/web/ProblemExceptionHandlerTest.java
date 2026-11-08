@@ -24,6 +24,8 @@ import org.springframework.web.servlet.NoHandlerFoundException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import it.govpay.pendenze.api.model.Problem;
+import it.govpay.pendenze.avviso.StampeNotConfiguredException;
+import it.govpay.pendenze.stato.ServizioNonDisponibileException;
 import jakarta.servlet.http.HttpServletRequest;
 
 /**
@@ -161,5 +163,43 @@ class ProblemExceptionHandlerTest {
 
         assertThat(risposta.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
         assertThat(risposta.getBody().getDetail()).doesNotContain("dettaglio interno");
+    }
+
+    @Test
+    @DisplayName("le risposte 503 riportano Retry-After (RAC_ROBUSTEZZA_002)")
+    void servizioNonDisponibileDiventa503ConRetryAfter() {
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        when(request.getMethod()).thenReturn("GET");
+        when(request.getRequestURI()).thenReturn("/v3/status");
+
+        ResponseEntity<Problem> risposta = handler.handleServizioNonDisponibile(
+                new ServizioNonDisponibileException("stato DOWN"), request);
+        ResponseEntity<Problem> rispostaStampe = handler.handleServizioNonDisponibile(
+                new StampeNotConfiguredException(), request);
+
+        assertThat(risposta.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(risposta.getHeaders().getFirst(HttpHeaders.RETRY_AFTER)).isEqualTo("60");
+        assertThat(rispostaStampe.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(rispostaStampe.getHeaders().getFirst(HttpHeaders.RETRY_AFTER)).isEqualTo("60");
+    }
+
+    @Test
+    @DisplayName("gli errori v3 dichiarano charset=UTF-8 (BP-CONFIG-3), quelli v2 restano invariati")
+    void charsetDichiaratoSoloSugliErroriV3() {
+        HttpServletRequest richiestaV3 = mock(HttpServletRequest.class);
+        when(richiestaV3.getRequestURI()).thenReturn("/govpay/v3/pendenze/A2A-TEST/pend-1");
+        when(richiestaV3.getContextPath()).thenReturn("/govpay");
+        HttpServletRequest richiestaV2 = mock(HttpServletRequest.class);
+        when(richiestaV2.getRequestURI()).thenReturn("/govpay/v2/pendenze/A2A-TEST/pend-1");
+        when(richiestaV2.getContextPath()).thenReturn("/govpay");
+
+        ResponseEntity<Problem> rispostaV3 = handler.handleOptimisticLockingFailure(
+                new OptimisticLockingFailureException("conflitto simulato"), richiestaV3);
+        ResponseEntity<Problem> rispostaV2 = handler.handleOptimisticLockingFailure(
+                new OptimisticLockingFailureException("conflitto simulato"), richiestaV2);
+
+        assertThat(rispostaV3.getHeaders().getContentType())
+                .isEqualTo(MediaType.valueOf("application/problem+json;charset=UTF-8"));
+        assertThat(rispostaV2.getHeaders().getContentType()).isEqualTo(MediaType.valueOf("application/problem+json"));
     }
 }

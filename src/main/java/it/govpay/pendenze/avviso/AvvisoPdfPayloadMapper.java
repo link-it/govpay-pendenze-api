@@ -540,11 +540,11 @@ public class AvvisoPdfPayloadMapper {
     }
 
     /**
-     * {@code null} (nessuna lingua secondaria) per {@link LinguaSecondaria#FALSE}. Non-private:
+     * {@code null} (nessuna lingua secondaria) se {@code linguaSecondaria} e' assente. Non-private:
      * testata direttamente (stesso pattern di {@code console-api.AvvisoPdfPayloadMapper}).
      */
     static Languages toClientLanguage(LinguaSecondaria input) {
-        if (input == null || input == LinguaSecondaria.FALSE) {
+        if (input == null) {
             return null;
         }
         return switch (input) {
@@ -552,7 +552,6 @@ public class AvvisoPdfPayloadMapper {
             case EN -> Languages.EN;
             case FR -> Languages.FR;
             case SL -> Languages.SL;
-            default -> null;
         };
     }
 

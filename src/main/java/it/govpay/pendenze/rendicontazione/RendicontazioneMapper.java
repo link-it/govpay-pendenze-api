@@ -25,7 +25,10 @@ import it.govpay.pendenze.api.model.StatoRendicontazione;
  * a mezzanotte ({@code DateUtils.toJavaDate(LocalDate)}). Troncare con {@code toLocalDate()}
  * verso il DTO ({@code type: string, format: date}) e' quindi fedele al dato originale, non
  * una perdita di informazione.</li>
- * <li>{@code entity.esito} (0/3/4/8/9) replica 1:1 {@code EsitoRendicontazione} del legacy
+ * <li>{@code entity.esito} (0/3/4/8/9) e' esposto come enum testuale con i valori di
+ * {@code payStatus} del flusso di rendicontazione pagoPA, con le stesse corrispondenze di
+ * govpay-fdr-batch ({@code EXECUTED/REVOKED/STAND_IN/STAND_IN_NO_RPT/NO_RPT}).
+ * Il codice numerico replica 1:1 {@code EsitoRendicontazione} del legacy
  * ({@code ESEGUITO/REVOCATO/ESEGUITO_STANDIN/ESEGUITO_STANDIN_SENZA_RPT/ESEGUITO_SENZA_RPT}) —
  * lo schema v3 ne copriva inizialmente solo 3 (0/3/9), corretto per includere anche 4/8.
  * Puo' essere nullo in pratica (non solo sulla carta): il legacy
@@ -51,20 +54,31 @@ public class RendicontazioneMapper {
         Rendicontazione dto = new Rendicontazione();
         dto.setIuv(entity.getIuv());
         dto.setIur(entity.getIur());
-        if (entity.getIndiceDati() != null) {
-            dto.setIndice(BigDecimal.valueOf(entity.getIndiceDati()));
-        }
+        dto.setIndice(entity.getIndiceDati());
         dto.setImporto(BigDecimal.valueOf(entity.getImportoPagato()));
         if (entity.getEsito() == null) {
             throw new RendicontazioneNonLeggibileException(
                     "La rendicontazione [iuv:" + entity.getIuv() + ", iur:" + entity.getIur()
                             + "] ha esito nullo: pagoPA ha inviato un codice esito non riconosciuto.");
         }
-        dto.setEsito(Rendicontazione.EsitoEnum.fromValue(BigDecimal.valueOf(entity.getEsito())));
+        dto.setEsito(toEsito(entity));
         dto.setData(entity.getData().toLocalDate());
         dto.setStato(StatoRendicontazione.fromValue(entity.getStato().name()));
         dto.setFlusso(toFlussoRendicontazioneDto(entity.getFlusso()));
         return dto;
+    }
+
+    private static Rendicontazione.EsitoEnum toEsito(it.govpay.pendenze.entity.Rendicontazione entity) {
+        return switch (entity.getEsito()) {
+            case 0 -> Rendicontazione.EsitoEnum.EXECUTED;
+            case 3 -> Rendicontazione.EsitoEnum.REVOKED;
+            case 4 -> Rendicontazione.EsitoEnum.STAND_IN;
+            case 8 -> Rendicontazione.EsitoEnum.STAND_IN_NO_RPT;
+            case 9 -> Rendicontazione.EsitoEnum.NO_RPT;
+            default -> throw new RendicontazioneNonLeggibileException(
+                    "La rendicontazione [iuv:" + entity.getIuv() + ", iur:" + entity.getIur()
+                            + "] ha esito " + entity.getEsito() + ", non previsto dal flusso pagoPA.");
+        };
     }
 
     private static FlussoRendicontazione toFlussoRendicontazioneDto(
@@ -76,9 +90,7 @@ public class RendicontazioneMapper {
         dto.setDataRegolamento(entity.getDataRegolamento());
         dto.setIdPsp(entity.getCodPsp());
         dto.setBicRiversamento(entity.getBicRiversamento());
-        if (entity.getNumeroPagamenti() != null) {
-            dto.setNumeroPagamenti(BigDecimal.valueOf(entity.getNumeroPagamenti()));
-        }
+        dto.setNumeroPagamenti(entity.getNumeroPagamenti());
         dto.setImportoTotale(entity.getImportoTotale());
         dto.setStato(StatoFlussoRendicontazione.fromValue(entity.getStato().name()));
         return dto;

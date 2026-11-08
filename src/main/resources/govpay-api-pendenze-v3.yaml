@@ -20,6 +20,41 @@ info:
     scopi, nei payload inviati. Coerentemente, gli schemi di questa
     specifica non vincolano l'insieme di proprietà accettate/restituite a
     quello esplicitamente documentato.
+
+    Correlazione delle richieste: il client può inviare in ogni richiesta
+    l'header `X-Correlation-ID` (in alternativa `X-Request-ID`), con un
+    valore di al massimo 128 caratteri tra lettere, cifre e `.`, `_`, `:`,
+    `-`. Il servizio lo registra nei propri log e lo restituisce
+    nell'header di risposta `X-Correlation-ID`; se è assente o non valido
+    ne genera uno nuovo. Ogni risposta riporta inoltre in
+    `X-Transaction-ID` l'identificativo della transazione assegnato dal
+    servizio.
+
+    Limiti di utilizzo: il rate limiting è applicato dal gateway di
+    erogazione (es. GovWay) secondo le politiche configurate. Quando una
+    politica è attiva, ogni risposta riporta gli header `X-RateLimit-Limit`,
+    `X-RateLimit-Remaining` e `X-RateLimit-Reset`; al superamento del limite
+    la risposta è `429 Too Many Requests` con l'header `Retry-After`. Anche
+    le risposte `503 Service Unavailable` riportano `Retry-After`, con i
+    secondi dopo i quali ripetere la richiesta.
+
+    Stato del servizio: `GET /status` risponde senza autenticazione `200`
+    se il servizio è operativo, `503` altrimenti.
+
+    Codifica dei caratteri: tutti i payload JSON, di richiesta e di
+    risposta, sono codificati in UTF-8, dichiarato con il parametro
+    `charset=UTF-8` del `Content-Type`.
+
+    Errori: le risposte di errore sono in formato Problem (RFC 7807), con
+    Content-Type `application/problem+json`. `title` riporta la reason
+    phrase HTTP dello status (es. `Conflict`); la spiegazione specifica
+    del singolo errore è in `detail`.
+
+    Nomi dei campi: i campi seguono lo stile camelCase, con l'eccezione
+    delle ricevute nei formati `ctReceipt` e `ctReceiptV2`, che riportano
+    tali e quali i nomi del tracciato pagoPA (es. `PSPCompanyName`,
+    `IBAN`, `MBDAttachment`), per consentire il confronto diretto con la
+    ricevuta del Nodo dei Pagamenti.
   contact:
     name: GitHub Project Page
     url: 'https://github.com/link-it/GovPay/'
@@ -27,15 +62,65 @@ info:
     name: GPL
     url: 'https://github.com/link-it/GovPay/blob/master/LICENSE'
 servers:
-  - url: /govpay/backend/api/pendenze/rs/basic/v3/
+  - url: /v3
+    description: Base path predefinito del servizio
+  - url: /govpay/backend/api/pendenze/rs/basic/v3
+    description: Base path compatibile con il monolite GovPay, da configurare
 tags:
   - name: PosizioniDebitorie
     description: Alimentazione e consultazione delle posizioni debitorie
   - name: Pendenze
     description: Consultazione e aggiornamento puntuale delle singole pendenze (rate)
+  - name: Stato
+    description: Stato del servizio
 security:
   - basicAuth: []
 paths:
+
+  # ============================================================
+  # STATO DEL SERVIZIO
+  # ============================================================
+
+  '/status':
+    get:
+      tags:
+        - Stato
+      summary: Stato del servizio
+      description: >-
+        Restituisce lo stato del servizio: `200` se è operativo, `503` se una
+        delle sue dipendenze (es. il database) non è disponibile. Non richiede
+        autenticazione.
+      operationId: getStatus
+      security: []
+      responses:
+        '200':
+          description: Il servizio è operativo
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
+          content:
+            application/problem+json;charset=UTF-8:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                default:
+                  value:
+                    status: 200
+                    title: OK
+        '429':
+          $ref: '#/components/responses/429TooManyRequests'
+        '503':
+          $ref: '#/components/responses/503ServiceUnavailable'
 
   # ============================================================
   # POSIZIONI DEBITORIE
@@ -68,8 +153,21 @@ paths:
       responses:
         '200':
           description: Elenco delle posizioni debitorie che rispettano i filtri di ricerca
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
-            application/json:
+            application/json;charset=UTF-8:
               schema:
                 $ref: '#/components/schemas/PosizioniDebitorie'
         '400':
@@ -78,6 +176,8 @@ paths:
           $ref: '#/components/responses/401NotAuthenticated'
         '403':
           $ref: '#/components/responses/403NotAuthorized'
+        '429':
+          $ref: '#/components/responses/429TooManyRequests'
         '500':
           $ref: '#/components/responses/500ServiceUnavailable'
     post:
@@ -107,7 +207,7 @@ paths:
             pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
       requestBody:
         content:
-          application/json:
+          application/json;charset=UTF-8:
             schema:
               $ref: '#/components/schemas/NuovaPosizioneDebitoria'
             examples:
@@ -238,12 +338,24 @@ paths:
             contenuto di una GET sulla risorsa appena creata (comprese le
             opzioni di pagamento e le pendenze generate).
           headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
             Location:
               description: URL della posizione debitoria creata (`/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}`)
               schema:
                 type: string
           content:
-            application/json:
+            application/json;charset=UTF-8:
               schema:
                 $ref: '#/components/schemas/PosizioneDebitoria'
         '400':
@@ -256,15 +368,33 @@ paths:
           $ref: '#/components/responses/404NotFound'
         '409':
           description: Esiste già una posizione debitoria con questo codDocumento per questo idA2A e questo idDominio
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
-            application/problem+json:
+            application/problem+json;charset=UTF-8:
               schema:
                 $ref: '#/components/schemas/Problem'
               examples:
                 default:
                   value:
                     status: 409
-                    title: Esiste già una posizione debitoria con questo codDocumento per questo idA2A e questo idDominio
+                    title: Conflict
+                    detail: Esiste già una posizione debitoria con questo codDocumento per questo idA2A e questo idDominio
+        '415':
+          $ref: '#/components/responses/415UnsupportedMediaType'
+        '429':
+          $ref: '#/components/responses/429TooManyRequests'
         '500':
           $ref: '#/components/responses/500ServiceUnavailable'
 
@@ -298,16 +428,33 @@ paths:
       responses:
         '200':
           description: Informazioni dettagliate della posizione debitoria
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
-            application/json:
+            application/json;charset=UTF-8:
               schema:
                 $ref: '#/components/schemas/PosizioneDebitoria'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
         '401':
           $ref: '#/components/responses/401NotAuthenticated'
         '403':
           $ref: '#/components/responses/403NotAuthorized'
         '404':
           $ref: '#/components/responses/404NotFound'
+        '429':
+          $ref: '#/components/responses/429TooManyRequests'
         '500':
           $ref: '#/components/responses/500ServiceUnavailable'
     patch:
@@ -344,7 +491,7 @@ paths:
             pattern: '(^[a-zA-Z0-9\-_]{1,81}$)'
       requestBody:
         content:
-          application/json-patch+json:
+          application/json-patch+json;charset=UTF-8:
             schema:
               type: array
               items:
@@ -353,6 +500,19 @@ paths:
       responses:
         '200':
           description: Posizione debitoria aggiornata con successo
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
         '400':
           $ref: '#/components/responses/400BadRequest'
         '401':
@@ -361,6 +521,18 @@ paths:
           $ref: '#/components/responses/403NotAuthorized'
         '404':
           $ref: '#/components/responses/404NotFound'
+        '409':
+          description: >-
+            La posizione debitoria è stata modificata concorrentemente da
+            un'altra richiesta: rileggerla e riprovare.
+          content:
+            application/problem+json;charset=UTF-8:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '415':
+          $ref: '#/components/responses/415UnsupportedMediaType'
+        '429':
+          $ref: '#/components/responses/429TooManyRequests'
         '500':
           $ref: '#/components/responses/500ServiceUnavailable'
 
@@ -403,11 +575,26 @@ paths:
       responses:
         '200':
           description: Avviso di pagamento in formato PDF
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
             application/pdf:
               schema:
                 type: string
                 format: binary
+        '400':
+          $ref: '#/components/responses/400BadRequest'
         '401':
           $ref: '#/components/responses/401NotAuthenticated'
         '403':
@@ -416,8 +603,21 @@ paths:
           $ref: '#/components/responses/404NotFound'
         '406':
           description: 'Header `Accept` non compatibile con `application/pdf`'
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
-            application/problem+json:
+            application/problem+json;charset=UTF-8:
               schema:
                 $ref: '#/components/schemas/Problem'
         '422':
@@ -425,24 +625,67 @@ paths:
             L'avviso PDF non è generabile per questa posizione debitoria
             (nessuna opzione di pagamento con rate ancora pagabili, Marca
             da Bollo Telematica, o debitore senza anagrafica)
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
-            application/problem+json:
+            application/problem+json;charset=UTF-8:
               schema:
                 $ref: '#/components/schemas/Problem'
+        '429':
+          $ref: '#/components/responses/429TooManyRequests'
         '500':
           $ref: '#/components/responses/500ServiceUnavailable'
         '502':
           description: 'Errore di comunicazione con il microservizio `govpay-stampe`'
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
-            application/problem+json:
+            application/problem+json;charset=UTF-8:
               schema:
                 $ref: '#/components/schemas/Problem'
         '503':
           description: >-
             Microservizio `govpay-stampe` non configurato
             (`app.stampe.base-url` mancante)
+          headers:
+            Retry-After:
+              $ref: '#/components/headers/RetryAfter'
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
-            application/problem+json:
+            application/problem+json;charset=UTF-8:
               schema:
                 $ref: '#/components/schemas/Problem'
 
@@ -475,14 +718,27 @@ paths:
             pattern: '(^[a-zA-Z0-9\-_]{1,81}$)'
       requestBody:
         content:
-          application/json:
+          application/json;charset=UTF-8:
             schema:
               $ref: '#/components/schemas/NuovaOpzionePagamento'
       responses:
         '201':
           description: Opzione di pagamento creata
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
-            application/json:
+            application/json;charset=UTF-8:
               schema:
                 $ref: '#/components/schemas/OpzionePagamento'
         '400':
@@ -500,8 +756,21 @@ paths:
             alternative. Oppure una pendenza della nuova opzione ha un
             idPendenza già usato da un'altra pendenza della stessa
             applicazione.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
-            application/problem+json:
+            application/problem+json;charset=UTF-8:
               schema:
                 $ref: '#/components/schemas/Problem'
               examples:
@@ -509,16 +778,22 @@ paths:
                   summary: La posizione ha già un'opzione ATTIVATA
                   value:
                     status: 409
-                    title: >-
+                    title: Conflict
+                    detail: >-
                       La posizione debitoria ha già un'opzione di pagamento
                       ATTIVATA: non è più possibile aggiungere alternative
                 idPendenzaDuplicato:
                   summary: idPendenza già usato da questa applicazione
                   value:
                     status: 409
-                    title: >-
+                    title: Conflict
+                    detail: >-
                       Una pendenza della nuova opzione ha un idPendenza già
                       usato da un'altra pendenza della stessa applicazione
+        '415':
+          $ref: '#/components/responses/415UnsupportedMediaType'
+        '429':
+          $ref: '#/components/responses/429TooManyRequests'
         '500':
           $ref: '#/components/responses/500ServiceUnavailable'
 
@@ -565,7 +840,7 @@ paths:
             format: uuid
       requestBody:
         content:
-          application/json-patch+json:
+          application/json-patch+json;charset=UTF-8:
             schema:
               type: array
               items:
@@ -574,6 +849,19 @@ paths:
       responses:
         '200':
           description: Opzione di pagamento aggiornata con successo
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
         '400':
           $ref: '#/components/responses/400BadRequest'
         '401':
@@ -586,8 +874,21 @@ paths:
           description: >-
             L'opzione di pagamento è già ATTIVATA da un pagamento e non può
             essere annullata né ripristinata
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
-            application/problem+json:
+            application/problem+json;charset=UTF-8:
               schema:
                 $ref: '#/components/schemas/Problem'
               examples:
@@ -595,16 +896,22 @@ paths:
                   summary: Annullamento richiesto su un'opzione ATTIVATA
                   value:
                     status: 409
-                    title: >-
+                    title: Conflict
+                    detail: >-
                       L'opzione di pagamento è già ATTIVATA da un pagamento
                       e non può essere annullata
                 ripristino:
                   summary: Ripristino richiesto su un'opzione ATTIVATA
                   value:
                     status: 409
-                    title: >-
+                    title: Conflict
+                    detail: >-
                       L'opzione di pagamento è già ATTIVATA da un pagamento
                       e non può essere ripristinata
+        '415':
+          $ref: '#/components/responses/415UnsupportedMediaType'
+        '429':
+          $ref: '#/components/responses/429TooManyRequests'
         '500':
           $ref: '#/components/responses/500ServiceUnavailable'
 
@@ -648,14 +955,27 @@ paths:
             format: uuid
       requestBody:
         content:
-          application/json:
+          application/json;charset=UTF-8:
             schema:
               $ref: '#/components/schemas/NuovaPendenza'
       responses:
         '201':
           description: Pendenza creata
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
-            application/json:
+            application/json;charset=UTF-8:
               schema:
                 $ref: '#/components/schemas/Pendenza'
         '400':
@@ -671,8 +991,21 @@ paths:
             L'opzione di pagamento non è DISPONIBILE, oppure la nuova
             pendenza ha un idPendenza già usato da un'altra pendenza della
             stessa applicazione
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
-            application/problem+json:
+            application/problem+json;charset=UTF-8:
               schema:
                 $ref: '#/components/schemas/Problem'
               examples:
@@ -680,7 +1013,8 @@ paths:
                   summary: L'opzione non è DISPONIBILE
                   value:
                     status: 409
-                    title: >-
+                    title: Conflict
+                    detail: >-
                       l'opzione di pagamento [idOpzionePagamento] è
                       ATTIVATA: si può aggiungere una pendenza solo se
                       DISPONIBILE
@@ -688,9 +1022,14 @@ paths:
                   summary: idPendenza già usato da questa applicazione
                   value:
                     status: 409
-                    title: >-
+                    title: Conflict
+                    detail: >-
                       la nuova pendenza ha un idPendenza già usato da
                       un'altra pendenza della stessa applicazione
+        '415':
+          $ref: '#/components/responses/415UnsupportedMediaType'
+        '429':
+          $ref: '#/components/responses/429TooManyRequests'
         '500':
           $ref: '#/components/responses/500ServiceUnavailable'
 
@@ -727,14 +1066,31 @@ paths:
       responses:
         '200':
           description: Elenco delle pendenze che rispettano i filtri di ricerca
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
-            application/json:
+            application/json;charset=UTF-8:
               schema:
                 $ref: '#/components/schemas/Pendenze'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
         '401':
           $ref: '#/components/responses/401NotAuthenticated'
         '403':
           $ref: '#/components/responses/403NotAuthorized'
+        '429':
+          $ref: '#/components/responses/429TooManyRequests'
         '500':
           $ref: '#/components/responses/500ServiceUnavailable'
 
@@ -786,12 +1142,25 @@ paths:
             pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
       requestBody:
         content:
-          application/json:
+          application/json;charset=UTF-8:
             schema:
               $ref: '#/components/schemas/NuovaPendenza'
       responses:
         '200':
           description: Pendenza aggiornata con successo
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
         '400':
           $ref: '#/components/responses/400BadRequest'
         '401':
@@ -806,8 +1175,21 @@ paths:
             (deve essere NON_ESEGUITO o ANNULLATO), oppure la richiesta
             cambia `numeroAvviso` già assegnato o il tributo/IBAN di
             accredito di riferimento di una voce esistente
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
-            application/problem+json:
+            application/problem+json;charset=UTF-8:
               schema:
                 $ref: '#/components/schemas/Problem'
               examples:
@@ -815,24 +1197,31 @@ paths:
                   summary: Pendenza in uno stato che non ammette l'aggiornamento
                   value:
                     status: 409
-                    title: >-
+                    title: Conflict
+                    detail: >-
                       la pendenza [idPendenza] è ESEGUITO: può essere
                       aggiornata solo se NON_ESEGUITO o ANNULLATO
                 numeroAvvisoModificato:
                   summary: Tentativo di cambiare numeroAvviso già assegnato
                   value:
                     status: 409
-                    title: >-
+                    title: Conflict
+                    detail: >-
                       'numeroAvviso' non può cambiare rispetto
                       all'originale [numeroAvviso]
                 riferimentoVoceModificato:
                   summary: Tentativo di cambiare tributo/IBAN di accredito di una voce esistente
                   value:
                     status: 409
-                    title: >-
+                    title: Conflict
+                    detail: >-
                       la voce [idVocePendenza] non può cambiare il
                       riferimento (tributo/IBAN di accredito) rispetto
                       all'originale
+        '415':
+          $ref: '#/components/responses/415UnsupportedMediaType'
+        '429':
+          $ref: '#/components/responses/429TooManyRequests'
         '500':
           $ref: '#/components/responses/500ServiceUnavailable'
     get:
@@ -862,16 +1251,33 @@ paths:
       responses:
         '200':
           description: Informazioni dettagliate della pendenza
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
-            application/json:
+            application/json;charset=UTF-8:
               schema:
                 $ref: '#/components/schemas/Pendenza'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
         '401':
           $ref: '#/components/responses/401NotAuthenticated'
         '403':
           $ref: '#/components/responses/403NotAuthorized'
         '404':
           $ref: '#/components/responses/404NotFound'
+        '429':
+          $ref: '#/components/responses/429TooManyRequests'
         '500':
           $ref: '#/components/responses/500ServiceUnavailable'
 
@@ -909,12 +1315,25 @@ paths:
       requestBody:
         required: false
         content:
-          application/json:
+          application/json;charset=UTF-8:
             schema:
               $ref: '#/components/schemas/PersonalizzazioneAvviso'
       responses:
         '200':
           description: Avviso di pagamento in formato PDF
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
             application/pdf:
               schema:
@@ -924,8 +1343,21 @@ paths:
           description: >-
             Bilinguismo richiesto (`linguaSecondaria`) senza
             `causaleTradotta` nel corpo della richiesta
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
-            application/problem+json:
+            application/problem+json;charset=UTF-8:
               schema:
                 $ref: '#/components/schemas/Problem'
         '401':
@@ -936,32 +1368,90 @@ paths:
           $ref: '#/components/responses/404NotFound'
         '406':
           description: 'Header `Accept` non compatibile con `application/pdf`'
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
-            application/problem+json:
+            application/problem+json;charset=UTF-8:
               schema:
                 $ref: '#/components/schemas/Problem'
+        '415':
+          $ref: '#/components/responses/415UnsupportedMediaType'
         '422':
           description: >-
             L'avviso PDF non è generabile per questa pendenza (Marca da
             Bollo Telematica, o debitore senza anagrafica)
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
-            application/problem+json:
+            application/problem+json;charset=UTF-8:
               schema:
                 $ref: '#/components/schemas/Problem'
+        '429':
+          $ref: '#/components/responses/429TooManyRequests'
         '500':
           $ref: '#/components/responses/500ServiceUnavailable'
         '502':
           description: 'Errore di comunicazione con il microservizio `govpay-stampe`'
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
-            application/problem+json:
+            application/problem+json;charset=UTF-8:
               schema:
                 $ref: '#/components/schemas/Problem'
         '503':
           description: >-
             Microservizio `govpay-stampe` non configurato
             (`app.stampe.base-url` mancante)
+          headers:
+            Retry-After:
+              $ref: '#/components/headers/RetryAfter'
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
-            application/problem+json:
+            application/problem+json;charset=UTF-8:
               schema:
                 $ref: '#/components/schemas/Problem'
 
@@ -999,16 +1489,33 @@ paths:
       responses:
         '200':
           description: Elenco delle ricevute di pagamento della pendenza
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
-            application/json:
+            application/json;charset=UTF-8:
               schema:
                 $ref: '#/components/schemas/Ricevute'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
         '401':
           $ref: '#/components/responses/401NotAuthenticated'
         '403':
           $ref: '#/components/responses/403NotAuthorized'
         '404':
           $ref: '#/components/responses/404NotFound'
+        '429':
+          $ref: '#/components/responses/429TooManyRequests'
         '500':
           $ref: '#/components/responses/500ServiceUnavailable'
 
@@ -1048,8 +1555,21 @@ paths:
       responses:
         '200':
           description: Ricevuta di pagamento
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
-            application/json:
+            application/json;charset=UTF-8:
               schema:
                 $ref: '#/components/schemas/Ricevuta'
               examples:
@@ -1091,12 +1611,16 @@ paths:
                         transferCategory: '9/0101002IM/'
                     paymentNote: Pagamento effettuato tramite AppIO
                     standIn: false
+        '400':
+          $ref: '#/components/responses/400BadRequest'
         '401':
           $ref: '#/components/responses/401NotAuthenticated'
         '403':
           $ref: '#/components/responses/403NotAuthorized'
         '404':
           $ref: '#/components/responses/404NotFound'
+        '429':
+          $ref: '#/components/responses/429TooManyRequests'
         '500':
           $ref: '#/components/responses/500ServiceUnavailable'
 
@@ -1133,11 +1657,26 @@ paths:
       responses:
         '200':
           description: Ricevuta di pagamento in formato PDF
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
             application/pdf:
               schema:
                 type: string
                 format: binary
+        '400':
+          $ref: '#/components/responses/400BadRequest'
         '401':
           $ref: '#/components/responses/401NotAuthenticated'
         '403':
@@ -1146,24 +1685,67 @@ paths:
           $ref: '#/components/responses/404NotFound'
         '406':
           description: 'Header `Accept` non compatibile con `application/pdf`'
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
-            application/problem+json:
+            application/problem+json;charset=UTF-8:
               schema:
                 $ref: '#/components/schemas/Problem'
+        '429':
+          $ref: '#/components/responses/429TooManyRequests'
         '500':
           $ref: '#/components/responses/500ServiceUnavailable'
         '502':
           description: 'Errore di comunicazione con il microservizio `govpay-stampe`'
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
-            application/problem+json:
+            application/problem+json;charset=UTF-8:
               schema:
                 $ref: '#/components/schemas/Problem'
         '503':
           description: >-
             Microservizio `govpay-stampe` non configurato
             (`app.stampe.base-url` mancante)
+          headers:
+            Retry-After:
+              $ref: '#/components/headers/RetryAfter'
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
-            application/problem+json:
+            application/problem+json;charset=UTF-8:
               schema:
                 $ref: '#/components/schemas/Problem'
 
@@ -1202,16 +1784,33 @@ paths:
       responses:
         '200':
           description: Elenco delle rendicontazioni della pendenza
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
           content:
-            application/json:
+            application/json;charset=UTF-8:
               schema:
                 $ref: '#/components/schemas/Rendicontazioni'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
         '401':
           $ref: '#/components/responses/401NotAuthenticated'
         '403':
           $ref: '#/components/responses/403NotAuthorized'
         '404':
           $ref: '#/components/responses/404NotFound'
+        '429':
+          $ref: '#/components/responses/429TooManyRequests'
         '500':
           $ref: '#/components/responses/500ServiceUnavailable'
 
@@ -1277,6 +1876,7 @@ components:
       required: false
       schema:
         type: integer
+        format: int32
         minimum: 1
         default: 1
       example: 1
@@ -1327,63 +1927,274 @@ components:
       schema:
         type: string
       example: 'dataCreazione:desc'
+  headers:
+    CacheControl:
+      description: >-
+        Il caching delle risposte è disabilitato: il servizio restituisce
+        sempre `no-cache, no-store, max-age=0, must-revalidate`.
+      schema:
+        type: string
+      example: 'no-cache, no-store, max-age=0, must-revalidate'
+    CorrelationId:
+      description: >-
+        Identificativo di correlazione della richiesta, utile per
+        ricondurre la chiamata ai log del servizio. È il valore ricevuto
+        nell'header di richiesta `X-Correlation-ID` (o `X-Request-ID`) se
+        presente e valido, altrimenti è generato dal servizio. Lo stesso
+        valore è restituito anche nell'header `X-Request-ID`.
+      schema:
+        type: string
+        maxLength: 128
+      example: 'b5a1c3e2-7f4d-4c1a-9e8b-2d6f0a9c1e34'
+    TransactionId:
+      description: >-
+        Identificativo univoco della transazione, generato dal servizio a
+        ogni richiesta e mai accettato dal client. Lo stesso valore è
+        restituito anche nell'header `X-Govpay-IdTransazione`.
+      schema:
+        type: string
+      example: '0f2c9d7e-3a41-4b8e-9c55-61e2b7a0d913'
+    RateLimitLimit:
+      description: >-
+        Numero massimo di richieste ammesse nella finestra temporale corrente.
+        Valorizzato dal gateway di erogazione (es. GovWay) quando è attiva una
+        politica di rate limiting; assente altrimenti.
+      schema:
+        type: integer
+        format: int32
+      example: 100
+    RateLimitRemaining:
+      description: >-
+        Numero di richieste ancora disponibili nella finestra temporale
+        corrente. Valorizzato dal gateway di erogazione quando è attiva una
+        politica di rate limiting; assente altrimenti.
+      schema:
+        type: integer
+        format: int32
+      example: 99
+    RateLimitReset:
+      description: >-
+        Secondi mancanti all'inizio della prossima finestra temporale.
+        Valorizzato dal gateway di erogazione quando è attiva una politica di
+        rate limiting; assente altrimenti.
+      schema:
+        type: integer
+        format: int32
+      example: 60
+    RetryAfter:
+      description: >-
+        Secondi dopo i quali il client può ripetere la richiesta.
+      schema:
+        type: integer
+        format: int32
+      example: 60
+
   responses:
     400BadRequest:
       description: Richiesta non valida
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControl'
+        X-Correlation-ID:
+          $ref: '#/components/headers/CorrelationId'
+        X-Transaction-ID:
+          $ref: '#/components/headers/TransactionId'
+        X-RateLimit-Limit:
+          $ref: '#/components/headers/RateLimitLimit'
+        X-RateLimit-Remaining:
+          $ref: '#/components/headers/RateLimitRemaining'
+        X-RateLimit-Reset:
+          $ref: '#/components/headers/RateLimitReset'
       content:
-        application/problem+json:
+        application/problem+json;charset=UTF-8:
           schema:
             $ref: '#/components/schemas/Problem'
           examples:
             default:
               value:
                 status: 400
-                title: Richiesta non valida
+                title: Bad Request
                 detail: "Il campo 'importo' non può essere negativo"
     401NotAuthenticated:
       description: Utenza non autenticata
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControl'
+        X-Correlation-ID:
+          $ref: '#/components/headers/CorrelationId'
+        X-Transaction-ID:
+          $ref: '#/components/headers/TransactionId'
+        X-RateLimit-Limit:
+          $ref: '#/components/headers/RateLimitLimit'
+        X-RateLimit-Remaining:
+          $ref: '#/components/headers/RateLimitRemaining'
+        X-RateLimit-Reset:
+          $ref: '#/components/headers/RateLimitReset'
       content:
-        application/problem+json:
+        application/problem+json;charset=UTF-8:
           schema:
             $ref: '#/components/schemas/Problem'
           examples:
             default:
               value:
                 status: 401
-                title: Utenza non autenticata
+                title: Unauthorized
+                detail: Utenza non autenticata
     403NotAuthorized:
       description: Utenza non autorizzata a eseguire l'operazione richiesta
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControl'
+        X-Correlation-ID:
+          $ref: '#/components/headers/CorrelationId'
+        X-Transaction-ID:
+          $ref: '#/components/headers/TransactionId'
+        X-RateLimit-Limit:
+          $ref: '#/components/headers/RateLimitLimit'
+        X-RateLimit-Remaining:
+          $ref: '#/components/headers/RateLimitRemaining'
+        X-RateLimit-Reset:
+          $ref: '#/components/headers/RateLimitReset'
       content:
-        application/problem+json:
+        application/problem+json;charset=UTF-8:
           schema:
             $ref: '#/components/schemas/Problem'
           examples:
             default:
               value:
                 status: 403
-                title: Utenza non autorizzata a eseguire l'operazione richiesta
+                title: Forbidden
+                detail: Utenza non autorizzata a eseguire l'operazione richiesta
     404NotFound:
       description: Risorsa non trovata
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControl'
+        X-Correlation-ID:
+          $ref: '#/components/headers/CorrelationId'
+        X-Transaction-ID:
+          $ref: '#/components/headers/TransactionId'
+        X-RateLimit-Limit:
+          $ref: '#/components/headers/RateLimitLimit'
+        X-RateLimit-Remaining:
+          $ref: '#/components/headers/RateLimitRemaining'
+        X-RateLimit-Reset:
+          $ref: '#/components/headers/RateLimitReset'
       content:
-        application/problem+json:
+        application/problem+json;charset=UTF-8:
           schema:
             $ref: '#/components/schemas/Problem'
           examples:
             default:
               value:
                 status: 404
-                title: Risorsa non trovata
+                title: Not Found
+                detail: Risorsa non trovata
+    415UnsupportedMediaType:
+      description: >-
+        Content-Type della richiesta non supportato: il corpo va inviato
+        con il media type indicato per l'operazione
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControl'
+        X-Correlation-ID:
+          $ref: '#/components/headers/CorrelationId'
+        X-Transaction-ID:
+          $ref: '#/components/headers/TransactionId'
+        X-RateLimit-Limit:
+          $ref: '#/components/headers/RateLimitLimit'
+        X-RateLimit-Remaining:
+          $ref: '#/components/headers/RateLimitRemaining'
+        X-RateLimit-Reset:
+          $ref: '#/components/headers/RateLimitReset'
+      content:
+        application/problem+json;charset=UTF-8:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            default:
+              value:
+                status: 415
+                title: Unsupported Media Type
+    429TooManyRequests:
+      description: >-
+        Raggiunto il limite di richieste ammesse. Restituita dal gateway di
+        erogazione quando è attiva una politica di rate limiting.
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControl'
+        X-Correlation-ID:
+          $ref: '#/components/headers/CorrelationId'
+        X-Transaction-ID:
+          $ref: '#/components/headers/TransactionId'
+        X-RateLimit-Limit:
+          $ref: '#/components/headers/RateLimitLimit'
+        X-RateLimit-Remaining:
+          $ref: '#/components/headers/RateLimitRemaining'
+        X-RateLimit-Reset:
+          $ref: '#/components/headers/RateLimitReset'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/problem+json;charset=UTF-8:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            default:
+              value:
+                status: 429
+                title: Too Many Requests
+    503ServiceUnavailable:
+      description: Servizio temporaneamente non disponibile
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControl'
+        X-Correlation-ID:
+          $ref: '#/components/headers/CorrelationId'
+        X-Transaction-ID:
+          $ref: '#/components/headers/TransactionId'
+        X-RateLimit-Limit:
+          $ref: '#/components/headers/RateLimitLimit'
+        X-RateLimit-Remaining:
+          $ref: '#/components/headers/RateLimitRemaining'
+        X-RateLimit-Reset:
+          $ref: '#/components/headers/RateLimitReset'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/problem+json;charset=UTF-8:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            default:
+              value:
+                status: 503
+                title: Service Unavailable
     500ServiceUnavailable:
       description: Errore interno del servizio
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/CacheControl'
+        X-Correlation-ID:
+          $ref: '#/components/headers/CorrelationId'
+        X-Transaction-ID:
+          $ref: '#/components/headers/TransactionId'
+        X-RateLimit-Limit:
+          $ref: '#/components/headers/RateLimitLimit'
+        X-RateLimit-Remaining:
+          $ref: '#/components/headers/RateLimitRemaining'
+        X-RateLimit-Reset:
+          $ref: '#/components/headers/RateLimitReset'
       content:
-        application/problem+json:
+        application/problem+json;charset=UTF-8:
           schema:
             $ref: '#/components/schemas/Problem'
           examples:
             default:
               value:
                 status: 500
-                title: Errore interno del servizio
+                title: Internal Server Error
+                detail: Errore interno del servizio
                 type: 'https://govpay.readthedocs.io/it/latest/manuale/errori/INTERNO'
 
   schemas:
@@ -1704,6 +2515,7 @@ components:
 
     giornoOpzionePagamento:
       type: integer
+      format: int32
       minimum: 1
       maximum: 3650
       description: >-
@@ -1745,6 +2557,7 @@ components:
           maxLength: 140
         importo:
           type: number
+          format: decimal128
           description: Importo della pendenza. Deve corrispondere alla somma delle singole voci.
           examples:
             - 10.01
@@ -1836,6 +2649,7 @@ components:
           maxLength: 35
         importo:
           type: number
+          format: decimal128
           description: Importo della voce
           examples:
             - 10.01
@@ -2486,6 +3300,7 @@ components:
           $ref: '#/components/schemas/OpzionePagamentoIndex'
         numeroRata:
           type: integer
+          format: int32
           minimum: 1
           description: >-
             Numero di rata della pendenza all'interno della sua opzione di
@@ -2499,6 +3314,7 @@ components:
             - 1
         importo:
           type: number
+          format: decimal128
           description: Importo della pendenza. Deve corrispondere alla somma delle singole voci.
           examples:
             - 10.01
@@ -2537,6 +3353,7 @@ components:
             - '2020-12-15'
         speseNotificaSendImporto:
           type: number
+          format: decimal128
           readOnly: true
           description: >-
             Importo delle spese di notifica SEND quantificato da GovPay al
@@ -2646,6 +3463,7 @@ components:
           maxLength: 35
         importo:
           type: number
+          format: decimal128
           description: Importo della voce
           examples:
             - 10.01
@@ -2659,7 +3477,8 @@ components:
           minLength: 1
           maxLength: 140
         indice:
-          type: number
+          type: integer
+          format: int32
           description: indice di voce all'interno della pendenza
           examples:
             - 1
@@ -2771,8 +3590,10 @@ components:
             - RM
         nazione:
           type: string
+          description: Codice ISO 3166-1 alpha-2 della nazione.
           examples:
             - IT
+          pattern: '[A-Z]{2,2}'
         email:
           type: string
           examples:
@@ -3234,6 +4055,7 @@ components:
           type: string
         nazione:
           type: string
+          description: Codice ISO 3166-1 alpha-2 della nazione, come riportato da pagoPA.
         email:
           type: string
 
@@ -3262,6 +4084,7 @@ components:
       properties:
         singoloImportoPagato:
           type: number
+          format: decimal128
           description: Importo versato. Se il pagamento non è stato eseguito, vale 0.00.
         esitoSingoloPagamento:
           type: string
@@ -3282,8 +4105,10 @@ components:
             "tipo contabilità"/"codice contabilità".
         commissioniApplicatePSP:
           type: number
+          format: decimal128
         commissioniApplicatePA:
           type: number
+          format: decimal128
         allegatoRicevuta:
           $ref: '#/components/schemas/RTAllegatoRicevuta'
 
@@ -3344,8 +4169,10 @@ components:
           properties:
             codiceEsitoPagamento:
               type: integer
+              format: int32
               description: >-
-                Esito del pagamento:
+                Esito del pagamento. Resta numerico perché riporta tale e quale il
+                campo `codiceEsitoPagamento` della ricevuta telematica (paSendRT):
                  * 0 = Pagamento eseguito
                  * 1 = Pagamento non eseguito
                  * 2 = Pagamento parzialmente eseguito
@@ -3359,6 +4186,7 @@ components:
                 - 4
             importoTotalePagato:
               type: number
+              format: decimal128
             identificativoUnivocoVersamento:
               type: string
             codiceContestoPagamento:
@@ -3370,6 +4198,9 @@ components:
                 $ref: '#/components/schemas/RTDatiSingoloPagamento'
 
     # --- ctReceipt / ctReceiptV2 (formati recenti del Nodo dei Pagamenti) ---
+    # I nomi dei campi riportano tali e quali quelli del tracciato pagoPA
+    # (PSPCompanyName, IBAN, MBDAttachment in PascalCase): deroga motivata a
+    # RAC_GEN_NAME_002, vedi info.description.
 
     RTMetadata:
       type: array
@@ -3418,6 +4249,7 @@ components:
           type: string
         country:
           type: string
+          description: Codice ISO 3166-1 alpha-2 della nazione, come riportato da pagoPA.
         email:
           type: string
 
@@ -3436,6 +4268,7 @@ components:
           type: string
         transferAmount:
           type: number
+          format: decimal128
         fiscalCodePA:
           type: string
         IBAN:
@@ -3461,6 +4294,7 @@ components:
           type: string
         transferAmount:
           type: number
+          format: decimal128
         fiscalCodePA:
           type: string
         companyName:
@@ -3512,6 +4346,7 @@ components:
           type: string
         paymentAmount:
           type: number
+          format: decimal128
         description:
           type: string
         companyName:
@@ -3538,6 +4373,7 @@ components:
           type: string
         fee:
           type: number
+          format: decimal128
         paymentDateTime:
           type: string
           format: date-time
@@ -3591,6 +4427,7 @@ components:
               type: string
             primaryCiIncurredFee:
               type: number
+              format: decimal128
             idBundle:
               type: string
             idCiBundle:
@@ -3636,7 +4473,8 @@ components:
           examples:
             - '1234acdc'
         indice:
-          type: number
+          type: integer
+          format: int32
           description: >-
             Indice dell'occorrenza del pagamento all'interno della
             struttura `datiSingoloPagamento` della ricevuta telematica.
@@ -3644,26 +4482,28 @@ components:
             - 1
         importo:
           type: number
+          format: decimal128
           description: Importo rendicontato.
           examples:
             - 10.01
         esito:
-          type: number
+          type: string
           description: >-
-            Codice di esito dell'operazione rendicontata:
-             * 0 = Pagamento eseguito
-             * 3 = Pagamento revocato
-             * 4 = Pagamento eseguito in standin
-             * 8 = Pagamento eseguito in standin, in assenza di RPT
-             * 9 = Pagamento eseguito in assenza di RPT
+            Esito dell'operazione rendicontata, con i valori di `payStatus` del flusso
+            di rendicontazione pagoPA (tra parentesi il codice numerico del tracciato):
+             * EXECUTED = Pagamento eseguito (0)
+             * REVOKED = Pagamento revocato (3)
+             * STAND_IN = Pagamento eseguito in standin (4)
+             * STAND_IN_NO_RPT = Pagamento eseguito in standin, in assenza di RPT (8)
+             * NO_RPT = Pagamento eseguito in assenza di RPT (9)
           enum:
-            - 0
-            - 3
-            - 4
-            - 8
-            - 9
+            - EXECUTED
+            - REVOKED
+            - STAND_IN
+            - STAND_IN_NO_RPT
+            - NO_RPT
           examples:
-            - 0
+            - EXECUTED
         data:
           type: string
           format: date
@@ -3733,7 +4573,8 @@ components:
           examples:
             - BIC-12345
         numeroPagamenti:
-          type: number
+          type: integer
+          format: int64
           description: Numero di pagamenti oggetto della rendicontazione.
           examples:
             - 3
@@ -3793,11 +4634,13 @@ components:
         - NON_ESEGUITO
 
     LinguaSecondaria:
+      description: >-
+        Lingua secondaria dell'avviso bilingue, come codice ISO 639-1. Se assente,
+        l'avviso è solo in italiano.
       examples:
-        - 'false'
+        - 'en'
       type: string
       enum:
-        - 'false'
         - 'de'
         - 'en'
         - 'fr'
@@ -3841,11 +4684,13 @@ components:
       properties:
         page:
           type: integer
+          format: int32
           description: Numero della pagina restituita.
           examples:
             - 1
         limit:
           type: integer
+          format: int32
           description: Numero massimo di risultati per pagina usato per produrre questa risposta.
           examples:
             - 25
@@ -3856,6 +4701,7 @@ components:
             - true
         totalResults:
           type: integer
+          format: int32
           description: >-
             Numero totale di risultati che rispettano i filtri di
             ricerca. Presente solo se richiesto con `total=true`.
@@ -3863,6 +4709,7 @@ components:
             - 100
         totalPages:
           type: integer
+          format: int32
           description: >-
             Numero totale di pagine, calcolato da `totalResults` e
             `limit`. Presente solo se richiesto con `total=true`.
@@ -3895,6 +4742,7 @@ components:
 
     Limit:
       type: integer
+      format: int32
       default: 25
       maximum: 200
 
@@ -3938,6 +4786,8 @@ components:
         Descrizione di un errore in formato "Problem Details for HTTP APIs"
         (RFC 7807), come previsto dalle Linee guida di interoperabilità
         AGID. Restituito con Content-Type `application/problem+json`.
+        `title` riporta la reason phrase HTTP dello status, `detail` la
+        spiegazione del singolo errore.
       required:
         - status
       properties:
@@ -3957,11 +4807,13 @@ components:
           type: string
           description: >-
             Riassunto sintetico e leggibile del tipo di problema, invariato
-            tra le diverse occorrenze dello stesso `type`.
+            tra le diverse occorrenze dello stesso `type`: coincide con la
+            reason phrase HTTP dello status.
           examples:
-            - Richiesta non valida
+            - Bad Request
         status:
           type: integer
+          format: int32
           description: Codice di stato HTTP di questa occorrenza del problema.
           examples:
             - 400
