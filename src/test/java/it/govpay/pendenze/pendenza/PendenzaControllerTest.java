@@ -421,7 +421,7 @@ class PendenzaControllerTest {
 
     @Test
     @DisplayName("GET /pendenze/{idA2A} pagina a offset (total=false, default): hasNextPage=true quando ce ne "
-            + "sono altri, mantenendo numeroAvviso/idDominio su page=2")
+            + "sono altri, mantenendo numeroAvviso/idDominio su offset=1")
     void findPendenzePaginaAOffsetSegnalaHasNextPage() throws Exception {
         creaDominio("22222222222", "Secondo Comune di Test");
         configuraTipoVersamentoPerDominio("22222222222");
@@ -440,7 +440,7 @@ class PendenzaControllerTest {
         mockMvc.perform(get("/pendenze/{idA2A}", "A2A-TEST")
                         .param("numeroAvviso", numeroAvviso)
                         .param("limit", "1")
-                        .param("page", "2"))
+                        .param("offset", "1"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.pagination.hasNextPage").value(false))
                 .andExpect(jsonPath("$.results.length()").value(1));
@@ -495,11 +495,11 @@ class PendenzaControllerTest {
     }
 
     @Test
-    @DisplayName("GET /pendenze/{idA2A} rifiuta con 400 'page' e 'cursor' insieme")
-    void findPendenzeRifiutaPageECursoreInsieme() throws Exception {
+    @DisplayName("GET /pendenze/{idA2A} rifiuta con 400 'offset' e 'cursor' insieme")
+    void findPendenzeRifiutaOffsetECursoreInsieme() throws Exception {
         mockMvc.perform(get("/pendenze/{idA2A}", "A2A-TEST")
                         .param("numeroAvviso", "123456789012345678")
-                        .param("page", "1")
+                        .param("offset", "0")
                         .param("cursor", ""))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
@@ -591,12 +591,12 @@ class PendenzaControllerTest {
     }
 
     @Test
-    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/ricevute rifiuta con 400 'page' e 'cursor' insieme")
-    void findRicevutePendenzaRifiutaPageECursoreInsieme() throws Exception {
+    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/ricevute rifiuta con 400 'offset' e 'cursor' insieme")
+    void findRicevutePendenzaRifiutaOffsetECursoreInsieme() throws Exception {
         creaPosizioneConPendenza("pos-ricevute-mutex", "12345678901", "pendenza-ricevute-mutex");
 
         mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/ricevute", "A2A-TEST", "pendenza-ricevute-mutex")
-                        .param("page", "1")
+                        .param("offset", "0")
                         .param("cursor", ""))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
@@ -706,12 +706,12 @@ class PendenzaControllerTest {
     }
 
     @Test
-    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/rendicontazioni rifiuta con 400 'page' e 'cursor' insieme")
-    void findRendicontazioniPendenzaRifiutaPageECursoreInsieme() throws Exception {
+    @DisplayName("GET /pendenze/{idA2A}/{idPendenza}/rendicontazioni rifiuta con 400 'offset' e 'cursor' insieme")
+    void findRendicontazioniPendenzaRifiutaOffsetECursoreInsieme() throws Exception {
         creaPosizioneConPendenza("pos-rend-mutex", "12345678901", "pendenza-rend-mutex");
 
         mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}/rendicontazioni", "A2A-TEST", "pendenza-rend-mutex")
-                        .param("page", "1")
+                        .param("offset", "0")
                         .param("cursor", ""))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))

@@ -1415,7 +1415,7 @@ class PosizioneDebitoriaControllerTest {
                         .param("idDebitore", "FRRPLA90C41H501Y")
                         .param("total", "true"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.pagination.page").value(1))
+                .andExpect(jsonPath("$.pagination.offset").value(0))
                 .andExpect(jsonPath("$.pagination.limit").value(25))
                 .andExpect(jsonPath("$.pagination.hasNextPage").value(false))
                 .andExpect(jsonPath("$.pagination.totalResults").value(2))
@@ -1429,7 +1429,7 @@ class PosizioneDebitoriaControllerTest {
 
     @Test
     @DisplayName("GET /posizioni-debitorie/{idA2A} pagina a offset (total=false, default): hasNextPage=true "
-            + "quando ce ne sono altri e nessun totale, page=2 restituisce il resto")
+            + "quando ce ne sono altri e nessun totale, offset=2 restituisce il resto")
     void findPosizioniDebitoriePaginaAOffsetSegnalaHasNextPage() throws Exception {
         creaPosizioneMinimaConDebitore("pos-pagina-1", "FRRPLA90C41H501Y");
         creaPosizioneMinimaConDebitore("pos-pagina-2", "FRRPLA90C41H501Y");
@@ -1439,7 +1439,7 @@ class PosizioneDebitoriaControllerTest {
                         .param("idDebitore", "FRRPLA90C41H501Y")
                         .param("limit", "2"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.pagination.page").value(1))
+                .andExpect(jsonPath("$.pagination.offset").value(0))
                 .andExpect(jsonPath("$.pagination.limit").value(2))
                 .andExpect(jsonPath("$.pagination.hasNextPage").value(true))
                 .andExpect(jsonPath("$.pagination.totalResults").doesNotExist())
@@ -1448,9 +1448,9 @@ class PosizioneDebitoriaControllerTest {
         mockMvc.perform(get("/posizioni-debitorie/{idA2A}", "A2A-TEST")
                         .param("idDebitore", "FRRPLA90C41H501Y")
                         .param("limit", "2")
-                        .param("page", "2"))
+                        .param("offset", "2"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.pagination.page").value(2))
+                .andExpect(jsonPath("$.pagination.offset").value(2))
                 .andExpect(jsonPath("$.pagination.hasNextPage").value(false))
                 .andExpect(jsonPath("$.results.length()").value(1));
     }
@@ -1465,11 +1465,22 @@ class PosizioneDebitoriaControllerTest {
     }
 
     @Test
-    @DisplayName("GET /posizioni-debitorie/{idA2A} restituisce 400 (non 500) se page non e' un numero")
-    void findPosizioniDebitorieRestituisce400SePageNonENumerico() throws Exception {
+    @DisplayName("GET /posizioni-debitorie/{idA2A} restituisce 400 (non 500) se offset non e' un numero")
+    void findPosizioniDebitorieRestituisce400SeOffsetNonENumerico() throws Exception {
         mockMvc.perform(get("/posizioni-debitorie/{idA2A}", "A2A-TEST")
                         .param("idDebitore", "FRRPLA90C41H501Y")
-                        .param("page", "abc"))
+                        .param("offset", "abc"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    @DisplayName("GET /posizioni-debitorie/{idA2A} restituisce 400 se offset e' negativo")
+    void findPosizioniDebitorieRestituisce400SeOffsetNegativo() throws Exception {
+        mockMvc.perform(get("/posizioni-debitorie/{idA2A}", "A2A-TEST")
+                        .param("idDebitore", "FRRPLA90C41H501Y")
+                        .param("offset", "-1"))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))
                 .andExpect(jsonPath("$.status").value(400));
@@ -1525,11 +1536,11 @@ class PosizioneDebitoriaControllerTest {
     }
 
     @Test
-    @DisplayName("GET /posizioni-debitorie/{idA2A} rifiuta con 400 'page' e 'cursor' insieme")
-    void findPosizioniDebitorieRifiutaPageECursoreInsieme() throws Exception {
+    @DisplayName("GET /posizioni-debitorie/{idA2A} rifiuta con 400 'offset' e 'cursor' insieme")
+    void findPosizioniDebitorieRifiutaOffsetECursoreInsieme() throws Exception {
         mockMvc.perform(get("/posizioni-debitorie/{idA2A}", "A2A-TEST")
                         .param("idDebitore", "FRRPLA90C41H501Y")
-                        .param("page", "1")
+                        .param("offset", "0")
                         .param("cursor", ""))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentType(MediaType.valueOf("application/problem+json;charset=UTF-8")))

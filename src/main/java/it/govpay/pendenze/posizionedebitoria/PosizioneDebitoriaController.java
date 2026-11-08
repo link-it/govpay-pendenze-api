@@ -412,16 +412,16 @@ public class PosizioneDebitoriaController implements PosizioniDebitorieApi {
      * {@code toIndexDto} legge {@code soggettiDebitori}, collezione LAZY.
      *
      * <p>Due modalita' di paginazione mutuamente esclusive (standard condiviso con
-     * govpay-console-api): a offset ({@code page}/{@code limit}, ordinamento libero via
+     * govpay-console-api): a offset ({@code offset}/{@code limit}, ordinamento libero via
      * {@code sort}, conteggio opzionale via {@code total}) o a cursore ({@code cursor},
      * ordinamento fisso {@link #ORDINAMENTO_FISSO_CURSORE}, nessun conteggio). La modalita'
      * cursore e' attiva se {@code cursor} e' presente nella richiesta, anche vuoto (prima
-     * pagina cursore); in tal caso {@code page}/{@code sort} espliciti e {@code total=true}
+     * pagina cursore); in tal caso {@code offset}/{@code sort} espliciti e {@code total=true}
      * sono rifiutati con 400 ({@link #rifiutaSeIncompatibiliConCursore}).</p>
      */
     @Override
     @Transactional(readOnly = true)
-    public ResponseEntity<PosizioniDebitorie> findPosizioniDebitorie(String idA2A, String idDebitore, Integer page,
+    public ResponseEntity<PosizioniDebitorie> findPosizioniDebitorie(String idA2A, String idDebitore, Integer offset,
             String cursor, Integer limit, String sort, String fields, Boolean total) {
         aclAuthorizer.richiedeLettura();
         currentApplicazioneService.verificaIdA2A(idA2A);
@@ -444,11 +444,11 @@ public class PosizioneDebitoriaController implements PosizioniDebitorieApi {
                 dto.setNextCursor(CursorCodec.encode(ultima.getDataCreazione(), ultima.getId()));
             }
         } else {
-            int paginaEffettiva = QueryParamUtils.isExplicit(currentRequest, "page") ? page : 1;
+            int offsetEffettivo = QueryParamUtils.isExplicit(currentRequest, "offset") ? offset : 0;
             Sort ordinamento = CriteriOrdinamento.parse(sort, CAMPI_ORDINABILI);
-            Pageable pageable = OffsetPageRequest.of((long) (paginaEffettiva - 1) * limit, limit, ordinamento);
+            Pageable pageable = OffsetPageRequest.of(offsetEffettivo, limit, ordinamento);
 
-            Pagination pagination = new Pagination(paginaEffettiva, limit, false);
+            Pagination pagination = new Pagination(offsetEffettivo, limit, false);
             if (Boolean.TRUE.equals(total)) {
                 PaginaRisultati<PosizioneDebitoria> pagina = posizioneDebitoriaService.cercaPerDebitore(idA2A,
                         idDebitore, pageable);
@@ -471,20 +471,20 @@ public class PosizioneDebitoriaController implements PosizioniDebitorieApi {
     }
 
     /**
-     * In modalita' cursore sono incompatibili {@code page}/{@code sort} espliciti e
+     * In modalita' cursore sono incompatibili {@code offset}/{@code sort} espliciti e
      * {@code total=true} (stessa regola di govpay-console-api,
-     * {@code ListQueryValidator#rejectCursorIncompatible}). {@code page} richiede
+     * {@code ListQueryValidator#rejectCursorIncompatible}). {@code offset} richiede
      * l'ispezione della query string grezza ({@link QueryParamUtils#isExplicit}) perche' lo
-     * YAML gli assegna un default (1): l'argomento del metodo generato vale sempre 1 se
-     * assente, indistinguibile da un {@code ?page=1} esplicito. {@code sort}/{@code total}
+     * YAML gli assegna un default (0): l'argomento del metodo generato vale sempre 0 se
+     * assente, indistinguibile da un {@code ?offset=0} esplicito. {@code sort}/{@code total}
      * non hanno questo problema ({@code sort} non ha default, {@code total} ha default
      * {@code false}: solo un valore esplicito {@code true} e' possibile).
      */
     private void rifiutaSeIncompatibiliConCursore(String sort, Boolean total) {
-        if (QueryParamUtils.isExplicit(currentRequest, "page")) {
+        if (QueryParamUtils.isExplicit(currentRequest, "offset")) {
             throw new ValidazioneNonSuperataException(
-                    "parametri 'page' e 'cursor' mutuamente esclusivi: usare solo uno dei due "
-                            + "(cursor per paginazione keyset, page per paginazione a offset)");
+                    "parametri 'offset' e 'cursor' mutuamente esclusivi: usare solo uno dei due "
+                            + "(cursor per paginazione keyset, offset per paginazione a offset)");
         }
         if (sort != null && !sort.isBlank()) {
             throw new ValidazioneNonSuperataException(

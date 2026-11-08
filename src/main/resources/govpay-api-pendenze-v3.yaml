@@ -144,7 +144,7 @@ paths:
             type: string
             pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
         - $ref: '#/components/parameters/idDebitore'
-        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/offset'
         - $ref: '#/components/parameters/cursor'
         - $ref: '#/components/parameters/limit'
         - $ref: '#/components/parameters/sort'
@@ -1057,7 +1057,7 @@ paths:
             pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
         - $ref: '#/components/parameters/numeroAvviso'
         - $ref: '#/components/parameters/idDominio'
-        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/offset'
         - $ref: '#/components/parameters/cursor'
         - $ref: '#/components/parameters/limit'
         - $ref: '#/components/parameters/sort'
@@ -1480,7 +1480,7 @@ paths:
           schema:
             type: string
             pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
-        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/offset'
         - $ref: '#/components/parameters/cursor'
         - $ref: '#/components/parameters/limit'
         - $ref: '#/components/parameters/sort'
@@ -1775,7 +1775,7 @@ paths:
           schema:
             type: string
             pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
-        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/offset'
         - $ref: '#/components/parameters/cursor'
         - $ref: '#/components/parameters/limit'
         - $ref: '#/components/parameters/sort'
@@ -1865,28 +1865,30 @@ components:
       required: false
       schema:
         type: string
-    page:
-      name: page
+    offset:
+      name: offset
       in: query
       description: >-
-        Numero di pagina (1-based), in modalità di paginazione a offset.
-        Alternativo a `cursor`: non è consentito specificare entrambi
-        nella stessa richiesta. Se nessuno dei due è specificato, si
-        applica la modalità a offset con `page=1`.
+        Numero di risultati da saltare (0 per partire dal primo), in
+        modalità di paginazione a offset: la pagina successiva si ottiene
+        con `offset` aumentato di `limit`. Alternativo a `cursor`: non è
+        consentito specificare entrambi nella stessa richiesta. Se nessuno
+        dei due è specificato, si applica la modalità a offset con
+        `offset=0`.
       required: false
       schema:
         type: integer
         format: int32
-        minimum: 1
-        default: 1
-      example: 1
+        minimum: 0
+        default: 0
+      example: 0
     cursor:
       name: cursor
       in: query
       description: >-
         Cursore opaco (il valore `nextCursor` della risposta precedente)
         da cui continuare l'elenco, in modalità di paginazione a cursore.
-        Alternativo a `page`: non è consentito specificare entrambi
+        Alternativo a `offset`: non è consentito specificare entrambi
         nella stessa richiesta. In questa modalità l'ordinamento dei
         risultati è quello fisso previsto per la risorsa, e non è
         influenzato da `sort`.
@@ -4673,21 +4675,21 @@ components:
     Pagination:
       type: object
       description: >-
-        Metadati di paginazione a offset (richiesta con `page`, o senza
+        Metadati di paginazione a offset (richiesta con `offset`, o senza
         alcun parametro di paginazione): assenti in modalità cursore
         (richiesta con `cursor`), dove l'unico metadato di paginazione è
         `nextCursor`.
       required:
-        - page
+        - offset
         - limit
         - hasNextPage
       properties:
-        page:
+        offset:
           type: integer
           format: int32
-          description: Numero della pagina restituita.
+          description: Numero di risultati saltati, usato per produrre questa risposta.
           examples:
-            - 1
+            - 0
         limit:
           type: integer
           format: int32
@@ -4722,7 +4724,7 @@ components:
         Busta generica di risposta per un elenco paginato, specializzata
         per singola risorsa tramite `allOf` con l'array `results`
         tipizzato. Riporta `pagination` in modalità a offset, `nextCursor`
-        in modalità a cursore (vedi parametri `page`/`cursor`): mai
+        in modalità a cursore (vedi parametri `offset`/`cursor`): mai
         entrambi, e nessuno dei due se non esistono altri
         risultati/pagine.
       required:
