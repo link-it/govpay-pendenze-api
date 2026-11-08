@@ -151,6 +151,7 @@ Con i default l'API v3 risponde su `/v3/...` e la v2 su `/v2/...`. Le due versio
 | `springdoc.swagger-ui.path` | - | `/swagger-ui.html` | Path della Swagger UI |
 | `springdoc.swagger-ui.operations-sorter` | - | `method` | Ordinamento delle operazioni nella Swagger UI |
 | `springdoc.swagger-ui.tags-sorter` | - | `alpha` | Ordinamento dei tag nella Swagger UI |
+| `springdoc.swagger-ui.version` | - | `@swagger-ui.version@` | Versione della Swagger UI, presa in build dal govpay-bom: springdoc la usa per il percorso del webjar. Da non cambiare |
 
 ### Sicurezza
 
