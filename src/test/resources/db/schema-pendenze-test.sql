@@ -709,6 +709,7 @@ CREATE TABLE IF NOT EXISTS domini (
     intermediato BOOLEAN NOT NULL,
     tassonomia_pago_pa VARCHAR(35),
     scarica_fr BOOLEAN NOT NULL,
+    pagamento_sito BOOLEAN NOT NULL DEFAULT false,
     id_stazione BIGINT,
     id_applicazione_default BIGINT,
     CONSTRAINT uk_domini_cod UNIQUE (cod_dominio),

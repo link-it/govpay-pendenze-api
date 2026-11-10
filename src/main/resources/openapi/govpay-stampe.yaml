@@ -237,6 +237,13 @@ components:
           type: string
           maxLength: 70
           example: "Autorizzazione n. 0000 del 00/00/0000"
+        pay_on_website:
+          type: boolean
+          default: false
+          description: >-
+            L'avviso si puo' pagare anche dal sito dell'ente creditore. Se true, nella
+            sezione "Dove pagare" la stampa riporta "oppure sul sito di <business_name>, ...",
+            come previsto dalla specifica pagoPA; altrimenti "oppure dal tuo Home Banking, ...".
 
     Debtor:
       type: object
