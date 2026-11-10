@@ -25,7 +25,8 @@ import it.govpay.pendenze.api.model.LinguaSecondaria;
 import it.govpay.pendenze.entity.OpzionePagamento;
 import it.govpay.pendenze.entity.Pendenza;
 import it.govpay.pendenze.entity.PosizioneDebitoria;
-import it.govpay.pendenze.entity.SoggettoDebitore;
+import it.govpay.pendenze.entity.Debitore;
+import it.govpay.pendenze.entity.PdDebitore;
 import it.govpay.pendenze.entity.VocePendenza;
 import it.govpay.pendenze.model.TipoSoggetto;
 import it.govpay.pendenze.model.TipologiaOpzionePagamento;
@@ -58,8 +59,7 @@ class AvvisoPdfPayloadMapperTest {
     }
 
     private Pendenza pendenza(DominioEntity dominio, String indirizzo) {
-        SoggettoDebitore soggetto = new SoggettoDebitore();
-        soggetto.setOrdine(0);
+        Debitore soggetto = new Debitore();
         soggetto.setTipo(TipoSoggetto.F);
         soggetto.setIdentificativo("RSSMRA80A01H501U");
         soggetto.setAnagrafica("Mario Rossi");
@@ -71,13 +71,15 @@ class AvvisoPdfPayloadMapperTest {
         return pendenzaConSoggetto(dominio, soggetto);
     }
 
-    private Pendenza pendenzaConSoggetto(DominioEntity dominio, SoggettoDebitore soggetto) {
+    private Pendenza pendenzaConSoggetto(DominioEntity dominio, Debitore soggetto) {
         PosizioneDebitoria posizioneDebitoria = new PosizioneDebitoria();
         posizioneDebitoria.setDescrizione("Diritti di segreteria");
-        posizioneDebitoria.addSoggettoDebitore(soggetto);
+        PdDebitore pdDebitore = new PdDebitore();
+        pdDebitore.setDebitore(soggetto);
+        posizioneDebitoria.addPdDebitore(pdDebitore);
 
         OpzionePagamento opzionePagamento = new OpzionePagamento();
-        opzionePagamento.setPosizioneDebitoria(posizioneDebitoria);
+        pdDebitore.addOpzionePagamento(opzionePagamento);
         opzionePagamento.setDataScadenza(LocalDate.of(2026, 12, 31));
 
         Pendenza pendenza = new Pendenza();
@@ -439,10 +441,9 @@ class AvvisoPdfPayloadMapperTest {
 
     // --- troncamento: i limiti dello schema (pagoPA) si applicano DOPO la concatenazione ---
 
-    private static SoggettoDebitore soggettoCon(String anagrafica, String indirizzo, String civico, String cap,
+    private static Debitore soggettoCon(String anagrafica, String indirizzo, String civico, String cap,
             String localita, String provincia) {
-        SoggettoDebitore soggetto = new SoggettoDebitore();
-        soggetto.setOrdine(0);
+        Debitore soggetto = new Debitore();
         soggetto.setTipo(TipoSoggetto.F);
         soggetto.setIdentificativo("RSSMRA80A01H501U");
         soggetto.setAnagrafica(anagrafica);
@@ -470,7 +471,7 @@ class AvvisoPdfPayloadMapperTest {
 
     @Test
     void fullNameTroncatoA70Caratteri() {
-        SoggettoDebitore soggetto = soggettoCon("B".repeat(80), "Via Roma", "10", "00100", "Roma", "RM");
+        Debitore soggetto = soggettoCon("B".repeat(80), "Via Roma", "10", "00100", "Roma", "RM");
         Pendenza pendenza = pendenzaConSoggetto(dominio(), soggetto);
 
         PaymentNotice notice = mapper.toPaymentNotice(pendenza, null, null, null, null);
@@ -481,7 +482,7 @@ class AvvisoPdfPayloadMapperTest {
     /** indirizzo (70) + ", " + civico (16) puo' superare 70: il limite va sul risultato finale. */
     @Test
     void addressLine1TroncatoA70CaratteriDopoLaConcatenazione() {
-        SoggettoDebitore soggetto = soggettoCon("Mario Rossi", "C".repeat(70), "1234567890123456", "00100", "Roma",
+        Debitore soggetto = soggettoCon("Mario Rossi", "C".repeat(70), "1234567890123456", "00100", "Roma",
                 "RM");
         Pendenza pendenza = pendenzaConSoggetto(dominio(), soggetto);
 
@@ -493,7 +494,7 @@ class AvvisoPdfPayloadMapperTest {
     /** cap (16) + localita (35) + " (" + provincia (35) + ")" puo' superare 70. */
     @Test
     void addressLine2TroncatoA70CaratteriDopoLaConcatenazione() {
-        SoggettoDebitore soggetto = soggettoCon("Mario Rossi", "Via Roma", "10", "0000000000000000",
+        Debitore soggetto = soggettoCon("Mario Rossi", "Via Roma", "10", "0000000000000000",
                 "D".repeat(35), "E".repeat(35));
         Pendenza pendenza = pendenzaConSoggetto(dominio(), soggetto);
 
@@ -534,7 +535,7 @@ class AvvisoPdfPayloadMapperTest {
 
     @Test
     void isAnagraficaDebitoreAssenteVeroSeAnagraficaNulla() {
-        SoggettoDebitore soggetto = soggettoCon(null, "Via Roma", "10", "00100", "Roma", "RM");
+        Debitore soggetto = soggettoCon(null, "Via Roma", "10", "00100", "Roma", "RM");
         Pendenza pendenza = pendenzaConSoggetto(dominio(), soggetto);
 
         assertThat(AvvisoPdfPayloadMapper.isAnagraficaDebitoreAssente(pendenza)).isTrue();
@@ -542,7 +543,7 @@ class AvvisoPdfPayloadMapperTest {
 
     @Test
     void isAnagraficaDebitoreAssenteVeroSeAnagraficaVuota() {
-        SoggettoDebitore soggetto = soggettoCon("   ", "Via Roma", "10", "00100", "Roma", "RM");
+        Debitore soggetto = soggettoCon("   ", "Via Roma", "10", "00100", "Roma", "RM");
         Pendenza pendenza = pendenzaConSoggetto(dominio(), soggetto);
 
         assertThat(AvvisoPdfPayloadMapper.isAnagraficaDebitoreAssente(pendenza)).isTrue();

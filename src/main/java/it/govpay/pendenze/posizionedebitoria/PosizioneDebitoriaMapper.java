@@ -5,7 +5,9 @@ import it.govpay.pendenze.comando.AggiornamentoPosizioneDebitoria;
 import it.govpay.pendenze.comando.DatiOpzionePagamento;
 import it.govpay.pendenze.comando.DatiPendenza;
 import it.govpay.pendenze.comando.DatiPosizioneDebitoria;
-import it.govpay.pendenze.comando.DatiSoggettoDebitore;
+import it.govpay.pendenze.comando.DatiAggiornamentoDebitore;
+import it.govpay.pendenze.comando.DatiOpzionePagamentoDebitore;
+import it.govpay.pendenze.comando.DatiPdDebitore;
 import it.govpay.pendenze.comando.ModificaCampo;
 import it.govpay.pendenze.service.CausaleVersamentoCodec;
 
@@ -42,7 +44,11 @@ import it.govpay.pendenze.api.model.DettaglioContabileIncassoTipico;
 import it.govpay.pendenze.api.model.DettaglioContabileSconosciuto;
 import it.govpay.pendenze.api.model.DettaglioContabileSconosciutoEntriesInner;
 import it.govpay.pendenze.api.model.DettaglioLetto;
+import it.govpay.pendenze.api.model.DebitorePosizione;
 import it.govpay.pendenze.api.model.NuovaOpzionePagamento;
+import it.govpay.pendenze.api.model.NuovaOpzionePagamentoDebitore;
+import it.govpay.pendenze.api.model.NuovoDebitorePosizione;
+import it.govpay.pendenze.api.model.RiferimentoDebitore;
 import it.govpay.pendenze.api.model.NuovaOpzionePagamentoPianoRateale;
 import it.govpay.pendenze.api.model.NuovaOpzionePagamentoSoluzioneUnica;
 import it.govpay.pendenze.api.model.NuovaOpzionePagamentoSoluzioneUnicaEntro;
@@ -79,7 +85,8 @@ import it.govpay.pendenze.api.model.TipologiaOpzionePagamento;
 import it.govpay.pendenze.api.model.VocePendenzaBollo;
 import it.govpay.pendenze.api.model.VocePendenzaEntrata;
 import it.govpay.pendenze.api.model.VocePendenzaRiferimentoEntrata;
-import it.govpay.pendenze.entity.SoggettoDebitore;
+import it.govpay.pendenze.entity.Debitore;
+import it.govpay.pendenze.entity.PdDebitore;
 import it.govpay.pendenze.entity.VocePendenza;
 import it.govpay.pendenze.exception.TransizioneStatoNonAmmessaException;
 import it.govpay.pendenze.exception.ValidazioneNonSuperataException;
@@ -467,16 +474,44 @@ public class PosizioneDebitoriaMapper {
         posizione.setIdUnitaOperativa(idUnitaOperativa);
         posizione.setDescrizione(dto.getDescrizione());
         posizione.setDataPubblicazione(dto.getDataPubblicazione());
-        posizione.setNotificaSend(Boolean.TRUE.equals(dto.getNotificaSend()));
-        posizione.setNavNotifica(dto.getNavNotifica());
 
-        for (Soggetto soggetto : dto.getSoggettiDebitori()) {
-            posizione.addSoggettoDebitore(toSoggettoDebitore(soggetto));
-        }
-        for (NuovaOpzionePagamento opzione : dto.getOpzioniPagamento()) {
-            posizione.addOpzionePagamento(toOpzionePagamento(opzione, idDominio, applicazione));
+        for (NuovoDebitorePosizione debitore : dto.getDebitori()) {
+            posizione.addPdDebitore(toPdDebitore(debitore, idDominio, applicazione));
         }
         return DatiPosizioneDebitoria.da(posizione);
+    }
+
+    /**
+     * Un debitore con la sua notifica SEND e le sue opzioni. Se la notifica SEND e' attiva il
+     * {@code navNotifica} e' obbligatorio: non viene assegnato in automatico.
+     */
+    private PdDebitore toPdDebitore(NuovoDebitorePosizione dto, Long idDominio, ApplicazioneEntity applicazione) {
+        boolean notificaSend = Boolean.TRUE.equals(dto.getNotificaSend());
+        if (notificaSend && (dto.getNavNotifica() == null || dto.getNavNotifica().isBlank())) {
+            throw new ValidazioneNonSuperataException("'navNotifica' e' obbligatorio per il debitore ["
+                    + dto.getSoggetto().getIdentificativo() + "] con 'notificaSend' attivo");
+        }
+        PdDebitore pdDebitore = new PdDebitore();
+        pdDebitore.setDebitore(toDebitore(dto.getSoggetto()));
+        pdDebitore.setNotificaSendPayed(notificaSend);
+        pdDebitore.setNotificaSendNav(dto.getNavNotifica());
+        for (NuovaOpzionePagamento opzione : dto.getOpzioniPagamento()) {
+            pdDebitore.addOpzionePagamento(toOpzionePagamento(opzione, idDominio, applicazione));
+        }
+        return pdDebitore;
+    }
+
+    /**
+     * Converte il corpo di {@code POST .../opzioni-pagamento}: una nuova opzione per ciascun
+     * debitore, identificato dal solo identificativo. La copertura di tutti i debitori e'
+     * verificata dal servizio.
+     */
+    public List<DatiOpzionePagamentoDebitore> toOpzioniPerDebitore(String idA2A, Long idDominioPosizione,
+            List<NuovaOpzionePagamentoDebitore> dto) {
+        return dto.stream()
+                .map(d -> new DatiOpzionePagamentoDebitore(d.getIdentificativoDebitore(),
+                        toOpzionePagamento(idA2A, idDominioPosizione, d.getOpzionePagamento())))
+                .toList();
     }
 
     /**
@@ -492,8 +527,8 @@ public class PosizioneDebitoriaMapper {
         return DatiOpzionePagamento.da(toOpzionePagamento(dto, idDominioPosizione, applicazione));
     }
 
-    private SoggettoDebitore toSoggettoDebitore(Soggetto dto) {
-        SoggettoDebitore soggetto = new SoggettoDebitore();
+    private Debitore toDebitore(Soggetto dto) {
+        Debitore soggetto = new Debitore();
         soggetto.setTipo(it.govpay.pendenze.model.TipoSoggetto.valueOf(dto.getTipo().name()));
         soggetto.setIdentificativo(dto.getIdentificativo());
         soggetto.setAnagrafica(dto.getAnagrafica());
@@ -508,19 +543,131 @@ public class PosizioneDebitoriaMapper {
         return soggetto;
     }
 
+    /**
+     * Converte il corpo di {@code POST .../debitori}: un debitore con la sua notifica SEND e le
+     * sue opzioni, con le stesse regole della creazione.
+     */
+    public DatiPdDebitore toDatiPdDebitore(String idA2A, Long idDominioPosizione, NuovoDebitorePosizione dto) {
+        ApplicazioneEntity applicazione = applicazioneRepository.findByCodApplicazione(idA2A)
+                .orElseThrow(() -> new AnagraficaNonTrovataException("nessuna applicazione con idA2A [" + idA2A
+                        + "]"));
+        verificaDominioAbilitato(idDominioPosizione);
+        return DatiPdDebitore.da(toPdDebitore(dto, idDominioPosizione, applicazione));
+    }
+
     // ── PATCH (RFC 6902) ────────────────────────────────────────────────────────
 
     /**
-     * Traduce il sottoinsieme supportato di JSON Patch in un comando della libreria.
+     * Traduce il JSON Patch di {@code PATCH .../debitori/{identificativoDebitore}} in un comando
+     * della libreria. Path supportati: i campi di {@code DebitorePosizione} modificabili, cioe'
+     * {@code /soggetto/...}, {@code /notificaSend} e {@code /navNotifica}. I campi facoltativi
+     * si azzerano con {@code remove}; {@code tipo}, {@code identificativo} e {@code notificaSend}
+     * no.
+     */
+    public DatiAggiornamentoDebitore toAggiornamentoDebitore(List<PatchOp> operazioni) {
+        ModificaCampo<it.govpay.pendenze.model.TipoSoggetto> tipo = ModificaCampo.invariato();
+        ModificaCampo<String> identificativo = ModificaCampo.invariato();
+        java.util.Map<String, ModificaCampo<String>> testi = new java.util.HashMap<>();
+        ModificaCampo<Boolean> notificaSend = ModificaCampo.invariato();
+        ModificaCampo<String> navNotifica = ModificaCampo.invariato();
+        for (PatchOp operazione : operazioni) {
+            if (operazione == null) {
+                throw new ValidazioneNonSuperataException(
+                        "operazione di patch nulla non ammessa: ogni elemento dell'array deve essere un "
+                                + "oggetto {op, path, value}");
+            }
+            switch (operazione.getPath()) {
+                case "/soggetto/tipo" -> tipo = ModificaCampo.imposta(leggiTipoSoggetto(operazione));
+                case "/soggetto/identificativo" -> identificativo = ModificaCampo.imposta(
+                        validaCampoSoggetto("identificativo", leggiTestoObbligatorio(operazione, "identificativo")));
+                case "/soggetto/anagrafica", "/soggetto/indirizzo", "/soggetto/civico", "/soggetto/cap",
+                        "/soggetto/localita", "/soggetto/provincia", "/soggetto/nazione", "/soggetto/email",
+                        "/soggetto/cellulare" -> testi.put(operazione.getPath(),
+                                ModificaCampo.imposta(validaCampoSoggetto(
+                                        operazione.getPath().substring("/soggetto/".length()),
+                                        leggiTestoFacoltativo(operazione))));
+                case "/notificaSend" -> notificaSend = ModificaCampo.imposta(leggiNotificaSend(operazione));
+                case "/navNotifica" -> navNotifica = ModificaCampo.imposta(leggiTestoFacoltativo(operazione));
+                default -> throw new ValidazioneNonSuperataException(
+                        "path [" + operazione.getPath() + "] non supportato per questa risorsa");
+            }
+        }
+        return new DatiAggiornamentoDebitore(tipo, identificativo,
+                testi.getOrDefault("/soggetto/anagrafica", ModificaCampo.invariato()),
+                testi.getOrDefault("/soggetto/indirizzo", ModificaCampo.invariato()),
+                testi.getOrDefault("/soggetto/civico", ModificaCampo.invariato()),
+                testi.getOrDefault("/soggetto/cap", ModificaCampo.invariato()),
+                testi.getOrDefault("/soggetto/localita", ModificaCampo.invariato()),
+                testi.getOrDefault("/soggetto/provincia", ModificaCampo.invariato()),
+                testi.getOrDefault("/soggetto/nazione", ModificaCampo.invariato()),
+                testi.getOrDefault("/soggetto/email", ModificaCampo.invariato()),
+                testi.getOrDefault("/soggetto/cellulare", ModificaCampo.invariato()),
+                notificaSend, navNotifica);
+    }
+
+    /**
+     * Applica a un campo modificato i vincoli del modello {@code Soggetto} del contratto
+     * (lunghezza, pattern), gli stessi della creazione: una PATCH non deve poterli aggirare.
+     * Un valore {@code null} (campo azzerato) non viene controllato.
+     */
+    private String validaCampoSoggetto(String proprieta, String valore) {
+        if (valore == null) {
+            return null;
+        }
+        var violazioni = validator.validateValue(Soggetto.class, proprieta, valore);
+        if (!violazioni.isEmpty()) {
+            throw new ValidazioneNonSuperataException(
+                    "'" + proprieta + "' non valido: " + violazioni.iterator().next().getMessage());
+        }
+        return valore;
+    }
+
+    private it.govpay.pendenze.model.TipoSoggetto leggiTipoSoggetto(PatchOp operazione) {
+        String valore = leggiTestoObbligatorio(operazione, "tipo");
+        try {
+            return it.govpay.pendenze.model.TipoSoggetto.valueOf(valore);
+        } catch (IllegalArgumentException e) {
+            throw new ValidazioneNonSuperataException("'tipo' deve essere F o G");
+        }
+    }
+
+    private String leggiTestoObbligatorio(PatchOp operazione, String nomeCampo) {
+        if (operazione.getOp() == PatchOp.OpEnum.REMOVE) {
+            throw new ValidazioneNonSuperataException(
+                    "'" + nomeCampo + "' e' obbligatorio: non puo' essere rimosso con 'remove'");
+        }
+        return valoreStringa(operazione, nomeCampo);
+    }
+
+    /** Campo facoltativo: {@code remove} lo azzera, altrimenti un valore testuale non vuoto. */
+    private String leggiTestoFacoltativo(PatchOp operazione) {
+        if (operazione.getOp() == PatchOp.OpEnum.REMOVE) {
+            return null;
+        }
+        return valoreStringa(operazione, operazione.getPath());
+    }
+
+    private Boolean leggiNotificaSend(PatchOp operazione) {
+        if (operazione.getOp() == PatchOp.OpEnum.REMOVE) {
+            throw new ValidazioneNonSuperataException(
+                    "'notificaSend' e' un booleano: non puo' essere rimosso con 'remove', usare 'replace' con false");
+        }
+        Object valore = valorePresente(operazione, "notificaSend");
+        if (!(valore instanceof Boolean booleano)) {
+            throw new ValidazioneNonSuperataException("'notificaSend' richiede un valore booleano");
+        }
+        return booleano;
+    }
+
+    /**
+     * Traduce il sottoinsieme supportato di JSON Patch in un comando della libreria: solo
+     * {@code /descrizione} e {@code /dataPubblicazione}.
      * Conserva la distinzione fra campo assente e rimozione e valida ogni operazione
      * nell'ordine ricevuto, anche in presenza di path ripetuti.
      */
     public AggiornamentoPosizioneDebitoria toAggiornamentoPosizione(List<PatchOp> operazioni) {
         ModificaCampo<String> descrizione = ModificaCampo.invariato();
         ModificaCampo<LocalDate> dataPubblicazione = ModificaCampo.invariato();
-        ModificaCampo<Boolean> notificaSend = ModificaCampo.invariato();
-        ModificaCampo<String> navNotifica = ModificaCampo.invariato();
-        ModificaCampo<List<DatiSoggettoDebitore>> soggettiDebitori = ModificaCampo.invariato();
         for (PatchOp operazione : operazioni) {
             if (operazione == null) {
                 throw new ValidazioneNonSuperataException(
@@ -530,15 +677,11 @@ public class PosizioneDebitoriaMapper {
             switch (operazione.getPath()) {
                 case "/descrizione" -> descrizione = ModificaCampo.imposta(leggiDescrizione(operazione));
                 case "/dataPubblicazione" -> dataPubblicazione = ModificaCampo.imposta(leggiDataPubblicazione(operazione));
-                case "/notificaSend" -> notificaSend = ModificaCampo.imposta(leggiNotificaSend(operazione));
-                case "/navNotifica" -> navNotifica = ModificaCampo.imposta(leggiNavNotifica(operazione));
-                case "/soggettiDebitori" -> soggettiDebitori = ModificaCampo.imposta(leggiSoggettiDebitori(operazione));
                 default -> throw new ValidazioneNonSuperataException(
                         "path [" + operazione.getPath() + "] non supportato per questa risorsa");
             }
         }
-        return new AggiornamentoPosizioneDebitoria(descrizione, dataPubblicazione, notificaSend,
-                navNotifica, soggettiDebitori);
+        return new AggiornamentoPosizioneDebitoria(descrizione, dataPubblicazione);
     }
 
     /**
@@ -573,57 +716,6 @@ public class PosizioneDebitoriaMapper {
             throw new ValidazioneNonSuperataException(
                     "'dataPubblicazione' non e' una data valida (formato atteso: AAAA-MM-GG)");
         }
-    }
-
-    private Boolean leggiNotificaSend(PatchOp operazione) {
-        if (operazione.getOp() == PatchOp.OpEnum.REMOVE) {
-            throw new ValidazioneNonSuperataException(
-                    "'notificaSend' e' un booleano: non puo' essere rimosso con 'remove', usare 'replace' con false");
-        }
-        Object valore = valorePresente(operazione, "notificaSend");
-        if (!(valore instanceof Boolean booleano)) {
-            throw new ValidazioneNonSuperataException("'notificaSend' richiede un valore booleano");
-        }
-        return booleano;
-    }
-
-    private String leggiNavNotifica(PatchOp operazione) {
-        if (operazione.getOp() == PatchOp.OpEnum.REMOVE) {
-            return null;
-        }
-        return valoreStringa(operazione, "navNotifica");
-    }
-
-    private List<DatiSoggettoDebitore> leggiSoggettiDebitori(PatchOp operazione) {
-        if (operazione.getOp() == PatchOp.OpEnum.REMOVE) {
-            throw new ValidazioneNonSuperataException(
-                    "'soggettiDebitori' non puo' essere rimosso interamente: la posizione debitoria "
-                            + "deve avere almeno un soggetto debitore");
-        }
-        Object valore = valorePresente(operazione, "soggettiDebitori");
-        if (valore == null) {
-            throw new ValidazioneNonSuperataException(
-                    "'soggettiDebitori' non puo' essere impostato a null: fornire un array di soggetti");
-        }
-        List<Soggetto> dto;
-        try {
-            dto = objectMapper.convertValue(valore, new TypeReference<List<Soggetto>>() {
-            });
-        } catch (RuntimeException e) {
-            throw new ValidazioneNonSuperataException(
-                    "'soggettiDebitori' non e' una lista valida di soggetti (tipo/identificativo, ecc.)");
-        }
-        for (Soggetto soggetto : dto) {
-            if (soggetto == null) {
-                throw new ValidazioneNonSuperataException("'soggettiDebitori' non puo' contenere elementi null");
-            }
-            var violazioni = validator.validate(soggetto);
-            if (!violazioni.isEmpty()) {
-                throw new ValidazioneNonSuperataException(
-                        "soggetto debitore non valido: " + violazioni.iterator().next().getMessage());
-            }
-        }
-        return dto.stream().map(this::toSoggettoDebitore).map(DatiSoggettoDebitore::da).toList();
     }
 
     private String valoreStringa(PatchOp operazione, String nomeCampo) {
@@ -988,14 +1080,28 @@ public class PosizioneDebitoriaMapper {
         dto.setIdUnitaOperativa(risolviCodUnitaOperativa(entity.getIdUnitaOperativa()));
         dto.setDescrizione(entity.getDescrizione());
         dto.setDataPubblicazione(entity.getDataPubblicazione());
-        dto.setNotificaSend(entity.isNotificaSend());
-        dto.setNavNotifica(entity.getNavNotifica());
-        for (SoggettoDebitore soggetto : entity.getSoggettiDebitori()) {
-            dto.addSoggettiDebitoriItem(toSoggettoDto(soggetto));
+        for (PdDebitore pdDebitore : entity.getPdDebitori()) {
+            dto.addDebitoriItem(toDebitorePosizioneDto(pdDebitore));
         }
-        for (it.govpay.pendenze.entity.OpzionePagamento opzione : entity.getOpzioniPagamento()) {
+        return dto;
+    }
+
+    public DebitorePosizione toDebitorePosizioneDto(PdDebitore pdDebitore) {
+        DebitorePosizione dto = new DebitorePosizione();
+        dto.setSoggetto(toSoggettoDto(pdDebitore.getDebitore()));
+        dto.setNotificaSend(pdDebitore.isNotificaSendPayed());
+        dto.setNavNotifica(pdDebitore.getNotificaSendNav());
+        for (it.govpay.pendenze.entity.OpzionePagamento opzione : pdDebitore.getOpzioniPagamento()) {
             dto.addOpzioniPagamentoItem(toOpzionePagamentoDto(opzione));
         }
+        return dto;
+    }
+
+    /** Riferimento (tipo e identificativo) al debitore a cui appartiene una pendenza. */
+    private RiferimentoDebitore toRiferimentoDebitore(Debitore debitore) {
+        RiferimentoDebitore dto = new RiferimentoDebitore();
+        dto.setTipo(TipoSoggetto.valueOf(debitore.getTipo().name()));
+        dto.setIdentificativo(debitore.getIdentificativo());
         return dto;
     }
 
@@ -1013,20 +1119,14 @@ public class PosizioneDebitoriaMapper {
         dto.setIdDominio(risolviCodDominio(entity.getIdDominio()));
         dto.setIdUnitaOperativa(risolviCodUnitaOperativa(entity.getIdUnitaOperativa()));
         dto.setDescrizione(entity.getDescrizione());
-        for (SoggettoDebitore soggetto : entity.getSoggettiDebitori()) {
-            dto.addSoggettiDebitoriItem(toSoggettoDto(soggetto));
-        }
         dto.setDataPubblicazione(entity.getDataPubblicazione());
-        dto.setNotificaSend(entity.isNotificaSend());
-        dto.setNavNotifica(entity.getNavNotifica());
         return dto;
     }
 
     /**
-     * Lo YAML impone {@code minItems: 1} su {@code soggettiDebitori}: va sempre copiato in
-     * {@link #toDto}, anche per una posizione con un solo debitore.
+     * L'anagrafica del debitore compare solo in {@link #toDto}, in {@code debitori[].soggetto}.
      */
-    private Soggetto toSoggettoDto(SoggettoDebitore entity) {
+    private Soggetto toSoggettoDto(Debitore entity) {
         Soggetto dto = new Soggetto();
         dto.setTipo(TipoSoggetto.valueOf(entity.getTipo().name()));
         dto.setIdentificativo(entity.getIdentificativo());
@@ -1246,6 +1346,7 @@ public class PosizioneDebitoriaMapper {
                 entity.getSendImportoTotale() == null ? null : BigDecimal.valueOf(entity.getSendImportoTotale()));
         dto.setSpeseNotificaSendDataAggiornamento(entity.getSendDataAggiornamento());
         dto.setPosizioneDebitoria(toIndexDto(entity.getOpzionePagamento().getPosizioneDebitoria()));
+        dto.setDebitore(toRiferimentoDebitore(entity.getOpzionePagamento().getPdDebitore().getDebitore()));
         return dto;
     }
 
@@ -1286,6 +1387,7 @@ public class PosizioneDebitoriaMapper {
                 entity.getSendImportoTotale() == null ? null : BigDecimal.valueOf(entity.getSendImportoTotale()));
         dto.setSpeseNotificaSendDataAggiornamento(entity.getSendDataAggiornamento());
         dto.setPosizioneDebitoria(toIndexDto(entity.getOpzionePagamento().getPosizioneDebitoria()));
+        dto.setDebitore(toRiferimentoDebitore(entity.getOpzionePagamento().getPdDebitore().getDebitore()));
         dto.setVoci(entity.getVoci().stream().map(this::toVocePendenzaDto).toList());
         return dto;
     }

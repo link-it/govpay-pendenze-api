@@ -20,7 +20,9 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import it.govpay.common.metrics.ExternalCallMetricsRecorder;
-import it.govpay.pendenze.api.model.NuovaOpzionePagamento;
+import it.govpay.pendenze.api.model.DebitorePosizione;
+import it.govpay.pendenze.api.model.NuovaOpzionePagamentoDebitore;
+import it.govpay.pendenze.api.model.NuovoDebitorePosizione;
 import it.govpay.pendenze.api.model.NuovaPendenza;
 import it.govpay.pendenze.api.model.NuovaPosizioneDebitoria;
 import it.govpay.pendenze.api.model.OpzionePagamento;
@@ -124,12 +126,12 @@ public class PosizioneDebitoriaController implements PosizioniDebitorieApi {
      * quel metodo apre e chiude la propria transazione prima di
      * tornare al controller — con {@code open-in-view=false} la sessione Hibernate e' gia'
      * chiusa quando {@code mapper.toDto(...)} legge le collezioni LAZY dell'aggregato
-     * ({@code soggettiDebitori}/{@code opzioniPagamento}/{@code pendenze}), sollevando
+     * ({@code debitori}/{@code opzioniPagamento}/{@code pendenze}), sollevando
      * {@code LazyInitializationException} — stessa classe di bug gia' vista su
      * {@code TipoVersamentoDominio.tipoVersamento}, ma non risolvibile con un semplice
-     * {@code join fetch} sul repository: {@code soggettiDebitori} e {@code opzioniPagamento}
-     * sono entrambe {@code List} (bag), e Hibernate non ammette il fetch join di piu' di una
-     * bag nella stessa query ({@code MultipleBagFetchException}). Estendere qui il confine
+     * {@code join fetch} sul repository: {@code pdDebitori} e le opzioni dei debitori sono
+     * {@code List} (bag), e Hibernate non ammette il fetch join di piu' di una bag nella
+     * stessa query ({@code MultipleBagFetchException}). Estendere qui il confine
      * transazionale, cosi' che copra anche la mappatura, e' la soluzione piu' semplice che non
      * tocca la forma delle collezioni della libreria.
      */
@@ -179,7 +181,8 @@ public class PosizioneDebitoriaController implements PosizioniDebitorieApi {
      */
     @Override
     @Transactional(readOnly = true)
-    public ResponseEntity<Resource> getStampaPosizioneDebitoria(String idA2A, String idPosizioneDebitoria) {
+    public ResponseEntity<Resource> getStampaPosizioneDebitoria(String idA2A, String idPosizioneDebitoria,
+            String idDebitore) {
         aclAuthorizer.richiedeLettura();
         currentApplicazioneService.verificaIdA2A(idA2A);
         verificaAcceptCompatibileConPdf();
@@ -189,7 +192,7 @@ public class PosizioneDebitoriaController implements PosizioniDebitorieApi {
                 .orElseThrow(() -> new RisorsaNonTrovataException("nessuna posizione debitoria con "
                         + "idPosizioneDebitoria [" + idPosizioneDebitoria + "] per idA2A [" + idA2A + "]"));
 
-        List<List<Pendenza>> opzioni = opzioniStampabili(posizione);
+        List<List<Pendenza>> opzioni = opzioniStampabili(debitoreDaStampare(posizione, idDebitore));
         if (opzioni.isEmpty()) {
             throw new AvvisoDocumentoNonDisponibileException("Non sono state trovate opzioni di pagamento con rate "
                     + "pagabili da includere nella stampa della posizione debitoria [idA2A: " + idA2A
@@ -241,14 +244,35 @@ public class PosizioneDebitoriaController implements PosizioniDebitorieApi {
     }
 
     /**
+     * Il debitore di cui si stampa l'avviso: quello indicato da {@code idDebitore}, oppure l'unico
+     * della posizione. Con piu' debitori l'indicazione e' obbligatoria: ognuno ha i propri
+     * numeri avviso, e un solo PDF non puo' mescolare quelli di persone diverse.
+     */
+    private static it.govpay.pendenze.entity.PdDebitore debitoreDaStampare(
+            it.govpay.pendenze.entity.PosizioneDebitoria posizione, String idDebitore) {
+        List<it.govpay.pendenze.entity.PdDebitore> debitori = posizione.getPdDebitori();
+        if (idDebitore == null || idDebitore.isBlank()) {
+            if (debitori.size() > 1) {
+                throw new ValidazioneNonSuperataException("la posizione debitoria ha " + debitori.size()
+                        + " debitori: 'idDebitore' e' obbligatorio");
+            }
+            return debitori.get(0);
+        }
+        return debitori.stream()
+                .filter(d -> d.getDebitore().getIdentificativo().equalsIgnoreCase(idDebitore))
+                .findFirst()
+                .orElseThrow(() -> new RisorsaNonTrovataException("nessun debitore [" + idDebitore
+                        + "] nella posizione debitoria"));
+    }
+
+    /**
      * Le pendenze pagabili ({@link StatoPendenza#NON_ESEGUITO}, ordinate per
      * {@code numeroRata}) di ciascuna opzione di pagamento della posizione — un elemento di
-     * lista per opzione, nello stesso ordine di {@code PosizioneDebitoria.getOpzioniPagamento()},
-     * con le opzioni senza alcuna pendenza pagabile escluse.
+     * lista per opzione del debitore, con le opzioni senza alcuna pendenza pagabile escluse.
      */
-    private static List<List<Pendenza>> opzioniStampabili(it.govpay.pendenze.entity.PosizioneDebitoria posizione) {
+    private static List<List<Pendenza>> opzioniStampabili(it.govpay.pendenze.entity.PdDebitore debitore) {
         List<List<Pendenza>> risultato = new ArrayList<>();
-        for (it.govpay.pendenze.entity.OpzionePagamento opzione : posizione.getOpzioniPagamento()) {
+        for (it.govpay.pendenze.entity.OpzionePagamento opzione : debitore.getOpzioniPagamento()) {
             List<Pendenza> pagabili = opzione.getPendenze().stream()
                     .filter(p -> p.getStato() == StatoPendenza.NON_ESEGUITO)
                     .sorted(Comparator.comparingInt(Pendenza::getNumeroRata))
@@ -314,7 +338,8 @@ public class PosizioneDebitoriaController implements PosizioniDebitorieApi {
     }
 
     /**
-     * Aggiunge una nuova opzione di pagamento a una posizione debitoria esistente — vedi
+     * Aggiunge una nuova opzione di pagamento a ciascun debitore di una posizione debitoria
+     * esistente, abbinata per identificativo — vedi
      * Javadoc di {@link PosizioneDebitoriaService#aggiungiOpzionePagamento} per l'ordine non
      * banale con cui l'opzione viene costruita/validata prima di essere collegata
      * all'aggregato gestito. {@code @Transactional} per lo stesso motivo di
@@ -328,18 +353,65 @@ public class PosizioneDebitoriaController implements PosizioniDebitorieApi {
      */
     @Override
     @Transactional
-    public ResponseEntity<OpzionePagamento> addOpzionePagamento(String idA2A, String idPosizioneDebitoria,
-            NuovaOpzionePagamento nuovaOpzionePagamento) {
+    public ResponseEntity<List<OpzionePagamento>> addOpzionePagamento(String idA2A, String idPosizioneDebitoria,
+            List<NuovaOpzionePagamentoDebitore> nuovaOpzionePagamentoDebitore) {
         aclAuthorizer.richiedeScrittura();
         currentApplicazioneService.verificaIdA2A(idA2A);
-        if (nuovaOpzionePagamento == null) {
+        if (nuovaOpzionePagamentoDebitore == null) {
             throw new ValidazioneNonSuperataException("body della richiesta mancante");
         }
-        it.govpay.pendenze.entity.OpzionePagamento creata = posizioneDebitoriaService.aggiungiOpzionePagamento(
-                idA2A, idPosizioneDebitoria,
-                mapper.toOpzionePagamento(idA2A, dominioPosizione(idA2A, idPosizioneDebitoria), nuovaOpzionePagamento));
+        List<it.govpay.pendenze.entity.OpzionePagamento> create = posizioneDebitoriaService
+                .aggiungiOpzionePagamento(idA2A, idPosizioneDebitoria,
+                        mapper.toOpzioniPerDebitore(idA2A, dominioPosizione(idA2A, idPosizioneDebitoria),
+                                nuovaOpzionePagamentoDebitore));
         return ResponseEntity.status(org.springframework.http.HttpStatus.CREATED)
-                .body(mapper.toOpzionePagamentoDto(creata));
+                .body(create.stream().map(mapper::toOpzionePagamentoDto).toList());
+    }
+
+    /**
+     * Aggiunge un debitore, con le sue opzioni, a una posizione esistente. {@code @Transactional}
+     * perche' la risposta legge le collezioni LAZY del debitore appena creato.
+     */
+    @Override
+    @Transactional
+    public ResponseEntity<DebitorePosizione> addDebitore(String idA2A, String idPosizioneDebitoria,
+            NuovoDebitorePosizione nuovoDebitorePosizione) {
+        aclAuthorizer.richiedeScrittura();
+        currentApplicazioneService.verificaIdA2A(idA2A);
+        if (nuovoDebitorePosizione == null) {
+            throw new ValidazioneNonSuperataException("body della richiesta mancante");
+        }
+        it.govpay.pendenze.entity.PdDebitore creato = posizioneDebitoriaService.aggiungiDebitore(idA2A,
+                idPosizioneDebitoria, mapper.toDatiPdDebitore(idA2A, dominioPosizione(idA2A, idPosizioneDebitoria),
+                        nuovoDebitorePosizione));
+        return ResponseEntity.status(org.springframework.http.HttpStatus.CREATED)
+                .body(mapper.toDebitorePosizioneDto(creato));
+    }
+
+    /** Aggiorna anagrafica e notifica SEND di un debitore (JSON Patch), vedi {@link PosizioneDebitoriaMapper#toAggiornamentoDebitore}. */
+    @Override
+    @Transactional
+    public ResponseEntity<DebitorePosizione> updateDebitore(String idA2A, String idPosizioneDebitoria,
+            String identificativoDebitore, List<PatchOp> patchOp) {
+        aclAuthorizer.richiedeScrittura();
+        currentApplicazioneService.verificaIdA2A(idA2A);
+        if (patchOp == null) {
+            throw new ValidazioneNonSuperataException("body della richiesta mancante");
+        }
+        it.govpay.pendenze.entity.PdDebitore aggiornato = posizioneDebitoriaService.aggiornaDebitore(idA2A,
+                idPosizioneDebitoria, identificativoDebitore, mapper.toAggiornamentoDebitore(patchOp));
+        return ResponseEntity.ok(mapper.toDebitorePosizioneDto(aggiornato));
+    }
+
+    /** Rimozione logica di un debitore, vedi {@link PosizioneDebitoriaService#rimuoviDebitore}. */
+    @Override
+    @Transactional
+    public ResponseEntity<Void> deleteDebitore(String idA2A, String idPosizioneDebitoria,
+            String identificativoDebitore) {
+        aclAuthorizer.richiedeScrittura();
+        currentApplicazioneService.verificaIdA2A(idA2A);
+        posizioneDebitoriaService.rimuoviDebitore(idA2A, idPosizioneDebitoria, identificativoDebitore);
+        return ResponseEntity.noContent().build();
     }
 
     /**
@@ -409,7 +481,7 @@ public class PosizioneDebitoriaController implements PosizioniDebitorieApi {
 
     /**
      * {@code @Transactional} qui per lo stesso motivo di {@link #getPosizioneDebitoria}:
-     * {@code toIndexDto} legge {@code soggettiDebitori}, collezione LAZY.
+     * {@code toIndexDto} legge i dati della posizione, anche essi LAZY.
      *
      * <p>Due modalita' di paginazione mutuamente esclusive (standard condiviso con
      * govpay-console-api): a offset ({@code offset}/{@code limit}, ordinamento libero via
