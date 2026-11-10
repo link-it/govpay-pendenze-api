@@ -282,8 +282,8 @@ class GetAvvisoControllerTest {
                   "codDocumento": "DOC-AVV-V3-1",
                   "idDominio": "%s",
                   "descrizione": "descrizione della posizione v3",
-                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "RSSMRA80A01H501U", "anagrafica": "Mario Rossi" } ],
-                  "opzioniPagamento": [ {
+                  "debitori": [ { "soggetto": { "tipo": "F", "identificativo": "RSSMRA80A01H501U", "anagrafica": "Mario Rossi" },
+                                  "opzioniPagamento": [ {
                     "tipologia": "SOLUZIONE_UNICA",
                     "pendenze": [ {
                       "idPendenza": "pend-avv-v3-1",
@@ -292,7 +292,7 @@ class GetAvvisoControllerTest {
                       "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-avv-v3-1",
                                   "importo": 10.00, "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
                     } ]
-                  } ]
+                  } ] } ]
                 }
                 """.formatted(ID_DOMINIO);
         mockMvc.perform(post("/posizioni-debitorie/{idA2A}", PRINCIPAL)

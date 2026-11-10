@@ -4,6 +4,7 @@ import static org.hamcrest.Matchers.blankOrNullString;
 import static org.hamcrest.Matchers.not;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -55,7 +56,7 @@ import it.govpay.common.repository.UnitaOperativaRepository;
 import it.govpay.pendenze.entity.OpzionePagamento;
 import it.govpay.pendenze.entity.Pendenza;
 import it.govpay.pendenze.entity.PosizioneDebitoria;
-import it.govpay.pendenze.entity.SoggettoDebitore;
+import it.govpay.pendenze.entity.Debitore;
 import it.govpay.pendenze.identificativo.IdentificatorePosizioneDebitoria;
 import it.govpay.pendenze.model.StatoPendenza;
 import it.govpay.pendenze.model.TipologiaOpzionePagamento;
@@ -317,7 +318,7 @@ class AddPendenzaControllerTest {
     }
 
     @Test
-    @DisplayName("creazione con soggettoPagatore.cellulare: persistito su SoggettoDebitore (campo aggiunto, "
+    @DisplayName("creazione con soggettoPagatore.cellulare: persistito su Debitore (campo aggiunto, "
             + "2026-10-27 — in precedenza scartato silenziosamente, gap noto)")
     void creaConCellulareDelSoggettoLoPersiste() throws Exception {
         String corpo = """
@@ -340,8 +341,7 @@ class AddPendenzaControllerTest {
         inTransazioneDiLettura(() -> {
             Pendenza pendenza = pendenzaRepository.findByIdApplicazioneAndIdPendenzaAndOpzionePagamentoIsNotNull(
                     idApplicazione, "pend-cellulare-1").orElseThrow();
-            SoggettoDebitore soggetto = pendenza.getOpzionePagamento().getPosizioneDebitoria()
-                    .getSoggettiDebitori().get(0);
+            Debitore soggetto = pendenza.getOpzionePagamento().getPdDebitore().getDebitore();
             org.junit.jupiter.api.Assertions.assertEquals("+39 000-1234567", soggetto.getCellulare());
             return null;
         });
@@ -598,8 +598,8 @@ class AddPendenzaControllerTest {
                   "codDocumento": "DOC-MULTI-1",
                   "idDominio": "%s",
                   "descrizione": "documento con piu' opzioni",
-                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "RSSMRA80A01H501U" } ],
-                  "opzioniPagamento": [ {
+                  "debitori": [ { "soggetto": { "tipo": "F", "identificativo": "RSSMRA80A01H501U" },
+                                  "opzioniPagamento": [ {
                     "tipologia": "SOLUZIONE_UNICA",
                     "pendenze": [ {
                       "idPendenza": "pend-multi-su",
@@ -608,7 +608,7 @@ class AddPendenzaControllerTest {
                       "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-multi-su",
                                   "importo": 10.00, "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
                     } ]
-                  } ]
+                  } ] } ]
                 }
                 """.formatted(ID_DOMINIO);
         mockMvc.perform(post("/posizioni-debitorie/{idA2A}", PRINCIPAL)
@@ -617,6 +617,7 @@ class AddPendenzaControllerTest {
                 .andExpect(status().isCreated());
 
         String secondaOpzione = """
+                [ { "identificativoDebitore": "RSSMRA80A01H501U", "opzionePagamento":
                 {
                   "tipologia": "SOLUZIONE_UNICA_ENTRO",
                   "giorni": 5,
@@ -628,6 +629,7 @@ class AddPendenzaControllerTest {
                                 "importo": 70.00, "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
                   } ]
                 }
+                } ]
                 """;
         mockMvc.perform(post("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento", PRINCIPAL,
                 IdentificatorePosizioneDebitoria.comporre(PRINCIPAL, ID_DOMINIO, "DOC-MULTI-1"))
@@ -670,8 +672,8 @@ class AddPendenzaControllerTest {
                   "codDocumento": "DOC-MULTI-2",
                   "idDominio": "%s",
                   "descrizione": "documento con due opzioni della stessa tipologia",
-                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "RSSMRA80A01H501U" } ],
-                  "opzioniPagamento": [ {
+                  "debitori": [ { "soggetto": { "tipo": "F", "identificativo": "RSSMRA80A01H501U" },
+                                  "opzioniPagamento": [ {
                     "tipologia": "SOLUZIONE_UNICA",
                     "pendenze": [ {
                       "idPendenza": "pend-ambig-1",
@@ -680,7 +682,7 @@ class AddPendenzaControllerTest {
                       "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-ambig-1",
                                   "importo": 10.00, "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
                     } ]
-                  } ]
+                  } ] } ]
                 }
                 """.formatted(ID_DOMINIO);
         mockMvc.perform(post("/posizioni-debitorie/{idA2A}", PRINCIPAL)
@@ -689,6 +691,7 @@ class AddPendenzaControllerTest {
                 .andExpect(status().isCreated());
 
         String secondaOpzione = """
+                [ { "identificativoDebitore": "RSSMRA80A01H501U", "opzionePagamento":
                 {
                   "tipologia": "SOLUZIONE_UNICA",
                   "pendenze": [ {
@@ -699,6 +702,7 @@ class AddPendenzaControllerTest {
                                 "importo": 10.00, "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
                   } ]
                 }
+                } ]
                 """;
         mockMvc.perform(post("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento", PRINCIPAL,
                 IdentificatorePosizioneDebitoria.comporre(PRINCIPAL, ID_DOMINIO, "DOC-MULTI-2"))
@@ -1150,5 +1154,101 @@ class AddPendenzaControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(corpo))
                 .andExpect(status().isCreated());
+    }
+
+    // ── Documento con piu' debitori (creato dalla v3) ────────────────────────────────
+
+    private void creaDocumentoV3ConDueDebitori(String codDocumento, String tipologia, String giorni) throws Exception {
+        String pendenza = """
+                { "idPendenza": "%s-%s-r%d", "idTipoPendenza": "DIRITTI_SEGRETERIA", %s "importo": 10.00,
+                  "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "%s-%s-v%d",
+                              "importo": 10.00, "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ] }
+                """;
+        boolean rateale = "PIANO_RATEALE".equals(tipologia);
+        StringBuilder debitori = new StringBuilder();
+        String[][] soggetti = {{"RSSMRA80A01H501U", "m"}, {"VRDGNN80A01H501W", "g"}};
+        for (int i = 0; i < soggetti.length; i++) {
+            String sig = soggetti[i][1];
+            String pendenze = pendenza.formatted(codDocumento, sig, 1, rateale ? "\"rata\": 1," : "",
+                    codDocumento, sig, 1);
+            if (rateale) {
+                pendenze += "," + pendenza.formatted(codDocumento, sig, 2, "\"rata\": 2,", codDocumento, sig, 2);
+            }
+            if (i > 0) {
+                debitori.append(',');
+            }
+            debitori.append("""
+                    { "soggetto": { "tipo": "F", "identificativo": "%s", "anagrafica": "Debitore" },
+                      "opzioniPagamento": [ { "tipologia": "%s", %s "pendenze": [ %s ] } ] }
+                    """.formatted(soggetti[i][0], tipologia, giorni, pendenze));
+        }
+        String body = """
+                { "codDocumento": "%s", "idDominio": "%s", "descrizione": "due debitori",
+                  "debitori": [ %s ] }
+                """.formatted(codDocumento, ID_DOMINIO, debitori);
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}", PRINCIPAL)
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isCreated());
+    }
+
+    @Test
+    @DisplayName("documento con due debitori: la rata successiva si aggiunge al piano del debitore indicato da "
+            + "soggettoPagatore, non a quello dell'altro")
+    void aggiuntaPendenzaSuDocumentoMultiDebitoreRisolveIlDebitore() throws Exception {
+        creaDocumentoV3ConDueDebitori("DOC-DUE-DEB-1", "PIANO_RATEALE", "");
+
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "DOC-DUE-DEB-1-g-r3")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpoConDocumentoEDescrizione("terza rata", 10.00, "DOC-DUE-DEB-1-g-v3", "DOC-DUE-DEB-1",
+                        "due debitori", 3).replace("RSSMRA80A01H501U", "VRDGNN80A01H501W")))
+                .andExpect(status().isCreated());
+
+        inTransazioneDiLettura(() -> {
+            PosizioneDebitoria posizione = posizioneDebitoriaRepository
+                    .findByIdApplicazioneAndIdDominioAndCodDocumento(idApplicazione, idDominio, "DOC-DUE-DEB-1")
+                    .orElseThrow();
+            org.junit.jupiter.api.Assertions.assertEquals(2,
+                    posizione.getPdDebitori().get(0).getOpzioniPagamento().get(0).getPendenze().size());
+            org.junit.jupiter.api.Assertions.assertEquals(3,
+                    posizione.getPdDebitori().get(1).getOpzioniPagamento().get(0).getPendenze().size());
+            return null;
+        });
+    }
+
+    @Test
+    @DisplayName("documento con due debitori: un soggettoPagatore che non e' uno di essi e' rifiutato (400)")
+    void aggiuntaPendenzaSuDocumentoMultiDebitoreConPagatoreSconosciuto() throws Exception {
+        creaDocumentoV3ConDueDebitori("DOC-DUE-DEB-2", "PIANO_RATEALE", "");
+
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "DOC-DUE-DEB-2-x-r3")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpoConDocumentoEDescrizione("terza rata", 10.00, "DOC-DUE-DEB-2-x-v3", "DOC-DUE-DEB-2",
+                        "due debitori", 3).replace("RSSMRA80A01H501U", "BNCLRA85M41F205Z")))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("documento con due debitori: una nuova opzione (seconda soglia) non si aggiunge dal wrapper v2 (400)")
+    void nuovaOpzioneSuDocumentoMultiDebitoreRestituisce400() throws Exception {
+        creaDocumentoV3ConDueDebitori("DOC-DUE-DEB-3", "SOLUZIONE_UNICA_ENTRO", "\"giorni\": 5,");
+
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "DOC-DUE-DEB-3-m-oltre")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpoConSoglia("oltre", 100.00, "DOC-DUE-DEB-3-m-vo", "DOC-DUE-DEB-3", "OLTRE", 5)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("PUT /v2/pendenze su una pendenza di un debitore rimosso: 409")
+    void aggiornamentoPendenzaDiDebitoreRimossoRestituisce409() throws Exception {
+        creaDocumentoV3ConDueDebitori("DOC-DUE-DEB-4", "PIANO_RATEALE", "");
+        mockMvc.perform(delete("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/debitori/{identificativo}",
+                PRINCIPAL, IdentificatorePosizioneDebitoria.comporre(PRINCIPAL, ID_DOMINIO, "DOC-DUE-DEB-4"),
+                "VRDGNN80A01H501W")).andExpect(status().isNoContent());
+
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "DOC-DUE-DEB-4-g-r1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpoBase("aggiornamento", 10.00, "DOC-DUE-DEB-4-g-v1")))
+                .andExpect(status().isConflict());
     }
 }

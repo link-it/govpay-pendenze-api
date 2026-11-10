@@ -134,7 +134,7 @@ paths:
       operationId: findPosizioniDebitorie
       description: >-
         Fornisce la lista delle posizioni debitorie del gestionale che
-        hanno tra i soggetti debitori quello indicato.
+        hanno tra i debitori quello indicato.
       parameters:
         - in: path
           name: idA2A
@@ -186,17 +186,20 @@ paths:
       summary: Creazione di una posizione debitoria
       operationId: addPosizioneDebitoria
       description: >-
-        Crea una nuova posizione debitoria, comprensiva dei soggetti
-        debitori (anche in solido) e di una o più opzioni di pagamento
-        alternative (es. unica soluzione, piano rateale), ciascuna con le
-        proprie pendenze (rate).
+        Crea una nuova posizione debitoria, comprensiva dei suoi debitori
+        (anche co-obbligati in solido), ciascuno con le proprie opzioni di
+        pagamento alternative (es. unica soluzione, piano rateale) e le
+        relative pendenze (rate). Le opzioni vanno indicate per ciascun
+        debitore: la corrispondenza tra le opzioni dei co-obbligati è
+        responsabilità del gestionale, non è verificata.
         Un secondo tentativo di creazione con lo stesso codDocumento per lo
         stesso idA2A e lo stesso idDominio viene rifiutato (409): l'operazione
         crea la posizione debitoria esattamente una volta e non aggiorna una
-        posizione esistente. Se
-        `navNotifica` è indicato, deve corrispondere al `numeroAvviso` di
-        una delle pendenze appena create: la richiesta è rifiutata con 400
-        in caso contrario.
+        posizione esistente. Se la
+        notifica SEND di un debitore è attiva (`notificaSend`), il suo
+        `navNotifica` è obbligatorio e deve corrispondere al `numeroAvviso`
+        di una delle pendenze di quel debitore: la richiesta è rifiutata con
+        400 in caso contrario.
       parameters:
         - in: path
           name: idA2A
@@ -219,22 +222,23 @@ paths:
                   codDocumento: CERT2026-000058
                   idDominio: '12345678901'
                   descrizione: 'Diritti di segreteria - certificato di residenza'
-                  soggettiDebitori:
-                    - tipo: F
-                      identificativo: FRRPLA90C41H501Y
-                      anagrafica: Paola Ferrari
-                  opzioniPagamento:
-                    - tipologia: SOLUZIONE_UNICA
-                      pendenze:
-                        - idPendenza: CERT2026-000058-UNICA
-                          idTipoPendenza: DIRITTI_SEGRETERIA
-                          importo: 16.00
-                          voci:
-                            - idVocePendenza: CERT2026-000058-UNICA_1
+                  debitori:
+                    - soggetto:
+                        tipo: F
+                        identificativo: FRRPLA90C41H501Y
+                        anagrafica: Paola Ferrari
+                      opzioniPagamento:
+                        - tipologia: SOLUZIONE_UNICA
+                          pendenze:
+                            - idPendenza: CERT2026-000058-UNICA
+                              idTipoPendenza: DIRITTI_SEGRETERIA
                               importo: 16.00
-                              descrizione: 'Diritti di segreteria - certificato di residenza'
-                              tipoRiferimento: RIFERIMENTO_ENTRATA
-                              codEntrata: DIRITTI_SEGRETERIA
+                              voci:
+                                - idVocePendenza: CERT2026-000058-UNICA_1
+                                  importo: 16.00
+                                  descrizione: 'Diritti di segreteria - certificato di residenza'
+                                  tipoRiferimento: RIFERIMENTO_ENTRATA
+                                  codEntrata: DIRITTI_SEGRETERIA
               unicaSoluzioneORateale:
                 summary: >-
                   Debito pagabile in un'unica soluzione oppure, in
@@ -243,53 +247,54 @@ paths:
                   codDocumento: IMU2026-000017
                   idDominio: '12345678901'
                   descrizione: 'IMU 2026 - immobile in via Garibaldi 5'
-                  soggettiDebitori:
-                    - tipo: F
-                      identificativo: VRDGNN80A01H501W
-                      anagrafica: Giovanna Verdi
-                  opzioniPagamento:
-                    - tipologia: SOLUZIONE_UNICA
-                      dataScadenza: '2026-06-16'
-                      pendenze:
-                        - idPendenza: IMU2026-000017-UNICA
-                          idTipoPendenza: IMU
-                          importo: 600.00
-                          voci:
-                            - idVocePendenza: IMU2026-000017-UNICA_1
+                  debitori:
+                    - soggetto:
+                        tipo: F
+                        identificativo: VRDGNN80A01H501W
+                        anagrafica: Giovanna Verdi
+                      opzioniPagamento:
+                        - tipologia: SOLUZIONE_UNICA
+                          dataScadenza: '2026-06-16'
+                          pendenze:
+                            - idPendenza: IMU2026-000017-UNICA
+                              idTipoPendenza: IMU
                               importo: 600.00
-                              descrizione: 'IMU 2026 - saldo unico'
-                              tipoRiferimento: RIFERIMENTO_ENTRATA
-                              codEntrata: IMU
-                    - tipologia: PIANO_RATEALE
-                      dataScadenza: '2026-12-16'
-                      pendenze:
-                        - idPendenza: IMU2026-000017-R1
-                          idTipoPendenza: IMU
-                          importo: 200.00
-                          voci:
-                            - idVocePendenza: IMU2026-000017-R1_1
+                              voci:
+                                - idVocePendenza: IMU2026-000017-UNICA_1
+                                  importo: 600.00
+                                  descrizione: 'IMU 2026 - saldo unico'
+                                  tipoRiferimento: RIFERIMENTO_ENTRATA
+                                  codEntrata: IMU
+                        - tipologia: PIANO_RATEALE
+                          dataScadenza: '2026-12-16'
+                          pendenze:
+                            - idPendenza: IMU2026-000017-R1
+                              idTipoPendenza: IMU
                               importo: 200.00
-                              descrizione: 'IMU 2026 - rata 1 di 3'
-                              tipoRiferimento: RIFERIMENTO_ENTRATA
-                              codEntrata: IMU
-                        - idPendenza: IMU2026-000017-R2
-                          idTipoPendenza: IMU
-                          importo: 200.00
-                          voci:
-                            - idVocePendenza: IMU2026-000017-R2_1
+                              voci:
+                                - idVocePendenza: IMU2026-000017-R1_1
+                                  importo: 200.00
+                                  descrizione: 'IMU 2026 - rata 1 di 3'
+                                  tipoRiferimento: RIFERIMENTO_ENTRATA
+                                  codEntrata: IMU
+                            - idPendenza: IMU2026-000017-R2
+                              idTipoPendenza: IMU
                               importo: 200.00
-                              descrizione: 'IMU 2026 - rata 2 di 3'
-                              tipoRiferimento: RIFERIMENTO_ENTRATA
-                              codEntrata: IMU
-                        - idPendenza: IMU2026-000017-R3
-                          idTipoPendenza: IMU
-                          importo: 200.00
-                          voci:
-                            - idVocePendenza: IMU2026-000017-R3_1
+                              voci:
+                                - idVocePendenza: IMU2026-000017-R2_1
+                                  importo: 200.00
+                                  descrizione: 'IMU 2026 - rata 2 di 3'
+                                  tipoRiferimento: RIFERIMENTO_ENTRATA
+                                  codEntrata: IMU
+                            - idPendenza: IMU2026-000017-R3
+                              idTipoPendenza: IMU
                               importo: 200.00
-                              descrizione: 'IMU 2026 - rata 3 di 3'
-                              tipoRiferimento: RIFERIMENTO_ENTRATA
-                              codEntrata: IMU
+                              voci:
+                                - idVocePendenza: IMU2026-000017-R3_1
+                                  importo: 200.00
+                                  descrizione: 'IMU 2026 - rata 3 di 3'
+                                  tipoRiferimento: RIFERIMENTO_ENTRATA
+                                  codEntrata: IMU
               multaConRiduzione:
                 summary: >-
                   Sanzione con riduzione del 30% se pagata entro 5 giorni,
@@ -298,39 +303,40 @@ paths:
                   codDocumento: VERBALE2026-000123
                   idDominio: '12345678901'
                   descrizione: 'Verbale n. 123/2026 - violazione art. 142 CdS'
-                  soggettiDebitori:
-                    - tipo: F
-                      identificativo: BNCLRA75B02H501K
-                      anagrafica: Laura Bianchi
-                  opzioniPagamento:
-                    - tipologia: SOLUZIONE_UNICA_ENTRO
-                      giorni: 5
-                      pendenze:
-                        - idPendenza: VERBALE2026-000123-RIDOTTA
-                          idTipoPendenza: SANZIONE_CDS
-                          importo: 70.00
-                          voci:
-                            - idVocePendenza: VERBALE2026-000123-RIDOTTA_1
+                  debitori:
+                    - soggetto:
+                        tipo: F
+                        identificativo: BNCLRA75B02H501K
+                        anagrafica: Laura Bianchi
+                      opzioniPagamento:
+                        - tipologia: SOLUZIONE_UNICA_ENTRO
+                          giorni: 5
+                          pendenze:
+                            - idPendenza: VERBALE2026-000123-RIDOTTA
+                              idTipoPendenza: SANZIONE_CDS
                               importo: 70.00
-                              descrizione: >-
-                                Sanzione in misura ridotta (-30%), pagamento
-                                entro 5 giorni dalla notifica
-                              tipoRiferimento: RIFERIMENTO_ENTRATA
-                              codEntrata: SANZIONE_CDS
-                    - tipologia: SOLUZIONE_UNICA_OLTRE
-                      giorni: 5
-                      pendenze:
-                        - idPendenza: VERBALE2026-000123-INTERA
-                          idTipoPendenza: SANZIONE_CDS
-                          importo: 100.00
-                          voci:
-                            - idVocePendenza: VERBALE2026-000123-INTERA_1
+                              voci:
+                                - idVocePendenza: VERBALE2026-000123-RIDOTTA_1
+                                  importo: 70.00
+                                  descrizione: >-
+                                    Sanzione in misura ridotta (-30%), pagamento
+                                    entro 5 giorni dalla notifica
+                                  tipoRiferimento: RIFERIMENTO_ENTRATA
+                                  codEntrata: SANZIONE_CDS
+                        - tipologia: SOLUZIONE_UNICA_OLTRE
+                          giorni: 5
+                          pendenze:
+                            - idPendenza: VERBALE2026-000123-INTERA
+                              idTipoPendenza: SANZIONE_CDS
                               importo: 100.00
-                              descrizione: >-
-                                Sanzione in misura intera, pagamento dopo il
-                                5° giorno dalla notifica
-                              tipoRiferimento: RIFERIMENTO_ENTRATA
-                              codEntrata: SANZIONE_CDS
+                              voci:
+                                - idVocePendenza: VERBALE2026-000123-INTERA_1
+                                  importo: 100.00
+                                  descrizione: >-
+                                    Sanzione in misura intera, pagamento dopo il
+                                    5° giorno dalla notifica
+                                  tipoRiferimento: RIFERIMENTO_ENTRATA
+                                  codEntrata: SANZIONE_CDS
       responses:
         '201':
           description: >-
@@ -463,12 +469,9 @@ paths:
       summary: Aggiornamento di uno o più campi di una posizione debitoria
       operationId: updatePosizioneDebitoria
       description: >-
-        Aggiorna i campi della posizione debitoria (es. `descrizione`,
-        `soggettiDebitori`, `dataPubblicazione`, `notificaSend`,
-        `navNotifica`). Se `navNotifica` è indicato, deve corrispondere al
-        `numeroAvviso` di una delle pendenze della posizione: la richiesta
-        è rifiutata con 400 in caso contrario. Le opzioni di pagamento
-        non si aggiornano qui: per aggiungerne una si usa
+        Aggiorna `descrizione` e `dataPubblicazione` della posizione
+        debitoria. I debitori e le loro opzioni di pagamento non si
+        aggiornano qui: per aggiungere le opzioni si usa
         `POST .../opzioni-pagamento`, per cambiarne lo stato
         `PATCH .../opzioni-pagamento/{idOpzionePagamento}`.
       parameters:
@@ -536,24 +539,21 @@ paths:
         '500':
           $ref: '#/components/responses/500ServiceUnavailable'
 
-  '/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/stampa':
-    get:
+  '/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/debitori':
+    post:
       tags:
         - PosizioniDebitorie
-      summary: Stampa dell'avviso di pagamento di una posizione debitoria
-      operationId: getStampaPosizioneDebitoria
+      summary: Aggiunta di un debitore a una posizione debitoria esistente
+      operationId: addDebitore
       description: >-
-        Fornisce la stampa dell'avviso di pagamento della posizione
-        debitoria, in formato PDF. Considera solo le opzioni di pagamento
-        con almeno una rata ancora pagabile: se ne resta esattamente una,
-        l'avviso è quello della sua rata unica o, se ha più rate, quello
-        cumulativo delle sue rate (stesso criterio di
-        `GET /pendenze/{idA2A}/{idPendenza}/stampa`); se ne restano più
-        di una (opzioni alternative, es. "paga tutto" o "paga a rate"
-        sullo stesso debito), l'avviso è un unico PDF con una pagina (o
-        più pagine, se l'opzione ha più rate) per ciascuna opzione, mai
-        condivisa fra due opzioni diverse. Non è disponibile in formato
-        bilingue.
+        Aggiunge un debitore, con le sue opzioni di pagamento, a una posizione
+        debitoria già esistente. Valgono le regole della creazione: almeno
+        un'opzione, `identificativo` univoco tra i debitori della posizione,
+        `navNotifica` obbligatorio se `notificaSend` è attivo. La
+        corrispondenza con le opzioni degli altri debitori non è verificata.
+        Si può aggiungere un debitore con lo stesso `identificativo` di uno
+        rimosso. Rifiutata (409) se la posizione ha già un'opzione di pagamento
+        ATTIVATA.
       parameters:
         - in: path
           name: idA2A
@@ -572,6 +572,318 @@ paths:
           schema:
             type: string
             pattern: '(^[a-zA-Z0-9\-_]{1,81}$)'
+      requestBody:
+        required: true
+        content:
+          application/json;charset=UTF-8:
+            schema:
+              $ref: '#/components/schemas/NuovoDebitorePosizione'
+      responses:
+        '201':
+          description: Debitore aggiunto
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
+          content:
+            application/json;charset=UTF-8:
+              schema:
+                $ref: '#/components/schemas/DebitorePosizione'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+        '401':
+          $ref: '#/components/responses/401NotAuthenticated'
+        '403':
+          $ref: '#/components/responses/403NotAuthorized'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+        '409':
+          description: >-
+            La posizione debitoria ha già un'opzione di pagamento ATTIVATA
+            (pagamento già eseguito), è stata modificata concorrentemente, o
+            una pendenza ha un idPendenza già usato da un'altra pendenza della
+            stessa applicazione.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
+          content:
+            application/problem+json;charset=UTF-8:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '415':
+          $ref: '#/components/responses/415UnsupportedMediaType'
+        '429':
+          $ref: '#/components/responses/429TooManyRequests'
+        '500':
+          $ref: '#/components/responses/500ServiceUnavailable'
+
+  '/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/debitori/{identificativoDebitore}':
+    patch:
+      tags:
+        - PosizioniDebitorie
+      summary: Aggiornamento dei dati di un debitore di una posizione debitoria
+      operationId: updateDebitore
+      description: >-
+        Aggiorna anagrafica e notifica SEND di un debitore, con JSON Patch
+        (RFC 6902) sui campi di `DebitorePosizione`: `/soggetto/tipo`,
+        `/soggetto/identificativo`, `/soggetto/anagrafica`,
+        `/soggetto/indirizzo`, `/soggetto/civico`, `/soggetto/cap`,
+        `/soggetto/localita`, `/soggetto/provincia`, `/soggetto/nazione`,
+        `/soggetto/email`, `/soggetto/cellulare`, `/notificaSend`,
+        `/navNotifica`. `tipo`, `identificativo` e `notificaSend` non si
+        rimuovono. Il nuovo `identificativo` deve restare univoco tra i
+        debitori della posizione. Se `notificaSend` è attivo, `navNotifica` è
+        obbligatorio e deve corrispondere al `numeroAvviso` di una pendenza
+        del debitore. Un debitore rimosso non si aggiorna (404). Le opzioni di
+        pagamento non si aggiornano qui.
+      parameters:
+        - in: path
+          name: idA2A
+          description: Identificativo del gestionale
+          required: true
+          schema:
+            type: string
+            pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
+        - in: path
+          name: idPosizioneDebitoria
+          description: >-
+            Identificativo pubblico della posizione debitoria (IUPD standard
+            pagoPA GPD: idA2A+idDominio+codDocumento concatenati senza
+            separatore) — vedi `PosizioneDebitoria.idPosizioneDebitoria`.
+          required: true
+          schema:
+            type: string
+            pattern: '(^[a-zA-Z0-9\-_]{1,81}$)'
+        - in: path
+          name: identificativoDebitore
+          description: >-
+            Identificativo (codice fiscale o partita iva) del debitore, come in
+            `PosizioneDebitoria.debitori[].soggetto.identificativo`.
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 35
+      requestBody:
+        required: true
+        content:
+          application/json-patch+json;charset=UTF-8:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/PatchOp'
+              description: Lista di operazioni JSON Patch (RFC 6902) da applicare
+      responses:
+        '200':
+          description: Debitore aggiornato; la risposta riporta il suo stato attuale
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
+          content:
+            application/json;charset=UTF-8:
+              schema:
+                $ref: '#/components/schemas/DebitorePosizione'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+        '401':
+          $ref: '#/components/responses/401NotAuthenticated'
+        '403':
+          $ref: '#/components/responses/403NotAuthorized'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+        '409':
+          description: >-
+            La posizione debitoria è stata modificata concorrentemente da
+            un'altra richiesta: rileggerla e riprovare.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
+          content:
+            application/problem+json;charset=UTF-8:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '415':
+          $ref: '#/components/responses/415UnsupportedMediaType'
+        '429':
+          $ref: '#/components/responses/429TooManyRequests'
+        '500':
+          $ref: '#/components/responses/500ServiceUnavailable'
+    delete:
+      tags:
+        - PosizioniDebitorie
+      summary: Rimozione di un debitore da una posizione debitoria
+      operationId: deleteDebitore
+      description: >-
+        Rimuove logicamente un debitore: le sue opzioni di pagamento diventano
+        ANNULLATA e le sue pendenze ANNULLATO, e il debitore non compare più
+        nella posizione né nelle ricerche. L'annullamento è comunicato ad ACA
+        come per qualunque annullamento. Le pendenze restano leggibili per
+        `idPendenza` con stato ANNULLATO e il loro `idPendenza` e
+        `numeroAvviso` non si possono riusare. Rifiutata (409) se il debitore
+        è l'unico della posizione, o se nella posizione c'è un'opzione di
+        pagamento ATTIVATA o una pendenza eseguita (pagamento già registrato).
+      parameters:
+        - in: path
+          name: idA2A
+          description: Identificativo del gestionale
+          required: true
+          schema:
+            type: string
+            pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
+        - in: path
+          name: idPosizioneDebitoria
+          description: >-
+            Identificativo pubblico della posizione debitoria (IUPD standard
+            pagoPA GPD: idA2A+idDominio+codDocumento concatenati senza
+            separatore) — vedi `PosizioneDebitoria.idPosizioneDebitoria`.
+          required: true
+          schema:
+            type: string
+            pattern: '(^[a-zA-Z0-9\-_]{1,81}$)'
+        - in: path
+          name: identificativoDebitore
+          description: >-
+            Identificativo (codice fiscale o partita iva) del debitore, come in
+            `PosizioneDebitoria.debitori[].soggetto.identificativo`.
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 35
+      responses:
+        '204':
+          description: Debitore rimosso
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
+        '401':
+          $ref: '#/components/responses/401NotAuthenticated'
+        '403':
+          $ref: '#/components/responses/403NotAuthorized'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+        '409':
+          description: >-
+            Il debitore è l'unico della posizione, la posizione ha un
+            pagamento già registrato, o è stata modificata concorrentemente.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+            X-Transaction-ID:
+              $ref: '#/components/headers/TransactionId'
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/RateLimitLimit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/RateLimitRemaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/RateLimitReset'
+          content:
+            application/problem+json;charset=UTF-8:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          $ref: '#/components/responses/429TooManyRequests'
+        '500':
+          $ref: '#/components/responses/500ServiceUnavailable'
+
+  '/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/stampa':
+    get:
+      tags:
+        - PosizioniDebitorie
+      summary: Stampa dell'avviso di pagamento di una posizione debitoria
+      operationId: getStampaPosizioneDebitoria
+      description: >-
+        Fornisce la stampa dell'avviso di pagamento della posizione
+        debitoria, in formato PDF. Considera solo le opzioni di pagamento
+        con almeno una rata ancora pagabile: se ne resta esattamente una,
+        l'avviso è quello della sua rata unica o, se ha più rate, quello
+        cumulativo delle sue rate (stesso criterio di
+        `GET /pendenze/{idA2A}/{idPendenza}/stampa`); se ne restano più
+        di una (opzioni alternative, es. "paga tutto" o "paga a rate"
+        sullo stesso debito), l'avviso è un unico PDF con una pagina (o
+        più pagine, se l'opzione ha più rate) per ciascuna opzione, mai
+        condivisa fra due opzioni diverse. Non è disponibile in formato
+        bilingue. L'avviso è quello di un solo debitore: se la posizione
+        ha più di un debitore, `idDebitore` è obbligatorio (400 in sua
+        assenza), perché ogni debitore ha i propri numeri avviso.
+      parameters:
+        - in: path
+          name: idA2A
+          description: Identificativo del gestionale
+          required: true
+          schema:
+            type: string
+            pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
+        - in: path
+          name: idPosizioneDebitoria
+          description: >-
+            Identificativo pubblico della posizione debitoria (IUPD standard
+            pagoPA GPD: idA2A+idDominio+codDocumento concatenati senza
+            separatore) — vedi `PosizioneDebitoria.idPosizioneDebitoria`.
+          required: true
+          schema:
+            type: string
+            pattern: '(^[a-zA-Z0-9\-_]{1,81}$)'
+        - in: query
+          name: idDebitore
+          description: >-
+            Identificativo (codice fiscale o partita iva) del debitore di cui
+            stampare l'avviso. Obbligatorio se la posizione ha più di un
+            debitore.
+          required: false
+          schema:
+            type: string
       responses:
         '200':
           description: Avviso di pagamento in formato PDF
@@ -696,8 +1008,13 @@ paths:
       summary: Aggiunta di un'opzione di pagamento a una posizione debitoria esistente
       operationId: addOpzionePagamento
       description: >-
-        Aggiunge una nuova opzione di pagamento (con le sue pendenze) a una
-        posizione debitoria già esistente.
+        Aggiunge a una posizione debitoria già esistente una nuova opzione
+        di pagamento (con le sue pendenze) per ciascun debitore. Il corpo
+        indica, per ogni debitore, il suo `identificativoDebitore` e
+        l'opzione: devono essere indicati tutti i debitori della posizione,
+        ciascuno una sola volta. È rifiutata (400) un'indicazione che non
+        copre tutti i debitori, che ne ripete uno o che indica un
+        identificativo non appartenente alla posizione.
       parameters:
         - in: path
           name: idA2A
@@ -720,10 +1037,13 @@ paths:
         content:
           application/json;charset=UTF-8:
             schema:
-              $ref: '#/components/schemas/NuovaOpzionePagamento'
+              type: array
+              minItems: 1
+              items:
+                $ref: '#/components/schemas/NuovaOpzionePagamentoDebitore'
       responses:
         '201':
-          description: Opzione di pagamento creata
+          description: Opzioni di pagamento create, una per debitore
           headers:
             Cache-Control:
               $ref: '#/components/headers/CacheControl'
@@ -740,7 +1060,9 @@ paths:
           content:
             application/json;charset=UTF-8:
               schema:
-                $ref: '#/components/schemas/OpzionePagamento'
+                type: array
+                items:
+                  $ref: '#/components/schemas/OpzionePagamento'
         '400':
           $ref: '#/components/responses/400BadRequest'
         '401':
@@ -1847,11 +2169,10 @@ components:
       name: idDebitore
       in: query
       description: >-
-        Identificativo (codice fiscale o partita IVA) di un soggetto
-        debitore. In presenza di più debitori in solido, la ricerca trova
-        la posizione debitoria se il valore corrisponde a QUALSIASI dei
-        soggetti in soggettiDebitori. Unico criterio di ricerca delle
-        posizioni debitorie.
+        Identificativo (codice fiscale o partita IVA) di un debitore. In
+        presenza di più debitori in solido, la ricerca trova la posizione
+        debitoria se il valore corrisponde a QUALSIASI dei suoi debitori.
+        Unico criterio di ricerca delle posizioni debitorie.
       required: true
       schema:
         type: string
@@ -2211,8 +2532,7 @@ components:
         - codDocumento
         - idDominio
         - descrizione
-        - soggettiDebitori
-        - opzioniPagamento
+        - debitori
       properties:
         codDocumento:
           type: string
@@ -2250,20 +2570,17 @@ components:
           examples:
             - 'Sanzione CdS n. abc00000'
           maxLength: 140
-        soggettiDebitori:
+        debitori:
           type: array
           description: >-
-            Elenco dei soggetti obbligati al pagamento della posizione
-            debitoria. In presenza di più soggetti (debitori in solido),
-            ciascuno di essi può autenticarsi e gestire/pagare per intero
-            qualsiasi pendenza della posizione. Il primo elemento
-            dell'elenco è quello utilizzato come "soggetto pagatore"
-            nell'RPT verso il Nodo dei Pagamenti e nelle comunicazioni che
-            richiedono un unico destinatario, essendo il Nodo dei Pagamenti
-            vincolato a un solo soggetto pagatore per avviso.
+            Debitori della posizione debitoria. In presenza di più debitori
+            (co-obbligati in solido) ciascuno ha le proprie opzioni di
+            pagamento, quindi le proprie pendenze e i propri numeri avviso.
+            Ogni debitore, identificato dal suo `identificativo`, compare una
+            sola volta.
           minItems: 1
           items:
-            $ref: '#/components/schemas/Soggetto'
+            $ref: '#/components/schemas/NuovoDebitorePosizione'
         dataPubblicazione:
           type: string
           format: date
@@ -2279,36 +2596,68 @@ components:
             immediatamente.
           examples:
             - '2026-01-15'
+
+    NuovoDebitorePosizione:
+      type: object
+      description: >-
+        Un debitore della posizione debitoria, con la notifica SEND e le
+        opzioni di pagamento che lo riguardano.
+      required:
+        - soggetto
+        - opzioniPagamento
+      properties:
+        soggetto:
+          $ref: '#/components/schemas/Soggetto'
         notificaSend:
           type: boolean
           description: >-
-            Indica se la posizione debitoria è notificata (o va notificata)
-            tramite SEND. Se attivo, GovPay maggiora l'importo pagato in
-            sede di pagamento con le spese di notifica SEND. Non va
-            attivato se le pendenze della posizione includono già tali
-            spese nel proprio importo (voce con dettaglioContabile di tipo
-            SPESE_NOTIFICA). Se assente, equivale a `false`.
+            Indica se il debitore è notificato (o va notificato) tramite
+            SEND. Se attivo, GovPay maggiora l'importo pagato in sede di
+            pagamento con le spese di notifica SEND. Non va attivato se le
+            pendenze del debitore includono già tali spese nel proprio
+            importo (voce con dettaglioContabile di tipo SPESE_NOTIFICA). Se
+            assente, equivale a `false`.
         navNotifica:
           type: string
           description: >-
-            NAV (numero avviso) con cui la posizione debitoria è notificata
-            tramite SEND. Deve corrispondere al `numeroAvviso` di una delle
-            pendenze della posizione: GovPay lo verifica e rifiuta la
-            richiesta se non corrisponde a nessuna. Se non indicato mentre
-            `notificaSend` è attivo, GovPay lo assegna automaticamente
-            (tipicamente la pendenza dell'opzione SOLUZIONE_UNICA se
-            presente, altrimenti la rata 1 dell'unico PIANO_RATEALE).
+            NAV (numero avviso) a cui l'Ente ha agganciato le spese di
+            notifica SEND del debitore. Obbligatorio se `notificaSend` è
+            attivo; deve corrispondere al `numeroAvviso` di una delle
+            pendenze del debitore (che l'Ente valorizza quindi
+            esplicitamente). GovPay non lo assegna automaticamente.
           pattern: '(^[0-9]{18}$)'
         opzioniPagamento:
           type: array
           description: >-
             Modalità alternative con cui può essere estinta la posizione
-            debitoria (es. pagamento in un'unica soluzione oppure piano
-            rateale). Ricalca il modello "Opzioni di pagamento" di pagoPA
+            debitoria per questo debitore (es. pagamento in un'unica
+            soluzione oppure piano rateale). Ricalca il modello "Opzioni di
+            pagamento" di pagoPA
             (https://developer.pagopa.it/pago-pa/guides/sanp/ente-creditore/opzioni-di-pagamento).
           minItems: 1
           items:
             $ref: '#/components/schemas/NuovaOpzionePagamento'
+
+    NuovaOpzionePagamentoDebitore:
+      type: object
+      description: >-
+        Nuova opzione di pagamento da aggiungere a un debitore di una
+        posizione già esistente.
+      required:
+        - identificativoDebitore
+        - opzionePagamento
+      properties:
+        identificativoDebitore:
+          type: string
+          description: >-
+            Identificativo (codice fiscale o partita iva) del debitore della
+            posizione a cui si aggiunge l'opzione.
+          examples:
+            - RSSMRA30A01H501I
+          minLength: 2
+          maxLength: 16
+        opzionePagamento:
+          $ref: '#/components/schemas/NuovaOpzionePagamento'
 
     TipologiaOpzionePagamento:
       type: string
@@ -2536,7 +2885,11 @@ components:
       properties:
         idPendenza:
           type: string
-          description: Identificativo della pendenza (rata) nel gestionale proprietario.
+          description: >-
+            Identificativo della pendenza (rata) nel gestionale proprietario.
+            Univoco per idA2A: per un debito con più co-obbligati ogni
+            debitore ha le proprie pendenze, quindi il gestionale indica un
+            idPendenza diverso per ciascuna.
           examples:
             - abcdef12345
           pattern: '(^[a-zA-Z0-9\-_]{1,35}$)'
@@ -2738,7 +3091,6 @@ components:
         - idPosizioneDebitoria
         - idDominio
         - descrizione
-        - soggettiDebitori
       properties:
         idA2A:
           type: string
@@ -2775,18 +3127,9 @@ components:
           type: string
           examples:
             - 'Sanzione CdS n. abc00000'
-        soggettiDebitori:
-          type: array
-          minItems: 1
-          items:
-            $ref: '#/components/schemas/Soggetto'
         dataPubblicazione:
           type: string
           format: date
-        notificaSend:
-          type: boolean
-        navNotifica:
-          type: string
 
     PosizioneDebitoria:
       description: >-
@@ -2798,8 +3141,7 @@ components:
         - idPosizioneDebitoria
         - idDominio
         - descrizione
-        - soggettiDebitori
-        - opzioniPagamento
+        - debitori
       properties:
         idA2A:
           type: string
@@ -2836,14 +3178,30 @@ components:
           type: string
           examples:
             - 'Sanzione CdS n. abc00000'
-        soggettiDebitori:
+        debitori:
           type: array
+          description: >-
+            Debitori della posizione, ciascuno con la propria notifica SEND
+            e le proprie opzioni di pagamento. L'anagrafica di ogni debitore
+            compare solo qui.
           minItems: 1
           items:
-            $ref: '#/components/schemas/Soggetto'
+            $ref: '#/components/schemas/DebitorePosizione'
         dataPubblicazione:
           type: string
           format: date
+
+    DebitorePosizione:
+      type: object
+      description: >-
+        Un debitore della posizione debitoria, con la notifica SEND e le
+        opzioni di pagamento che lo riguardano.
+      required:
+        - soggetto
+        - opzioniPagamento
+      properties:
+        soggetto:
+          $ref: '#/components/schemas/Soggetto'
         notificaSend:
           type: boolean
         navNotifica:
@@ -3359,8 +3717,8 @@ components:
           readOnly: true
           description: >-
             Importo delle spese di notifica SEND quantificato da GovPay al
-            momento del pagamento, quando `notificaSend` è attivo sulla
-            posizione debitoria. Assente se non ancora quantificato, o se
+            momento del pagamento, quando `notificaSend` è attivo sul
+            debitore della pendenza. Assente se non ancora quantificato, o se
             `notificaSend` non è attivo.
           examples:
             - 1.20
@@ -3382,7 +3740,10 @@ components:
           required:
             - voci
             - posizioneDebitoria
+            - debitore
           properties:
+            debitore:
+              $ref: '#/components/schemas/RiferimentoDebitore'
             voci:
               type: array
               minItems: 1
@@ -3399,9 +3760,12 @@ components:
         - type: object
           required:
             - posizioneDebitoria
+            - debitore
           properties:
             posizioneDebitoria:
               $ref: '#/components/schemas/PosizioneDebitoriaIndex'
+            debitore:
+              $ref: '#/components/schemas/RiferimentoDebitore'
 
     PendenzaOpzionePagamento:
       type: object
@@ -3538,6 +3902,24 @@ components:
     # ============================================================
     # SOGGETTO
     # ============================================================
+
+    RiferimentoDebitore:
+      type: object
+      description: >-
+        Debitore a cui appartiene la pendenza, identificato da tipo e
+        identificativo. L'anagrafica completa è in
+        `PosizioneDebitoria.debitori[].soggetto`.
+      required:
+        - tipo
+        - identificativo
+      properties:
+        tipo:
+          $ref: '#/components/schemas/TipoSoggetto'
+        identificativo:
+          type: string
+          description: codice fiscale o partita iva del debitore
+          examples:
+            - RSSMRA30A01H501I
 
     Soggetto:
       description: dati anagrafici di un versante o pagatore.
@@ -3724,8 +4106,8 @@ components:
         (spazi compresi), per vincolo del dizionario dei metadata.
         SPESE_NOTIFICA va indicato in scrittura solo se l'importo della
         voce include già le spese di notifica SEND calcolate autonomamente
-        dall'applicativo; in tal caso `notificaSend` non va attivato sulla
-        posizione debitoria, altrimenti le spese verrebbero applicate due
+        dall'applicativo; in tal caso `notificaSend` non va attivato sul
+        debitore, altrimenti le spese verrebbero applicate due
         volte.
       required: [tipo]
       properties:
@@ -3886,7 +4268,7 @@ components:
       description: >-
         Corrisponde alla sezione "Spese di notifica SEND" del Dizionario
         dei metadata pagoPA. In lettura è normalmente generato da GovPay
-        stesso, quando `notificaSend` è attivo sulla posizione debitoria.
+        stesso, quando `notificaSend` è attivo sul debitore.
         Può essere indicato anche in scrittura dall'applicativo, ma solo
         nel caso in cui l'importo della voce includa già tali spese
         calcolate autonomamente (vedi `dettaglio`).
