@@ -275,6 +275,25 @@ class GetStampaPosizioneDebitoriaControllerTest {
     }
 
     @Test
+    @DisplayName("creditor.pay_on_website riporta la colonna domini.pagamento_sito: false se non configurata, "
+            + "true se l'ente consente il pagamento dal proprio sito")
+    void payOnWebsiteLettoDalDominio() throws Exception {
+        String idPosizioneDebitoria = creaConUnaOpzione("pos-stampa-sito", 1);
+
+        mockMvc.perform(get(PATH, PRINCIPAL, idPosizioneDebitoria).accept(MediaType.APPLICATION_PDF))
+                .andExpect(status().isOk());
+        assertFalse(ultimoPayload().get("creditor").get("pay_on_website").asBoolean());
+
+        DominioEntity dominio = dominioRepository.findByCodDominio(ID_DOMINIO).orElseThrow();
+        dominio.setPagamentoSito(true);
+        dominioRepository.save(dominio);
+
+        mockMvc.perform(get(PATH, PRINCIPAL, idPosizioneDebitoria).accept(MediaType.APPLICATION_PDF))
+                .andExpect(status().isOk());
+        assertTrue(ultimoPayload().get("creditor").get("pay_on_website").asBoolean());
+    }
+
+    @Test
     @DisplayName("un'unica opzione con una sola pendenza che ha una causale propria: il titolo resta "
             + "la descrizione della posizione, mai la causale della pendenza (identita' stampata: il "
             + "documento, non la pendenza, anche quando resta solo una rata)")

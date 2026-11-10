@@ -123,6 +123,34 @@ class AvvisoPdfPayloadMapperTest {
     }
 
     @Test
+    void payOnWebsiteTrueSeIlDominioConsenteIlPagamentoDalSito() {
+        DominioEntity dominio = dominio();
+        dominio.setPagamentoSito(true);
+
+        PaymentNotice notice = mapper.toPaymentNotice(pendenza(dominio, "Via Roma"), null, null, null, null);
+
+        assertThat(notice.getCreditor().getPayOnWebsite()).isTrue();
+    }
+
+    @Test
+    void payOnWebsiteFalseSeIlDominioNonConsenteIlPagamentoDalSito() {
+        PaymentNotice notice = mapper.toPaymentNotice(pendenza(dominio(), "Via Roma"), null, null, null, null);
+
+        assertThat(notice.getCreditor().getPayOnWebsite()).isFalse();
+    }
+
+    /** Dominio letto senza la colonna valorizzata (es. entity costruita a mano): vale false. */
+    @Test
+    void payOnWebsiteFalseSePagamentoSitoNullo() {
+        DominioEntity dominio = dominio();
+        dominio.setPagamentoSito(null);
+
+        PaymentNotice notice = mapper.toPaymentNotice(pendenza(dominio, "Via Roma"), null, null, null, null);
+
+        assertThat(notice.getCreditor().getPayOnWebsite()).isFalse();
+    }
+
+    @Test
     void cbillCodeAssenteSeDominioNonLoHaConfigurato() {
         PaymentNotice notice = mapper.toPaymentNotice(pendenza(dominio(), "Via Roma"), null, null, null, null);
 
@@ -864,6 +892,7 @@ class AvvisoPdfPayloadMapperTest {
         assertThat(violazione.getReducedAmount().getAmount()).isEqualTo(70.0);
         assertThat(violazione.getDiscountedAmount().getAmount()).isEqualTo(100.0);
         assertThat(violazione.getCreditor().getFiscalCode()).isEqualTo(dominio.getCodDominio());
+        assertThat(violazione.getCreditor().getPayOnWebsite()).isFalse();
         assertThat(violazione.getTitle()).isEqualTo("Diritti di segreteria");
     }
 

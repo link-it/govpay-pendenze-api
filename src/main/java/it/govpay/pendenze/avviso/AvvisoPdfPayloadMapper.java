@@ -461,6 +461,9 @@ public class AvvisoPdfPayloadMapper {
         c.setBusinessName(tronca(dominio.getRagioneSociale(), MAX_BUSINESS_NAME));
         c.setCbillCode(dominio.getCbill());
         c.setPostalAuthMessage(tronca(dominio.getAutStampaPoste(), MAX_POSTAL_AUTH_MESSAGE));
+        // Colonna domini.pagamento_sito: se l'ente consente il pagamento dal proprio sito,
+        // la stampa riporta "oppure sul sito di <ente>" tra i canali di pagamento.
+        c.setPayOnWebsite(Boolean.TRUE.equals(dominio.getPagamentoSito()));
         return c;
     }
 
