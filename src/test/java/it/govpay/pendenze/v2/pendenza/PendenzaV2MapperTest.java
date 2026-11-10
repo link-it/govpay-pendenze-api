@@ -24,7 +24,8 @@ import it.govpay.common.repository.UnitaOperativaRepository;
 import it.govpay.pendenze.entity.OpzionePagamento;
 import it.govpay.pendenze.entity.Pendenza;
 import it.govpay.pendenze.entity.PosizioneDebitoria;
-import it.govpay.pendenze.entity.SoggettoDebitore;
+import it.govpay.pendenze.entity.Debitore;
+import it.govpay.pendenze.entity.PdDebitore;
 import it.govpay.pendenze.entity.VocePendenza;
 import it.govpay.pendenze.model.StatoPagamento;
 import it.govpay.pendenze.model.StatoPendenza;
@@ -77,15 +78,17 @@ class PendenzaV2MapperTest {
         PosizioneDebitoria posizione = new PosizioneDebitoria();
         posizione.setCodDocumento("DOC-REALE-1");
         posizione.setDescrizione("Sanzione CdS n. abc00000");
-        SoggettoDebitore soggetto = new SoggettoDebitore();
+        Debitore soggetto = new Debitore();
         soggetto.setTipo(TipoSoggetto.F);
         soggetto.setIdentificativo("RSSMRA80A01H501U");
         soggetto.setAnagrafica("Mario Rossi");
-        posizione.addSoggettoDebitore(soggetto);
+        PdDebitore pdDebitore = new PdDebitore();
+        pdDebitore.setDebitore(soggetto);
+        posizione.addPdDebitore(pdDebitore);
 
         OpzionePagamento opzione = new OpzionePagamento();
         opzione.setTipologia(TipologiaOpzionePagamento.PIANO_RATEALE);
-        posizione.addOpzionePagamento(opzione);
+        pdDebitore.addOpzionePagamento(opzione);
 
         Pendenza pendenza = new Pendenza();
         pendenza.setIdApplicazione(ID_APPLICAZIONE);

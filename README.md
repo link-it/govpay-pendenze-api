@@ -16,7 +16,7 @@ API REST con cui gli applicativi dell'Ente caricano, aggiornano e consultano le 
 
 Il servizio espone due versioni dell'API Pendenze sullo stesso processo, con le stesse credenziali:
 
-- **v3** ([src/main/resources/govpay-api-pendenze-v3.yaml](src/main/resources/govpay-api-pendenze-v3.yaml)): modello nativo a posizioni debitorie, opzioni di pagamento e pendenze;
+- **v3** ([src/main/resources/govpay-api-pendenze-v3.yaml](src/main/resources/govpay-api-pendenze-v3.yaml)): modello nativo a posizioni debitorie con uno o più debitori, ciascuno con le proprie opzioni di pagamento e pendenze;
 - **v2** ([src/main/resources/govpay-api-pendenze-v2.yaml](src/main/resources/govpay-api-pendenze-v2.yaml)): stessi path e messaggi dell'API Pendenze v2 del monolite GovPay, tradotti sul modello v3.
 
 Le operazioni e il modello dei dati sono quelli della libreria [govpay-common-pendenze](https://github.com/link-it/govpay-common-pendenze); i path sono relativi al base path della versione (vedi [Base path delle API](#base-path-delle-api)).
@@ -30,8 +30,11 @@ Le operazioni e il modello dei dati sono quelli della libreria [govpay-common-pe
 | `getPosizioneDebitoria` | `GET /posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}` | Dettaglio di una posizione debitoria |
 | `updatePosizioneDebitoria` | `PATCH /posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}` | Aggiornamento di una posizione debitoria |
 | `getStampaPosizioneDebitoria` | `GET /posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/stampa` | Avviso di pagamento in PDF |
-| `addOpzionePagamento` | `POST /posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento` | Aggiunta di un'opzione di pagamento |
+| `addOpzionePagamento` | `POST /posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento` | Aggiunta di un'opzione di pagamento a ciascun debitore |
 | `updateOpzionePagamento` | `PATCH /posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}` | Aggiornamento dello stato di un'opzione di pagamento |
+| `addDebitore` | `POST /posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/debitori` | Aggiunta di un debitore, con le sue opzioni, a una posizione esistente |
+| `updateDebitore` | `PATCH /posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/debitori/{identificativoDebitore}` | Aggiornamento di anagrafica e notifica SEND di un debitore |
+| `deleteDebitore` | `DELETE /posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/debitori/{identificativoDebitore}` | Rimozione logica di un debitore |
 | `addPendenza` | `POST /posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}/pendenze` | Aggiunta di una pendenza a un'opzione di pagamento |
 | `findPendenze` | `GET /pendenze/{idA2A}` | Ricerca delle pendenze per numero avviso |
 | `getPendenza` | `GET /pendenze/{idA2A}/{idPendenza}` | Dettaglio di una pendenza |
@@ -89,7 +92,7 @@ Gli errori sono restituiti in formato `application/problem+json`; gli errori del
 
 | Componente | Quando serve | Obbligatorio | Ruolo |
 |------------|--------------|--------------|-------|
-| Database di GovPay | runtime | sì | Legge e scrive le tabelle dell'aggregato pendenza (`versamenti`, `singoli_versamenti`, `documenti`, `opzioni_pagamento`, `soggetti_debitori`, `allegati`); legge anagrafica e configurazione (`applicazioni`, `domini`, `uo`, `iban_accredito`, `tipi_versamento`, `tipi_vers_domini`, `tipi_tributo`, `tributi`, `intermediari`, `stazioni`, `connettori`, `configurazione`), utenze e autorizzazioni (`utenze`, `acl`, `utenze_domini`, `utenze_tipo_vers`) e pagamenti (`rpt`, `pagamenti`, `fr`, `rendicontazioni`, `notifiche`). Richiede lo schema del modello v3 introdotto con la patch 3.11.0 di GovPay: con `ddl-auto=validate` (default) il servizio non parte se lo schema non corrisponde alle entità, e non crea né modifica lo schema |
+| Database di GovPay | runtime | sì | Legge e scrive le tabelle dell'aggregato pendenza (`versamenti`, `singoli_versamenti`, `documenti`, `debitori`, `pd_debitori`, `opzioni_pagamento`, `allegati`); legge anagrafica e configurazione (`applicazioni`, `domini`, `uo`, `iban_accredito`, `tipi_versamento`, `tipi_vers_domini`, `tipi_tributo`, `tributi`, `intermediari`, `stazioni`, `connettori`, `configurazione`), utenze e autorizzazioni (`utenze`, `acl`, `utenze_domini`, `utenze_tipo_vers`) e pagamenti (`rpt`, `pagamenti`, `fr`, `rendicontazioni`, `notifiche`). Richiede lo schema del modello v3 introdotto con la patch 3.11.0 di GovPay: con `ddl-auto=validate` (default) il servizio non parte se lo schema non corrisponde alle entità, e non crea né modifica lo schema |
 | [govpay-bom](https://github.com/link-it/govpay-bom) | build | sì | Parent Maven: versioni delle dipendenze e dei plugin |
 | [govpay-common-pendenze](https://github.com/link-it/govpay-common-pendenze) | build | sì | Modello, entità e servizi dell'aggregato pendenza, generazione degli IUV |
 | [govpay-common](https://github.com/link-it/govpay-common) | build | sì | Libreria comune (dipendenza di `govpay-common-pendenze`): entità di anagrafica, connettori, client GDE, transaction id e livelli di log da database |

@@ -24,7 +24,7 @@ import it.govpay.common.repository.UnitaOperativaRepository;
 import it.govpay.pendenze.entity.OpzionePagamento;
 import it.govpay.pendenze.entity.Pendenza;
 import it.govpay.pendenze.entity.PosizioneDebitoria;
-import it.govpay.pendenze.entity.SoggettoDebitore;
+import it.govpay.pendenze.entity.Debitore;
 import it.govpay.pendenze.entity.VocePendenza;
 import it.govpay.pendenze.avviso.AvvisoMapper;
 import it.govpay.pendenze.model.TipologiaOpzionePagamento;
@@ -116,7 +116,7 @@ public class PendenzaV2Mapper {
         dto.setIuvPagamento(entity.getIuvPagamento());
         dto.setDataPagamento(entity.getDataPagamento() == null ? null : entity.getDataPagamento().toLocalDate());
         dto.setCausale(CausaleVersamentoCodec.decode(entity.getCausaleVersamento()));
-        dto.setSoggettoPagatore(toSoggettoDto(primoSoggetto(entity)));
+        dto.setSoggettoPagatore(toSoggettoDto(debitoreDi(entity)));
         dto.setImporto(entity.getImporto());
         dto.setNumeroAvviso(entity.getNumeroAvviso());
         dto.setDataCaricamento(entity.getDataCreazione().toLocalDate());
@@ -186,7 +186,7 @@ public class PendenzaV2Mapper {
         dto.setIuvPagamento(entity.getIuvPagamento());
         dto.setDataPagamento(entity.getDataPagamento() == null ? null : entity.getDataPagamento().toLocalDate());
         dto.setCausale(CausaleVersamentoCodec.decode(entity.getCausaleVersamento()));
-        dto.setSoggettoPagatore(toSoggettoDto(primoSoggetto(entity)));
+        dto.setSoggettoPagatore(toSoggettoDto(debitoreDi(entity)));
         dto.setImporto(entity.getImporto());
         dto.setNumeroAvviso(entity.getNumeroAvviso());
         dto.setDataCaricamento(entity.getDataCreazione().toLocalDate());
@@ -301,14 +301,10 @@ public class PendenzaV2Mapper {
         return entity.getDataScadenzaAvviso().toLocalDate().isBefore(java.time.LocalDate.now());
     }
 
-    private SoggettoDebitore primoSoggetto(Pendenza entity) {
-        PosizioneDebitoria posizione = posizioneDi(entity);
-        if (posizione == null || posizione.getSoggettiDebitori().isEmpty()) {
-            return null;
-        }
-        // Soggetto di ordine 0 per convenzione — stesso principio gia' adottato per il
-        // soggetto pagatore RPT (vedi proposta-modello-nativo-v3.md, Punto 1).
-        return posizione.getSoggettiDebitori().get(0);
+    /** Il soggetto pagatore v2 e' il debitore dell'opzione della pendenza. */
+    private Debitore debitoreDi(Pendenza entity) {
+        OpzionePagamento opzione = entity.getOpzionePagamento();
+        return opzione == null ? null : opzione.getPdDebitore().getDebitore();
     }
 
     private PosizioneDebitoria posizioneDi(Pendenza entity) {
@@ -316,7 +312,7 @@ public class PendenzaV2Mapper {
         return opzione == null ? null : opzione.getPosizioneDebitoria();
     }
 
-    private Soggetto toSoggettoDto(SoggettoDebitore entity) {
+    private Soggetto toSoggettoDto(Debitore entity) {
         if (entity == null) {
             return null;
         }

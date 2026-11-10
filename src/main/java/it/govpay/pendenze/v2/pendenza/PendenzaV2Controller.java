@@ -371,7 +371,7 @@ public class PendenzaV2Controller implements PendenzeApi {
      * {@code @Transactional} qui, non solo sul servizio (stesso motivo di
      * {@code PendenzaController#getPendenza}, v3): {@link #costruisciDto} attraversa
      * {@code Pendenza.voci}/{@code opzionePagamento}/
-     * {@code opzionePagamento.posizioneDebitoria.soggettiDebitori} (tutte LAZY), lette dopo
+     * {@code opzionePagamento.pdDebitore.debitore} (tutte LAZY), lette dopo
      * che la transazione di sola lettura del servizio sarebbe altrimenti gia' chiusa.
      */
     @Override
@@ -646,7 +646,10 @@ public class PendenzaV2Controller implements PendenzeApi {
                 .orElseThrow(() -> new RisorsaNonTrovataException("nessun documento con idDominio [" + idDominio
                         + "] e numeroDocumento [" + numeroDocumento + "]"));
 
-        List<OpzionePagamento> opzioni = documento.getOpzioniPagamento();
+        // Il documento puo' avere piu' debitori co-obbligati, ciascuno con i propri avvisi: il
+        // wrapper v2, che ragiona su un solo pagatore, usa quello in posizione 0 (soggetto
+        // pagatore per convenzione). Gli avvisi degli altri debitori sono nella v3.
+        List<OpzionePagamento> opzioni = documento.getPdDebitori().get(0).getOpzioniPagamento();
         List<List<Pendenza>> opzioniPagabili = opzioni.stream()
                 .map(o -> o.getPendenze().stream()
                         .filter(p -> p.getStato() == it.govpay.pendenze.model.StatoPendenza.NON_ESEGUITO)

@@ -234,9 +234,9 @@ class RppV2ControllerTest {
                   "codDocumento": "%s",
                   "idDominio": "%s",
                   "descrizione": "test wrapper v2 rpp",
-                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y",
-                                           "anagrafica": "Mario Rossi" } ],
-                  "opzioniPagamento": [ {
+                  "debitori": [ { "soggetto": { "tipo": "F", "identificativo": "FRRPLA90C41H501Y",
+                                           "anagrafica": "Mario Rossi" },
+                                  "opzioniPagamento": [ {
                     "tipologia": "SOLUZIONE_UNICA",
                     "pendenze": [ {
                       "idPendenza": "%s",
@@ -245,7 +245,7 @@ class RppV2ControllerTest {
                       "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-%s", "importo": 16.00,
                                   "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
                     } ]
-                  } ]
+                  } ] } ]
                 }
                 """.formatted(idPosizioneDebitoria, codDominio, idPendenza, idPendenza);
 
@@ -255,7 +255,7 @@ class RppV2ControllerTest {
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
 
-        return JsonPath.read(risposta, "$.opzioniPagamento[0].pendenze[0].numeroAvviso");
+        return JsonPath.read(risposta, "$.debitori[0].opzioniPagamento[0].pendenze[0].numeroAvviso");
     }
 
     private static byte[] fixtureRt(String nome) throws IOException {
@@ -378,9 +378,9 @@ class RppV2ControllerTest {
                   "codDocumento": "pos-v2-rpp-altro-1",
                   "idDominio": "12345678901",
                   "descrizione": "test altra applicazione",
-                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y",
-                                           "anagrafica": "Mario Rossi" } ],
-                  "opzioniPagamento": [ {
+                  "debitori": [ { "soggetto": { "tipo": "F", "identificativo": "FRRPLA90C41H501Y",
+                                           "anagrafica": "Mario Rossi" },
+                                  "opzioniPagamento": [ {
                     "tipologia": "SOLUZIONE_UNICA",
                     "pendenze": [ {
                       "idPendenza": "pendenza-v2-rpp-altro-1",
@@ -389,7 +389,7 @@ class RppV2ControllerTest {
                       "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-altro-rpp-1", "importo": 16.00,
                                   "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
                     } ]
-                  } ]
+                  } ] } ]
                 }
                 """;
         mockMvc.perform(post("/posizioni-debitorie/{idA2A}", "A2A-ALTRO")

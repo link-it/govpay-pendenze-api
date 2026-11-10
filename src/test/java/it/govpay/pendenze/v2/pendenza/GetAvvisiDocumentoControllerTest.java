@@ -472,8 +472,9 @@ class GetAvvisiDocumentoControllerTest {
                   "codDocumento": "%s",
                   "idDominio": "%s",
                   "descrizione": "test getAvvisiDocumento con piu' opzioni",
-                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "RSSMRA80A01H501U", "anagrafica": "Mario Rossi" } ],
-                  "opzioniPagamento": %s
+                  "debitori": [ { "soggetto": { "tipo": "F", "identificativo": "RSSMRA80A01H501U",
+                                                "anagrafica": "Mario Rossi" },
+                                  "opzioniPagamento": %s } ]
                 }
                 """.formatted(codDocumento, ID_DOMINIO, opzioniPagamentoJson);
         mockMvc.perform(post("/posizioni-debitorie/{idA2A}", PRINCIPAL)
@@ -699,5 +700,31 @@ class GetAvvisiDocumentoControllerTest {
             }
         }
         return numeri;
+    }
+
+    @Test
+    @DisplayName("documento con due debitori co-obbligati: l'avviso e' quello del debitore in posizione 0, con le "
+            + "sole sue opzioni")
+    void documentoConDueDebitoriStampaIlDebitoreInPosizioneZero() throws Exception {
+        String debitore = """
+                { "soggetto": { "tipo": "F", "identificativo": "%s", "anagrafica": "Debitore %s" },
+                  "opzioniPagamento": [ { "tipologia": "SOLUZIONE_UNICA", "pendenze": [ %s ] } ] }
+                """;
+        String body = """
+                { "codDocumento": "DOC-DUE-DEB-AVV", "idDominio": "%s", "descrizione": "due debitori",
+                  "debitori": [ %s, %s ] }
+                """.formatted(ID_DOMINIO,
+                debitore.formatted("RSSMRA80A01H501U", "primo", pendenzaV3("DOC-DUE-DEB-AVV-1", null)),
+                debitore.formatted("VRDGNN80A01H501W", "secondo", pendenzaV3("DOC-DUE-DEB-AVV-2", null)));
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}", PRINCIPAL)
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(get(PATH, ID_DOMINIO, "DOC-DUE-DEB-AVV").accept(MediaType.APPLICATION_PDF))
+                .andExpect(status().isOk());
+
+        String payload = ULTIMO_PAYLOAD.get();
+        assertTrue(payload.contains("RSSMRA80A01H501U"));
+        assertFalse(payload.contains("VRDGNN80A01H501W"));
     }
 }
