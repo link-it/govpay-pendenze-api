@@ -36,9 +36,12 @@ import it.govpay.pendenze.comando.AggiornamentoPendenza;
 import it.govpay.pendenze.comando.DatiOpzionePagamento;
 import it.govpay.pendenze.comando.DatiPendenza;
 import it.govpay.pendenze.comando.DatiPosizioneDebitoria;
-import it.govpay.pendenze.comando.DatiSoggettoDebitore;
+import it.govpay.pendenze.comando.DatiDebitore;
+import it.govpay.pendenze.comando.DatiOpzionePagamentoDebitore;
+import it.govpay.pendenze.comando.DatiPdDebitore;
 import it.govpay.pendenze.comando.DatiVocePendenza;
 import it.govpay.pendenze.entity.OpzionePagamento;
+import it.govpay.pendenze.entity.PdDebitore;
 import it.govpay.pendenze.entity.Pendenza;
 import it.govpay.pendenze.entity.PosizioneDebitoria;
 import it.govpay.pendenze.entity.VocePendenza;
@@ -327,8 +330,8 @@ public class NuovaPendenzaMapper {
         if (posizioneEsistente.isPresent()) {
             // Decisione #3: un documento esplicito che coincide con uno gia' esistente
             // aggiunge una pendenza all'opzione esistente, non crea una nuova posizione.
-            return aggiungiAPosizioneEsistente(idA2A, posizioneEsistente.get(), rataRichiesta, soglia, datiPendenza,
-                    descrizioneDocumento);
+            return aggiungiAPosizioneEsistente(idA2A, posizioneEsistente.get(), dto.getSoggettoPagatore(),
+                    rataRichiesta, soglia, datiPendenza, descrizioneDocumento);
         }
 
         TipologiaEGiorni tipologiaEGiorni = risolviTipologia(rataRichiesta, soglia);
@@ -340,9 +343,10 @@ public class NuovaPendenzaMapper {
         DatiOpzionePagamento datiOpzione = new DatiOpzionePagamento(tipologiaEGiorni.tipologia(),
                 tipologiaEGiorni.giorni(), null, null, List.of(datiPendenza));
         Long idUnitaOperativa = risolviIdUnitaOperativa(idDominio, dto.getIdUnitaOperativa());
-        DatiSoggettoDebitore soggetto = toDatiSoggettoDebitore(dto.getSoggettoPagatore());
+        DatiPdDebitore debitore = new DatiPdDebitore(toDatiDebitore(dto.getSoggettoPagatore()), false, null,
+                List.of(datiOpzione));
         DatiPosizioneDebitoria comando = new DatiPosizioneDebitoria(codDocumento, applicazione.getId(), idDominio,
-                idUnitaOperativa, descrizioneDocumento, null, false, null, List.of(soggetto), List.of(datiOpzione));
+                idUnitaOperativa, descrizioneDocumento, null, List.of(debitore));
 
         PosizioneDebitoria creata = posizioneDebitoriaService.crea(comando);
         return creata.getOpzioniPagamento().get(0).getPendenze().get(0);
@@ -369,11 +373,13 @@ public class NuovaPendenzaMapper {
      * o piu' di una corrispondenza: errore esplicito (400). {@code descrizioneDocumento}
      * sovrascrive sempre quella della posizione esistente, indipendentemente dall'esito sopra.
      */
-    private Pendenza aggiungiAPosizioneEsistente(String idA2A, PosizioneDebitoria posizione, Integer rataRichiesta,
-            VincoloPagamento soglia, DatiPendenza datiPendenza, String descrizioneDocumento) {
+    private Pendenza aggiungiAPosizioneEsistente(String idA2A, PosizioneDebitoria posizione,
+            Soggetto soggettoPagatore, Integer rataRichiesta, VincoloPagamento soglia, DatiPendenza datiPendenza,
+            String descrizioneDocumento) {
         posizione.setDescrizione(descrizioneDocumento);
         TipologiaEGiorni tipologiaEGiorni = risolviTipologia(rataRichiesta, soglia);
-        List<OpzionePagamento> opzioni = posizione.getOpzioniPagamento();
+        PdDebitore pdDebitore = debitoreDellaRichiesta(posizione, soggettoPagatore);
+        List<OpzionePagamento> opzioni = pdDebitore.getOpzioniPagamento();
 
         List<OpzionePagamento> corrispondenti = opzioni.stream()
                 .filter(o -> o.getTipologia() == tipologiaEGiorni.tipologia())
@@ -402,7 +408,7 @@ public class NuovaPendenzaMapper {
         boolean complementarePresente = opzioni.stream()
                 .anyMatch(o -> sonoSoglieComplementari(o.getTipologia(), tipologiaEGiorni.tipologia()));
         if (complementarePresente) {
-            return completaCoppiaSoglia(idA2A, posizione, tipologiaEGiorni, datiPendenza);
+            return completaCoppiaSoglia(idA2A, posizione, pdDebitore, tipologiaEGiorni, datiPendenza);
         }
         throw new ValidazioneNonSuperataException("il documento [" + posizione.getCodDocumento() + "] non ha "
                 + "un'opzione di tipologia " + tipologiaEGiorni.tipologia() + " ne' una complementare a cui "
@@ -432,14 +438,39 @@ public class NuovaPendenzaMapper {
      * alternative distinte nel modello v3, non due pendenze della stessa opzione), tramite
      * {@link PosizioneDebitoriaService#aggiungiOpzionePagamento}.
      */
-    private Pendenza completaCoppiaSoglia(String idA2A, PosizioneDebitoria posizione,
+    private Pendenza completaCoppiaSoglia(String idA2A, PosizioneDebitoria posizione, PdDebitore pdDebitore,
             TipologiaEGiorni tipologiaEGiorni, DatiPendenza datiPendenza) {
+        if (posizione.getPdDebitori().size() > 1) {
+            throw new ValidazioneNonSuperataException("il documento [" + posizione.getCodDocumento() + "] ha piu' "
+                    + "debitori: non e' possibile aggiungere una nuova opzione di pagamento tramite questa API, "
+                    + "usare l'API v3");
+        }
         String idPosizioneDebitoriaPubblica = posizioneDebitoriaService.idPosizioneDebitoriaPubblica(posizione);
         DatiOpzionePagamento comando = new DatiOpzionePagamento(tipologiaEGiorni.tipologia(),
                 tipologiaEGiorni.giorni(), null, null, List.of(datiPendenza));
-        OpzionePagamento nuovaOpzione = posizioneDebitoriaService.aggiungiOpzionePagamento(idA2A,
-                idPosizioneDebitoriaPubblica, comando);
-        return nuovaOpzione.getPendenze().get(0);
+        List<OpzionePagamento> nuove = posizioneDebitoriaService.aggiungiOpzionePagamento(idA2A,
+                idPosizioneDebitoriaPubblica,
+                List.of(new DatiOpzionePagamentoDebitore(pdDebitore.getDebitore().getIdentificativo(), comando)));
+        return nuove.get(0).getPendenze().get(0);
+    }
+
+    /**
+     * Il debitore del documento a cui si riferisce la richiesta: l'unico, se il documento ne ha
+     * uno solo ({@code soggettoPagatore} resta ignorato, come in v2); con piu' debitori quello
+     * identificato da {@code soggettoPagatore.identificativo}.
+     */
+    private PdDebitore debitoreDellaRichiesta(PosizioneDebitoria posizione, Soggetto soggettoPagatore) {
+        List<PdDebitore> debitori = posizione.getPdDebitori();
+        if (debitori.size() == 1) {
+            return debitori.get(0);
+        }
+        String identificativo = soggettoPagatore == null ? null : soggettoPagatore.getIdentificativo();
+        return debitori.stream()
+                .filter(d -> d.getDebitore().getIdentificativo().equalsIgnoreCase(identificativo))
+                .findFirst()
+                .orElseThrow(() -> new ValidazioneNonSuperataException("il documento ["
+                        + posizione.getCodDocumento() + "] ha piu' debitori e soggettoPagatore ["
+                        + identificativo + "] non e' uno di essi"));
     }
 
     /**
@@ -487,8 +518,8 @@ public class NuovaPendenzaMapper {
                 aInizioGiorno(dto.getDataScadenza()), voci, dto.getCausale());
     }
 
-    private DatiSoggettoDebitore toDatiSoggettoDebitore(Soggetto dto) {
-        return new DatiSoggettoDebitore(it.govpay.pendenze.model.TipoSoggetto.valueOf(dto.getTipo().name()),
+    private DatiDebitore toDatiDebitore(Soggetto dto) {
+        return new DatiDebitore(it.govpay.pendenze.model.TipoSoggetto.valueOf(dto.getTipo().name()),
                 dto.getIdentificativo(), dto.getAnagrafica(), dto.getIndirizzo(), dto.getCivico(), dto.getCap(),
                 dto.getLocalita(), dto.getProvincia(), dto.getNazione(), dto.getEmail(), dto.getCellulare());
     }

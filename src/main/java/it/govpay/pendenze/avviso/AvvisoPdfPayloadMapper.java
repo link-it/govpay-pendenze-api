@@ -16,7 +16,7 @@ import it.govpay.common.repository.IbanAccreditoRepository;
 import it.govpay.common.repository.TributoRepository;
 import it.govpay.pendenze.api.model.LinguaSecondaria;
 import it.govpay.pendenze.entity.Pendenza;
-import it.govpay.pendenze.entity.SoggettoDebitore;
+import it.govpay.pendenze.entity.Debitore;
 import it.govpay.pendenze.entity.VocePendenza;
 import it.govpay.pendenze.model.TipologiaOpzionePagamento;
 import it.govpay.pendenze.service.CausaleVersamentoCodec;
@@ -254,7 +254,7 @@ public class AvvisoPdfPayloadMapper {
         CdsViolation violazione = new CdsViolation();
         violazione.setLanguage(Languages.IT);
         violazione.setCreditor(mapCreditor(dominio));
-        violazione.setDebtor(mapDebtor(primoSoggettoDebitore(ridotto)));
+        violazione.setDebtor(mapDebtor(debitoreDellaPendenza(ridotto)));
         violazione.setTitle(descrizioneDi(ridotto));
         violazione.setFirstLogo(logoDi(dominio));
         violazione.setPostal(postal);
@@ -330,7 +330,7 @@ public class AvvisoPdfPayloadMapper {
         PaymentNotice notice = new PaymentNotice();
         notice.setLanguage(Languages.IT);
         notice.setCreditor(mapCreditor(dominio));
-        notice.setDebtor(mapDebtor(primoSoggettoDebitore(pendenza)));
+        notice.setDebtor(mapDebtor(debitoreDellaPendenza(pendenza)));
         // 'title' e' l'oggetto del pagamento (oggetto_del_pagamento/XSD), non un'intestazione
         // fissa — il valore esatto varia per chiamante, vedi oggettoPagamentoRataUnica/
         // descrizioneDi.
@@ -389,7 +389,7 @@ public class AvvisoPdfPayloadMapper {
     }
 
     /**
-     * Un {@code SoggettoDebitore} v3 puo' avere solo {@code tipo}+{@code identificativo} —
+     * Un {@code Debitore} v3 puo' avere solo {@code tipo}+{@code identificativo} —
      * {@code anagrafica} non e' {@code required} nello schema {@code Soggetto}. Lo schema di
      * govpay-stampe-api invece richiede {@code Debtor.full_name}: senza questo controllo a
      * monte govpay-stampe risponderebbe 400, tradotto poi in 502 generico dal client HTTP.
@@ -398,23 +398,22 @@ public class AvvisoPdfPayloadMapper {
      * scelta di prodotto nuova per la v3).
      */
     public static boolean isAnagraficaDebitoreAssente(Pendenza pendenza) {
-        return !StringUtils.hasText(primoSoggettoDebitore(pendenza).getAnagrafica());
+        return !StringUtils.hasText(debitoreDellaPendenza(pendenza).getAnagrafica());
     }
 
     /**
-     * Per una pendenza v3 il debitore reale e' sempre {@code soggettiDebitori.get(0)} (indice
-     * piu' basso, lista gia' ordinata) — vedi Javadoc di campo su {@code Pendenza}:
-     * {@code debitoreIdentificativo}/{@code debitoreAnagrafica} sono placeholder fissi, mai il
-     * debitore reale.
+     * Per una pendenza v3 il debitore reale e' quello della sua opzione di pagamento — vedi
+     * Javadoc di campo su {@code Pendenza}: {@code debitoreIdentificativo}/
+     * {@code debitoreAnagrafica} sono placeholder fissi, mai il debitore reale.
      */
-    private static SoggettoDebitore primoSoggettoDebitore(Pendenza pendenza) {
-        return pendenza.getOpzionePagamento().getPosizioneDebitoria().getSoggettiDebitori().get(0);
+    private static Debitore debitoreDellaPendenza(Pendenza pendenza) {
+        return pendenza.getOpzionePagamento().getPdDebitore().getDebitore();
     }
 
     /**
      * Replica {@code console-api.AvvisoPdfPayloadMapper.ibanPostale}: il bollettino postale e'
      * attivo se la prima voce della pendenza ({@code voci.get(0)}, lista gia' ordinata per
-     * {@code indice}, stesso principio di {@link #primoSoggettoDebitore}) ha un IBAN postale, di
+     * {@code indice}, stesso principio di {@link #debitoreDellaPendenza}) ha un IBAN postale, di
      * accredito o (in subordine) di appoggio. A differenza di console-api (dove
      * {@code SingoloVersamento} porta gia' le relazioni JPA risolte), {@link VocePendenza} porta
      * solo le FK piatte ({@code idIbanAccredito}/{@code idIbanAppoggio}/{@code idTributo}): vanno
@@ -474,7 +473,7 @@ public class AvvisoPdfPayloadMapper {
      * {@code civico varchar(16)} possono insieme superare 70) — troncare le colonne
      * singolarmente prima di concatenarle non basterebbe a garantire il rispetto del limite.
      */
-    private static Debtor mapDebtor(SoggettoDebitore soggetto) {
+    private static Debtor mapDebtor(Debitore soggetto) {
         Debtor d = new Debtor();
         d.setFiscalCode(soggetto.getIdentificativo());
         d.setFullName(tronca(soggetto.getAnagrafica(), MAX_FULL_NAME));

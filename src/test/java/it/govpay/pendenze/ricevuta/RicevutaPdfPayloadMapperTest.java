@@ -82,8 +82,10 @@ class RicevutaPdfPayloadMapperTest {
     private static Pendenza pendenza() {
         PosizioneDebitoria posizioneDebitoria = new PosizioneDebitoria();
         posizioneDebitoria.setDescrizione("Diritti di segreteria");
+        it.govpay.pendenze.entity.PdDebitore pdDebitore = new it.govpay.pendenze.entity.PdDebitore();
+        posizioneDebitoria.addPdDebitore(pdDebitore);
         OpzionePagamento opzionePagamento = new OpzionePagamento();
-        opzionePagamento.setPosizioneDebitoria(posizioneDebitoria);
+        pdDebitore.addOpzionePagamento(opzionePagamento);
         Pendenza pendenza = new Pendenza();
         pendenza.setOpzionePagamento(opzionePagamento);
         pendenza.setIdDominio(ID_DOMINIO);

@@ -277,9 +277,9 @@ class PendenzaControllerTest {
                   "codDocumento": "%s",
                   "idDominio": "%s",
                   "descrizione": "test ricerca pendenze",
-                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y",
-                                           "anagrafica": "Mario Rossi" } ],
-                  "opzioniPagamento": [ {
+                  "debitori": [ { "soggetto": { "tipo": "F", "identificativo": "FRRPLA90C41H501Y",
+                                           "anagrafica": "Mario Rossi" },
+                                  "opzioniPagamento": [ {
                     "tipologia": "SOLUZIONE_UNICA",
                     "pendenze": [ {
                       "idPendenza": "%s",
@@ -288,7 +288,7 @@ class PendenzaControllerTest {
                       "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-%s", "importo": 16.00,
                                   "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
                     } ]
-                  } ]
+                  } ] } ]
                 }
                 """.formatted(idPosizioneDebitoria, codDominio, idPendenza, idPendenza);
 
@@ -298,7 +298,7 @@ class PendenzaControllerTest {
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
 
-        return JsonPath.read(risposta, "$.opzioniPagamento[0].pendenze[0].numeroAvviso");
+        return JsonPath.read(risposta, "$.debitori[0].opzioniPagamento[0].pendenze[0].numeroAvviso");
     }
 
     /**
@@ -317,9 +317,9 @@ class PendenzaControllerTest {
                   "codDocumento": "%s",
                   "idDominio": "%s",
                   "descrizione": "test ricerca pendenze",
-                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y",
-                                           "anagrafica": "Mario Rossi" } ],
-                  "opzioniPagamento": [ {
+                  "debitori": [ { "soggetto": { "tipo": "F", "identificativo": "FRRPLA90C41H501Y",
+                                           "anagrafica": "Mario Rossi" },
+                                  "opzioniPagamento": [ {
                     "tipologia": "SOLUZIONE_UNICA",
                     "pendenze": [ {
                       "idPendenza": "%s",
@@ -329,7 +329,7 @@ class PendenzaControllerTest {
                       "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-%s", "importo": 16.00,
                                   "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
                     } ]
-                  } ]
+                  } ] } ]
                 }
                 """.formatted(idPosizioneDebitoria, codDominio, idPendenza, numeroAvviso, idPendenza);
 
@@ -752,9 +752,9 @@ class PendenzaControllerTest {
                   "codDocumento": "pos-causale-1",
                   "idDominio": "12345678901",
                   "descrizione": "Descrizione condivisa della posizione",
-                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y",
-                                           "anagrafica": "Mario Rossi" } ],
-                  "opzioniPagamento": [ {
+                  "debitori": [ { "soggetto": { "tipo": "F", "identificativo": "FRRPLA90C41H501Y",
+                                           "anagrafica": "Mario Rossi" },
+                                  "opzioniPagamento": [ {
                     "tipologia": "SOLUZIONE_UNICA",
                     "pendenze": [ {
                       "idPendenza": "pendenza-causale-1",
@@ -764,7 +764,7 @@ class PendenzaControllerTest {
                       "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-causale-1",
                                   "importo": 16.00, "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
                     } ]
-                  } ]
+                  } ] } ]
                 }
                 """;
         mockMvc.perform(post("/posizioni-debitorie/{idA2A}", "A2A-TEST")
@@ -1000,8 +1000,8 @@ class PendenzaControllerTest {
                   "codDocumento": "pos-patch-cinque-voci",
                   "idDominio": "12345678901",
                   "descrizione": "test cinque voci",
-                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
-                  "opzioniPagamento": [ {
+                  "debitori": [ { "soggetto": { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" },
+                                  "opzioniPagamento": [ {
                     "tipologia": "SOLUZIONE_UNICA",
                     "pendenze": [ {
                       "idPendenza": "pendenza-cinque-voci",
@@ -1020,7 +1020,7 @@ class PendenzaControllerTest {
                             "descrizione": "e", "codEntrata": "DIRITTI_SEGRETERIA" }
                       ]
                     } ]
-                  } ]
+                  } ] } ]
                 }
                 """;
         mockMvc.perform(post("/posizioni-debitorie/{idA2A}", "A2A-TEST")
@@ -1615,8 +1615,8 @@ class PendenzaControllerTest {
                   "codDocumento": "pos-stampa-pdf-mbt",
                   "idDominio": "12345678901",
                   "descrizione": "test MBT",
-                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
-                  "opzioniPagamento": [ {
+                  "debitori": [ { "soggetto": { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" },
+                                  "opzioniPagamento": [ {
                     "tipologia": "SOLUZIONE_UNICA",
                     "pendenze": [ {
                       "idPendenza": "pendenza-stampa-pdf-mbt",
@@ -1626,7 +1626,7 @@ class PendenzaControllerTest {
                                   "descrizione": "test", "tipoBollo": "01", "hashDocumento": "aGFzaA==",
                                   "provinciaResidenza": "RM", "tassonomia": "9/0101002IM/" } ]
                     } ]
-                  } ]
+                  } ] } ]
                 }
                 """;
         mockMvc.perform(post("/posizioni-debitorie/{idA2A}", "A2A-TEST")
@@ -1643,7 +1643,7 @@ class PendenzaControllerTest {
     }
 
     /**
-     * Un {@code SoggettoDebitore} con solo {@code tipo}+{@code identificativo} e' ammesso
+     * Un {@code Debitore} con solo {@code tipo}+{@code identificativo} e' ammesso
      * dallo schema v3 ({@code anagrafica} non e' {@code required}), ma govpay-stampe-api
      * richiede {@code Debtor.full_name}: senza il controllo esplicito la chiamata a
      * govpay-stampe risponderebbe 400, tradotto poi in 502 generico dal client HTTP.
@@ -1657,8 +1657,8 @@ class PendenzaControllerTest {
                   "codDocumento": "pos-stampa-pdf-no-anagrafica",
                   "idDominio": "12345678901",
                   "descrizione": "test anagrafica assente",
-                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
-                  "opzioniPagamento": [ {
+                  "debitori": [ { "soggetto": { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" },
+                                  "opzioniPagamento": [ {
                     "tipologia": "SOLUZIONE_UNICA",
                     "pendenze": [ {
                       "idPendenza": "pendenza-stampa-pdf-no-anagrafica",
@@ -1667,7 +1667,7 @@ class PendenzaControllerTest {
                       "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-no-anagrafica",
                                   "importo": 16.00, "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
                     } ]
-                  } ]
+                  } ] } ]
                 }
                 """;
         mockMvc.perform(post("/posizioni-debitorie/{idA2A}", "A2A-TEST")

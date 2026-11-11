@@ -140,7 +140,7 @@ public class PendenzaController implements PendenzeApi {
      * {@code @Transactional} qui, non solo sul servizio (stesso motivo di
      * {@code PosizioneDebitoriaController#getPosizioneDebitoria}): {@code mapper.toPendenzaDto}
      * attraversa {@code Pendenza.voci}/{@code opzionePagamento}/
-     * {@code opzionePagamento.posizioneDebitoria.soggettiDebitori} (tutte LAZY), lette dopo che
+     * {@code opzionePagamento.pdDebitore.debitore} (tutte LAZY), lette dopo che
      * la transazione di sola lettura del servizio sarebbe altrimenti gia' chiusa.
      */
     @Override
@@ -320,7 +320,7 @@ public class PendenzaController implements PendenzeApi {
      * {@code @Transactional} qui, non solo sul servizio (stesso motivo di
      * {@code PosizioneDebitoriaController#getPosizioneDebitoria}/{@code findPosizioniDebitorie}):
      * {@code mapper.toPendenzaIndexDto} attraversa {@code Pendenza.opzionePagamento} (LAZY)
-     * fino a {@code OpzionePagamento.posizioneDebitoria} e {@code soggettiDebitori} (LAZY),
+     * fino a {@code OpzionePagamento.pdDebitore} e {@code debitore} (LAZY),
      * tutte lette dopo che la transazione di sola lettura del servizio sarebbe altrimenti gia'
      * chiusa.
      *
