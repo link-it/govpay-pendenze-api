@@ -2492,13 +2492,31 @@ class PosizioneDebitoriaControllerTest {
                 .andExpect(jsonPath("$.results[0].descrizione").value("piu' debitori"));
     }
 
+    private static String debitoreConSend(String identificativo, String idPendenza, String campiOpzione) {
+        return debitoreJson(identificativo, idPendenza, "").replace("\"tipologia\": \"SOLUZIONE_UNICA\",",
+                "\"tipologia\": \"SOLUZIONE_UNICA\", " + campiOpzione);
+    }
+
     @Test
-    @DisplayName("notificaSend attivo senza navNotifica: 400, il navNotifica e' obbligatorio e non viene assegnato "
-            + "in automatico")
-    void notificaSendSenzaNavNotificaRestituisce400() throws Exception {
-        postPosizione("pos-nav-assente", debitoreJson(DEBITORE_1, "pos-nav-assente-d1", "\"notificaSend\": true,"))
+    @DisplayName("sendNav senza sendAbilitato su un'opzione: 400")
+    void sendNavSenzaSendAbilitatoRestituisce400() throws Exception {
+        postPosizione("pos-send-senza-abilitato", debitoreConSend(DEBITORE_1, "pos-send-senza-abilitato-d1",
+                "\"sendNav\": \"999999999999999999\","))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    @DisplayName("sendNav di formato errato o uguale al numero avviso della pendenza che porta la notifica: 400")
+    void sendNavNonValidoRestituisce400() throws Exception {
+        postPosizione("pos-send-formato", debitoreConSend(DEBITORE_1, "pos-send-formato-d1",
+                "\"sendAbilitato\": true, \"sendNav\": \"1234\","))
+                .andExpect(status().isBadRequest());
+
+        String uguale = debitoreConSend(DEBITORE_1, "pos-send-uguale-d1",
+                "\"sendAbilitato\": true, \"sendNav\": \"100000000000000910\",")
+                .replace("\"importo\": 16.00,", "\"numeroAvviso\": \"100000000000000910\", \"importo\": 16.00,");
+        postPosizione("pos-send-uguale", uguale).andExpect(status().isBadRequest());
     }
 
     @Test
@@ -2512,20 +2530,83 @@ class PosizioneDebitoriaControllerTest {
     }
 
     @Test
-    @DisplayName("notificaSend attivo con navNotifica uguale al numeroAvviso di una pendenza del debitore: creata, "
-            + "e il debitore riporta la notifica")
-    void notificaSendConNavNotificaDelDebitore() throws Exception {
-        String d1 = debitoreJson(DEBITORE_1, "pos-nav-ok-d1", "\"notificaSend\": true, "
-                + "\"navNotifica\": \"100000000000000910\",")
-                .replace("\"importo\": 16.00,", "\"numeroAvviso\": \"100000000000000910\", \"importo\": 16.00,");
-        postPosizione("pos-nav-ok", d1 + "," + debitoreJson(DEBITORE_2, "pos-nav-ok-d2", ""))
+    @DisplayName("sendAbilitato e sendNav sull'opzione: la posizione e' creata e la lettura li riporta, "
+            + "mentre le altre opzioni restano senza notifica")
+    void sendAbilitatoESendNavSullOpzione() throws Exception {
+        String d1 = debitoreConSend(DEBITORE_1, "pos-send-ok-d1",
+                "\"sendAbilitato\": true, \"sendNav\": \"999999999999999999\",");
+        postPosizione("pos-send-ok", d1 + "," + debitoreJson(DEBITORE_2, "pos-send-ok-d2", ""))
                 .andExpect(status().isCreated());
 
         mockMvc.perform(get("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST",
-                        IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-nav-ok")))
-                .andExpect(jsonPath("$.debitori[0].notificaSend").value(true))
-                .andExpect(jsonPath("$.debitori[0].navNotifica").value("100000000000000910"))
-                .andExpect(jsonPath("$.debitori[1].notificaSend").value(false));
+                        IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-send-ok")))
+                .andExpect(jsonPath("$.debitori[0].opzioniPagamento[0].sendAbilitato").value(true))
+                .andExpect(jsonPath("$.debitori[0].opzioniPagamento[0].sendNav").value("999999999999999999"))
+                .andExpect(jsonPath("$.debitori[1].opzioniPagamento[0].sendAbilitato").value(false))
+                .andExpect(jsonPath("$.debitori[0].notificaSend").doesNotExist());
+    }
+
+    private ResultActions patchOpzione(String codDocumento, String operazioni) throws Exception {
+        return mockMvc.perform(patch("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{id}",
+                "A2A-TEST", idPosizione(codDocumento), idOpzioneDi(codDocumento))
+                .contentType("application/json-patch+json").content(operazioni));
+    }
+
+    @Test
+    @DisplayName("PATCH opzione: /sendAbilitato e /sendNav aggiornano la notifica SEND; senza /sendNav resta il salvato")
+    void patchOpzioneAggiornaLaNotificaSend() throws Exception {
+        creaPosizioneMinimaConDebitore("pos-patch-send", DEBITORE_1);
+
+        patchOpzione("pos-patch-send", """
+                [ { "op": "replace", "path": "/sendAbilitato", "value": true },
+                  { "op": "replace", "path": "/sendNav", "value": "999999999999999999" } ]
+                """).andExpect(status().isOk());
+        patchOpzione("pos-patch-send", """
+                [ { "op": "replace", "path": "/sendAbilitato", "value": true } ]
+                """).andExpect(status().isOk());
+
+        mockMvc.perform(get("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST",
+                        idPosizione("pos-patch-send")))
+                .andExpect(jsonPath("$.debitori[0].opzioniPagamento[0].sendAbilitato").value(true))
+                .andExpect(jsonPath("$.debitori[0].opzioniPagamento[0].sendNav").value("999999999999999999"));
+
+        patchOpzione("pos-patch-send", """
+                [ { "op": "replace", "path": "/sendAbilitato", "value": false } ]
+                """).andExpect(status().isOk());
+        mockMvc.perform(get("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST",
+                        idPosizione("pos-patch-send")))
+                .andExpect(jsonPath("$.debitori[0].opzioniPagamento[0].sendAbilitato").value(false))
+                .andExpect(jsonPath("$.debitori[0].opzioniPagamento[0].sendNav").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("PATCH opzione: stato e notifica SEND nella stessa richiesta, sendNav senza sendAbilitato e "
+            + "sendAbilitato rimosso sono 400")
+    void patchOpzioneRifiutaRichiesteNonValide() throws Exception {
+        creaPosizioneMinimaConDebitore("pos-patch-send-ko", DEBITORE_1);
+
+        patchOpzione("pos-patch-send-ko", """
+                [ { "op": "replace", "path": "/stato", "value": "ANNULLATA" },
+                  { "op": "replace", "path": "/sendAbilitato", "value": true } ]
+                """).andExpect(status().isBadRequest());
+        patchOpzione("pos-patch-send-ko", """
+                [ { "op": "replace", "path": "/sendNav", "value": "999999999999999999" } ]
+                """).andExpect(status().isBadRequest());
+        patchOpzione("pos-patch-send-ko", """
+                [ { "op": "remove", "path": "/sendAbilitato" } ]
+                """).andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("PATCH opzione: la notifica SEND non si aggiorna se una pendenza dell'opzione e' pagata: 409")
+    void patchOpzioneSendRifiutataSeUnaPendenzaEPagata() throws Exception {
+        creaPosizioneMinimaConDebitore("pos-patch-send-pagata", DEBITORE_1);
+        posizioneDebitoriaService.registraEsitoPendenza("A2A-TEST", "pendenza-pos-patch-send-pagata",
+                StatoPendenza.ESEGUITO);
+
+        patchOpzione("pos-patch-send-pagata", """
+                [ { "op": "replace", "path": "/sendAbilitato", "value": true } ]
+                """).andExpect(status().isConflict());
     }
 
     @Test
@@ -2631,13 +2712,14 @@ class PosizioneDebitoriaControllerTest {
     }
 
     @Test
-    @DisplayName("POST .../debitori con notificaSend e senza navNotifica: 400")
-    void addDebitoreNotificaSendSenzaNav() throws Exception {
+    @DisplayName("POST .../debitori con un'opzione che ha sendNav senza sendAbilitato: 400")
+    void addDebitoreSendNavSenzaSendAbilitato() throws Exception {
         creaPosizioneMinimaConDebitore("pos-add-deb-nav", DEBITORE_1);
 
         mockMvc.perform(post(DEBITORI_PATH, "A2A-TEST", idPosizione("pos-add-deb-nav"))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(debitoreJson(DEBITORE_2, "pos-add-deb-nav-d2", "\"notificaSend\": true,")))
+                        .content(debitoreConSend(DEBITORE_2, "pos-add-deb-nav-d2",
+                                "\"sendNav\": \"999999999999999999\",")))
                 .andExpect(status().isBadRequest());
     }
 

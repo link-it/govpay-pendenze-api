@@ -438,8 +438,8 @@ public class PosizioneDebitoriaController implements PosizioniDebitorieApi {
     }
 
     /**
-     * Annulla o ripristina un'opzione di pagamento — le uniche due transizioni raggiungibili
-     * da questo endpoint (vedi Javadoc di
+     * Aggiorna la notifica SEND di un'opzione, oppure la annulla o ripristina — le uniche due
+     * transizioni di stato raggiungibili da questo endpoint (vedi Javadoc di
      * {@link PosizioneDebitoriaMapper#validaPatchStatoOpzione}: l'attivazione e' innescata da
      * un pagamento reale, mai da un PATCH del chiamante). Entrambe cascata anche su tutte le
      * pendenze dell'opzione (vedi Javadoc di {@code PosizioneDebitoriaService#annulla(UUID)}/
@@ -456,8 +456,11 @@ public class PosizioneDebitoriaController implements PosizioniDebitorieApi {
             java.util.UUID idOpzionePagamento, List<PatchOp> patchOp) {
         aclAuthorizer.richiedeScrittura();
         currentApplicazioneService.verificaIdA2A(idA2A);
-        it.govpay.pendenze.model.StatoOpzionePagamento nuovoStato = mapper.validaPatchStatoOpzione(patchOp);
-        if (nuovoStato == it.govpay.pendenze.model.StatoOpzionePagamento.ANNULLATA) {
+        PosizioneDebitoriaMapper.PatchOpzione modifica = mapper.toPatchOpzione(patchOp);
+        if (!modifica.isTransizioneDiStato()) {
+            posizioneDebitoriaService.aggiornaNotificaSend(idA2A, idPosizioneDebitoria, idOpzionePagamento,
+                    modifica.sendAbilitato(), modifica.sendNav());
+        } else if (modifica.stato() == it.govpay.pendenze.model.StatoOpzionePagamento.ANNULLATA) {
             posizioneDebitoriaService.annulla(idA2A, idPosizioneDebitoria, idOpzionePagamento);
         } else {
             posizioneDebitoriaService.ripristina(idA2A, idPosizioneDebitoria, idOpzionePagamento);

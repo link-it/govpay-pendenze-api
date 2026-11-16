@@ -31,9 +31,9 @@ Le operazioni e il modello dei dati sono quelli della libreria [govpay-common-pe
 | `updatePosizioneDebitoria` | `PATCH /posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}` | Aggiornamento di una posizione debitoria |
 | `getStampaPosizioneDebitoria` | `GET /posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/stampa` | Avviso di pagamento in PDF |
 | `addOpzionePagamento` | `POST /posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento` | Aggiunta di un'opzione di pagamento a ciascun debitore |
-| `updateOpzionePagamento` | `PATCH /posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}` | Aggiornamento dello stato di un'opzione di pagamento |
+| `updateOpzionePagamento` | `PATCH /posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}` | Aggiornamento di un'opzione di pagamento: stato (annulla, ripristina) o notifica SEND |
 | `addDebitore` | `POST /posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/debitori` | Aggiunta di un debitore, con le sue opzioni, a una posizione esistente |
-| `updateDebitore` | `PATCH /posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/debitori/{identificativoDebitore}` | Aggiornamento di anagrafica e notifica SEND di un debitore |
+| `updateDebitore` | `PATCH /posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/debitori/{identificativoDebitore}` | Aggiornamento dell'anagrafica di un debitore |
 | `deleteDebitore` | `DELETE /posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/debitori/{identificativoDebitore}` | Rimozione logica di un debitore |
 | `addPendenza` | `POST /posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento/{idOpzionePagamento}/pendenze` | Aggiunta di una pendenza a un'opzione di pagamento |
 | `findPendenze` | `GET /pendenze/{idA2A}` | Ricerca delle pendenze per numero avviso |
