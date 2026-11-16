@@ -75,11 +75,15 @@ public class PendenzaV2Mapper {
     private final TributoRepository tributoRepository;
     private final IbanAccreditoRepository ibanAccreditoRepository;
     private final ObjectMapper jsonMapper = new ObjectMapper();
+    /** Lo stesso {@link java.time.Clock} della libreria: il giorno di pubblicazione e di scadenza
+     *  si calcola nel suo fuso. */
+    private final java.time.Clock clock;
 
     public PendenzaV2Mapper(ApplicazioneRepository applicazioneRepository, DominioRepository dominioRepository,
             UnitaOperativaRepository unitaOperativaRepository,
             TipoVersamentoDominioRepository tipoVersamentoDominioRepository, TributoRepository tributoRepository,
-            IbanAccreditoRepository ibanAccreditoRepository) {
+            IbanAccreditoRepository ibanAccreditoRepository, java.time.Clock clock) {
+        this.clock = clock;
         this.applicazioneRepository = applicazioneRepository;
         this.dominioRepository = dominioRepository;
         this.unitaOperativaRepository = unitaOperativaRepository;
@@ -140,6 +144,8 @@ public class PendenzaV2Mapper {
         dto.setUUID(entity.getIdSessione());
         dto.setProprieta(toProprietaPendenzaDto(entity.getProprieta()));
         dto.setSendAbilitato(entity.isSendAbilitato());
+        dto.setSendNav(entity.getSendNav());
+        dto.setDataPubblicazione(entity.getOpzionePagamento().getPosizioneDebitoria().getDataPubblicazione());
         dto.setVoci(entity.getVoci().stream().map(this::toVocePendenzaDto).toList());
         dto.setRpp(rpp);
         dto.setAllegati(allegati.stream().map(this::toAllegatoDto).toList());
@@ -207,6 +213,8 @@ public class PendenzaV2Mapper {
         dto.setUUID(entity.getIdSessione());
         dto.setProprieta(toProprietaPendenzaDto(entity.getProprieta()));
         dto.setSendAbilitato(entity.isSendAbilitato());
+        dto.setSendNav(entity.getSendNav());
+        dto.setDataPubblicazione(entity.getOpzionePagamento().getPosizioneDebitoria().getDataPubblicazione());
         dto.setRpp(urlListaFiltrataPerPendenza("/rpp", idA2A, entity.getIdPendenza()));
         // Nessun endpoint "/pagamenti" ancora esposto da questo wrapper (assente dallo YAML
         // v2 attuale; anche il legacy, verificato, non popola mai questo campo nonostante sia
@@ -238,7 +246,8 @@ public class PendenzaV2Mapper {
                 }
             }
             case ESEGUITO_ALTRO_CANALE -> stato = StatoPendenza.ESEGUITA;
-            case NON_ESEGUITO -> stato = isScaduta(entity) ? StatoPendenza.SCADUTA : StatoPendenza.NON_ESEGUITA;
+            case NON_ESEGUITO -> stato = isNonPubblicata(entity) ? StatoPendenza.NON_PUBBLICATA
+                    : isScaduta(entity) ? StatoPendenza.SCADUTA : StatoPendenza.NON_ESEGUITA;
             case PARZIALMENTE_ESEGUITO -> stato = StatoPendenza.ESEGUITA_PARZIALE;
             default -> stato = StatoPendenza.NON_ESEGUITA;
         }
@@ -292,13 +301,18 @@ public class PendenzaV2Mapper {
         };
     }
 
+    /** Non pubblicata: la posizione ha una data di pubblicazione futura (valida dalle 00:00 del giorno). */
+    private boolean isNonPubblicata(Pendenza entity) {
+        return !entity.getOpzionePagamento().getPosizioneDebitoria().isPubblicata(java.time.LocalDate.now(clock));
+    }
+
     /** Stessa soglia del legacy ({@code DateUtils.CONTROLLO_SCADENZA}, mezzanotte del giorno
      *  indicato: una pendenza e' scaduta solo dal giorno DOPO {@code dataScadenzaAvviso}). */
     private boolean isScaduta(Pendenza entity) {
         if (entity.getDataScadenzaAvviso() == null) {
             return false;
         }
-        return entity.getDataScadenzaAvviso().toLocalDate().isBefore(java.time.LocalDate.now());
+        return entity.getDataScadenzaAvviso().toLocalDate().isBefore(java.time.LocalDate.now(clock));
     }
 
     /** Il soggetto pagatore v2 e' il debitore dell'opzione della pendenza. */

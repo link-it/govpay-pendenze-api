@@ -1,5 +1,8 @@
 package it.govpay.pendenze.v2.pendenza;
 
+import it.govpay.pendenze.service.PosizioneDebitoriaService;
+import org.springframework.test.web.servlet.ResultActions;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.hamcrest.Matchers.blankOrNullString;
 import static org.hamcrest.Matchers.not;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
@@ -167,6 +170,9 @@ class AddPendenzaControllerTest {
     private PendenzaRepository pendenzaRepository;
 
     @Autowired
+    private PosizioneDebitoriaService posizioneDebitoriaService;
+
+    @Autowired
     private RptRepository rptRepository;
 
     @Autowired
@@ -291,6 +297,153 @@ class AddPendenzaControllerTest {
                 "codEntrata": "DIRITTI_SEGRETERIA" } ]
                 }
                 """.formatted(ID_DOMINIO, causale, importo, idVocePendenza, importo);
+    }
+
+    private ResultActions putPendenza(String idPendenza, String corpo) throws Exception {
+        return mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, idPendenza)
+                .contentType(MediaType.APPLICATION_JSON).content(corpo));
+    }
+
+    private String conCampi(String corpo, String campi) {
+        return corpo.replaceFirst("\\{", "{ " + campi + ",");
+    }
+
+    private Pendenza leggi(String idPendenza) {
+        return inTransazioneDiLettura(() -> pendenzaRepository
+                .findByIdApplicazioneAndIdPendenzaAndOpzionePagamentoIsNotNull(idApplicazione, idPendenza)
+                .orElseThrow());
+    }
+
+    @Test
+    @DisplayName("sendAbilitato e sendNav sulla pendenza: persistiti e restituiti in lettura; se omesso in "
+            + "aggiornamento resta il NAV salvato, con sendAbilitato false il NAV e' azzerato")
+    void sendAbilitatoESendNavSullaPendenza() throws Exception {
+        String base = corpoBase("send", 16.00, "voce-send-1");
+        putPendenza("pend-send-1", conCampi(base, "\"sendAbilitato\": true, \"sendNav\": \"999999999999999999\""))
+                .andExpect(status().isCreated());
+        org.junit.jupiter.api.Assertions.assertEquals("999999999999999999", leggi("pend-send-1").getSendNav());
+
+        putPendenza("pend-send-1", conCampi(base, "\"sendAbilitato\": true")).andExpect(status().isOk());
+        org.junit.jupiter.api.Assertions.assertEquals("999999999999999999", leggi("pend-send-1").getSendNav());
+
+        mockMvc.perform(get("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-send-1"))
+                .andExpect(jsonPath("$.sendAbilitato").value(true))
+                .andExpect(jsonPath("$.sendNav").value("999999999999999999"));
+
+        putPendenza("pend-send-1", base).andExpect(status().isOk());
+        org.junit.jupiter.api.Assertions.assertNull(leggi("pend-send-1").getSendNav());
+        org.junit.jupiter.api.Assertions.assertFalse(leggi("pend-send-1").isSendAbilitato());
+    }
+
+    @Test
+    @DisplayName("sendNav senza sendAbilitato, di formato errato o uguale al numero avviso: 400")
+    void sendNavNonValidoRestituisce400() throws Exception {
+        String base = corpoBase("send", 16.00, "voce-send-ko");
+        putPendenza("pend-send-ko1", conCampi(base, "\"sendNav\": \"999999999999999999\""))
+                .andExpect(status().isBadRequest());
+        putPendenza("pend-send-ko2", conCampi(base, "\"sendAbilitato\": true, \"sendNav\": \"12\""))
+                .andExpect(status().isBadRequest());
+        putPendenza("pend-send-ko3", conCampi(base, "\"sendAbilitato\": true, \"numeroAvviso\": "
+                + "\"100000000000000910\", \"sendNav\": \"100000000000000910\""))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("cambiare il sendNav toglie la quota SEND gia' acquisita")
+    void cambiareSendNavTogliLaQuotaSend() throws Exception {
+        String base = corpoBase("send", 16.00, "voce-send-q");
+        putPendenza("pend-send-q", conCampi(base, "\"sendAbilitato\": true")).andExpect(status().isCreated());
+        new org.springframework.transaction.support.TransactionTemplate(transactionManager).execute(stato -> {
+            posizioneDebitoriaService.registraImportoSend(PRINCIPAL, "pend-send-q", 5.0,
+                    java.time.OffsetDateTime.now());
+            return null;
+        });
+        org.junit.jupiter.api.Assertions.assertEquals(5.0, leggi("pend-send-q").getSendImportoTotale());
+
+        putPendenza("pend-send-q", conCampi(base, "\"sendAbilitato\": true, \"sendNav\": \"999999999999999999\""))
+                .andExpect(status().isOk());
+
+        org.junit.jupiter.api.Assertions.assertNull(leggi("pend-send-q").getSendImportoTotale());
+    }
+
+    @Test
+    @DisplayName("dataPubblicazione futura: la pendenza e' NON_PUBBLICATA in lettura e nel filtro di ricerca, "
+            + "NON_ESEGUITA non la comprende")
+    void dataPubblicazioneFuturaRendeLaPendenzaNonPubblicata() throws Exception {
+        String data = java.time.LocalDate.now().plusDays(3).toString();
+        putPendenza("pend-pubb-1", conCampi(corpoBase("pubb", 16.00, "voce-pubb-1"),
+                "\"dataPubblicazione\": \"" + data + "\"")).andExpect(status().isCreated());
+        putPendenza("pend-pubb-2", corpoBase("subito", 16.00, "voce-pubb-2")).andExpect(status().isCreated());
+
+        mockMvc.perform(get("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-pubb-1"))
+                .andExpect(jsonPath("$.stato").value("NON_PUBBLICATA"))
+                .andExpect(jsonPath("$.dataPubblicazione").value(data));
+        mockMvc.perform(get("/v2/pendenze").queryParam("stato", "NON_PUBBLICATA"))
+                .andExpect(jsonPath("$.numRisultati").value(1));
+        mockMvc.perform(get("/v2/pendenze").queryParam("stato", "NON_ESEGUITA"))
+                .andExpect(jsonPath("$.numRisultati").value(1))
+                .andExpect(jsonPath("$.risultati[0].idPendenza").value("pend-pubb-2"));
+    }
+
+    @Test
+    @DisplayName("la lettura v3 espone NON_PUBBLICATA per una pendenza non eseguita con pubblicazione futura")
+    void letturaV3EsponeNonPubblicata() throws Exception {
+        putPendenza("pend-pubb-v3a", conCampi(corpoBase("pubb", 16.00, "voce-pubb-v3a"),
+                "\"dataPubblicazione\": \"" + java.time.LocalDate.now().plusDays(3) + "\"")).andExpect(status().isCreated());
+        putPendenza("pend-pubb-v3b", corpoBase("subito", 16.00, "voce-pubb-v3b")).andExpect(status().isCreated());
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-pubb-v3a"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.stato").value("NON_PUBBLICATA"));
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-pubb-v3b"))
+                .andExpect(jsonPath("$.stato").value("NON_ESEGUITO"));
+    }
+
+    @Test
+    @DisplayName("seconda soglia complementare con pubblicazione e scadenza anticipate: si valida lo stato finale")
+    void aggiuntaDellaSogliaComplementareConDataPubblicazioneDiversa() throws Exception {
+        java.time.LocalDate oggi = java.time.LocalDate.now();
+        putPendenza("pend-pubb-so1", conCampi(corpoConSoglia("ridotta", 70.00, "voce-pubb-so1", "DOC-PUBB-SO", "ENTRO", 5),
+                "\"dataPubblicazione\": \"" + oggi.plusDays(5) + "\", \"dataScadenza\": \"" + oggi.plusDays(6) + "\""))
+                .andExpect(status().isCreated());
+
+        putPendenza("pend-pubb-so2", conCampi(corpoConSoglia("intera", 100.00, "voce-pubb-so2", "DOC-PUBB-SO", "OLTRE", 5),
+                "\"dataPubblicazione\": \"" + oggi.plusDays(1) + "\", \"dataScadenza\": \"" + oggi.plusDays(2) + "\""))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(get("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-pubb-so2"))
+                .andExpect(jsonPath("$.dataPubblicazione").value(oggi.plusDays(1).toString()));
+    }
+
+    @Test
+    @DisplayName("PUT che anticipa insieme pubblicazione e scadenza: si valida lo stato finale, non la data salvata")
+    void aggiornamentoCoordinatoDiPubblicazioneEScadenza() throws Exception {
+        String base = corpoBase("pubb", 16.00, "voce-pubb-coord");
+        java.time.LocalDate oggi = java.time.LocalDate.now();
+        putPendenza("pend-pubb-coord", conCampi(base, "\"dataPubblicazione\": \"" + oggi.plusDays(5)
+                + "\", \"dataScadenza\": \"" + oggi.plusDays(6) + "\"")).andExpect(status().isCreated());
+
+        putPendenza("pend-pubb-coord", conCampi(base, "\"dataPubblicazione\": \"" + oggi.plusDays(1)
+                + "\", \"dataScadenza\": \"" + oggi.plusDays(2) + "\"")).andExpect(status().isOk());
+
+        mockMvc.perform(get("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-pubb-coord"))
+                .andExpect(jsonPath("$.dataPubblicazione").value(oggi.plusDays(1).toString()));
+    }
+
+    @Test
+    @DisplayName("dataPubblicazione oltre i giorni massimi, o non antecedente alla scadenza: 400; "
+            + "futura su una posizione gia' pubblicata: 400")
+    void dataPubblicazioneNonValidaRestituisce400() throws Exception {
+        String base = corpoBase("pubb", 16.00, "voce-pubb-ko");
+        putPendenza("pend-pubb-ko1", conCampi(base, "\"dataPubblicazione\": \""
+                + java.time.LocalDate.now().plusDays(30) + "\"")).andExpect(status().isBadRequest());
+        putPendenza("pend-pubb-ko2", conCampi(base, "\"dataPubblicazione\": \""
+                + java.time.LocalDate.now().plusDays(3) + "\", \"dataScadenza\": \""
+                + java.time.LocalDate.now().plusDays(3) + "\"")).andExpect(status().isBadRequest());
+
+        putPendenza("pend-pubb-ko3", base).andExpect(status().isCreated());
+        putPendenza("pend-pubb-ko3", conCampi(base, "\"dataPubblicazione\": \""
+                + java.time.LocalDate.now().plusDays(2) + "\"")).andExpect(status().isBadRequest());
     }
 
     @Test

@@ -48,7 +48,8 @@ class PendenzaV2MapperTest {
     private final TributoRepository tributoRepository = mock(TributoRepository.class);
     private final IbanAccreditoRepository ibanAccreditoRepository = mock(IbanAccreditoRepository.class);
     private final PendenzaV2Mapper mapper = new PendenzaV2Mapper(applicazioneRepository, dominioRepository,
-            unitaOperativaRepository, tipoVersamentoDominioRepository, tributoRepository, ibanAccreditoRepository);
+            unitaOperativaRepository, tipoVersamentoDominioRepository, tributoRepository, ibanAccreditoRepository,
+            java.time.Clock.systemDefaultZone());
 
     private void confAnagraficaBase() {
         ApplicazioneEntity applicazione = new ApplicazioneEntity();

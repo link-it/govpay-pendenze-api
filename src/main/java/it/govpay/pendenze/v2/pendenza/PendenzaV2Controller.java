@@ -213,7 +213,7 @@ public class PendenzaV2Controller implements PendenzeApi {
         FiltriPendenze filtri = new FiltriPendenze(idDominioRisolto, idDebitore, direzione, divisione, dataDa,
                 dataA, filtroStato.statoVersamento(), filtroStato.statoVersamentoAlternativo(),
                 filtroStato.statoPagamento(), filtroStato.scaduta(),
-                !Boolean.TRUE.equals(mostraSpontaneiNonPagati));
+                !Boolean.TRUE.equals(mostraSpontaneiNonPagati), filtroStato.nonPubblicata());
 
         Sort sort = parseOrdinamento(ordinamento);
         Pageable pageable = OffsetPageRequest.of((long) (paginaEffettiva - 1) * limiteEffettivo, limiteEffettivo,
@@ -314,8 +314,8 @@ public class PendenzaV2Controller implements PendenzeApi {
      */
     private record FiltroStato(it.govpay.pendenze.model.StatoPendenza statoVersamento,
             it.govpay.pendenze.model.StatoPendenza statoVersamentoAlternativo,
-            it.govpay.pendenze.model.StatoPagamento statoPagamento, Boolean scaduta) {
-        static final FiltroStato NESSUNO = new FiltroStato(null, null, null, null);
+            it.govpay.pendenze.model.StatoPagamento statoPagamento, Boolean scaduta, Boolean nonPubblicata) {
+        static final FiltroStato NESSUNO = new FiltroStato(null, null, null, null, null);
     }
 
     /**
@@ -341,7 +341,10 @@ public class PendenzaV2Controller implements PendenzeApi {
      * statoPagamento=INCASSATO} — simmetrico con la lettura singola.</li>
      * <li>{@code NON_ESEGUITA}/{@code SCADUTA}: {@code stato=NON_ESEGUITO} + rispettivamente non
      * scaduta/scaduta, stessa soglia di {@link PendenzaV2Mapper#isScaduta} (scaduta solo dal
-     * giorno DOPO {@code dataScadenzaAvviso}).</li>
+     * giorno DOPO {@code dataScadenzaAvviso}); {@code NON_ESEGUITA} esclude le pendenze non
+     * pubblicate.</li>
+     * <li>{@code NON_PUBBLICATA}: {@code stato=NON_ESEGUITO} con posizione a data di pubblicazione
+     * futura.</li>
      * <li>{@code ANNULLATA}/{@code ESEGUITA_PARZIALE}: diretti, simmetrici.</li>
      * </ul>
      *
@@ -352,18 +355,21 @@ public class PendenzaV2Controller implements PendenzeApi {
             return FiltroStato.NESSUNO;
         }
         return switch (stato) {
-            case ANNULLATA -> new FiltroStato(it.govpay.pendenze.model.StatoPendenza.ANNULLATO, null, null, null);
+            case ANNULLATA -> new FiltroStato(it.govpay.pendenze.model.StatoPendenza.ANNULLATO, null, null, null, null);
             case ESEGUITA -> new FiltroStato(it.govpay.pendenze.model.StatoPendenza.ESEGUITO, null,
-                    it.govpay.pendenze.model.StatoPagamento.PAGATO, null);
+                    it.govpay.pendenze.model.StatoPagamento.PAGATO, null, null);
             case ESEGUITA_PARZIALE ->
-                new FiltroStato(it.govpay.pendenze.model.StatoPendenza.PARZIALMENTE_ESEGUITO, null, null, null);
+                new FiltroStato(it.govpay.pendenze.model.StatoPendenza.PARZIALMENTE_ESEGUITO, null, null, null, null);
             case NON_ESEGUITA -> new FiltroStato(it.govpay.pendenze.model.StatoPendenza.NON_ESEGUITO, null, null,
-                    false);
-            case SCADUTA -> new FiltroStato(it.govpay.pendenze.model.StatoPendenza.NON_ESEGUITO, null, null, true);
+                    false, false);
+            case SCADUTA -> new FiltroStato(it.govpay.pendenze.model.StatoPendenza.NON_ESEGUITO, null, null, true,
+                    null);
+            case NON_PUBBLICATA -> new FiltroStato(it.govpay.pendenze.model.StatoPendenza.NON_ESEGUITO, null, null,
+                    null, true);
             case INCASSATA -> new FiltroStato(it.govpay.pendenze.model.StatoPendenza.ESEGUITO,
                     it.govpay.pendenze.model.StatoPendenza.ESEGUITO_SENZA_RPT,
-                    it.govpay.pendenze.model.StatoPagamento.INCASSATO, null);
-            case ANOMALA -> new FiltroStato(it.govpay.pendenze.model.StatoPendenza.ANOMALO, null, null, null);
+                    it.govpay.pendenze.model.StatoPagamento.INCASSATO, null, null);
+            case ANOMALA -> new FiltroStato(it.govpay.pendenze.model.StatoPendenza.ANOMALO, null, null, null, null);
         };
     }
 
@@ -811,9 +817,10 @@ public class PendenzaV2Controller implements PendenzeApi {
             posizioneEsistente.setDescrizione(NuovaPendenzaMapper.risolviDescrizioneDocumento(nuovaPendenza));
             AggiornamentoPendenza comando = nuovaPendenzaMapper.toAggiornamentoPendenza(idPendenza, nuovaPendenza,
                     posizioneEsistente.getIdDominio(), applicazione);
-            pendenzaFinale = posizioneDebitoriaService.aggiornaPendenza(idA2A, idPendenza, comando);
+            pendenzaFinale = posizioneDebitoriaService.aggiornaPendenza(idA2A, idPendenza, comando,
+                    nuovaPendenzaMapper.dataPubblicazioneRichiesta(nuovaPendenza, posizioneEsistente));
         }
-        nuovaPendenzaMapper.applicaCampiLegacy(pendenzaFinale, nuovaPendenza);
+        nuovaPendenzaMapper.applicaCampiLegacy(idA2A, pendenzaFinale, nuovaPendenza);
         salvaAllegati(pendenzaFinale, nuovaPendenza.getAllegati(), !creata);
 
         PendenzaCreata risposta = new PendenzaCreata(nuovaPendenza.getIdDominio(), pendenzaFinale.getNumeroAvviso());

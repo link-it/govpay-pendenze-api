@@ -481,20 +481,10 @@ public class PosizioneDebitoriaMapper {
         return DatiPosizioneDebitoria.da(posizione);
     }
 
-    /**
-     * Un debitore con la sua notifica SEND e le sue opzioni. Se la notifica SEND e' attiva il
-     * {@code navNotifica} e' obbligatorio: non viene assegnato in automatico.
-     */
+    /** Un debitore con le sue opzioni. */
     private PdDebitore toPdDebitore(NuovoDebitorePosizione dto, Long idDominio, ApplicazioneEntity applicazione) {
-        boolean notificaSend = Boolean.TRUE.equals(dto.getNotificaSend());
-        if (notificaSend && (dto.getNavNotifica() == null || dto.getNavNotifica().isBlank())) {
-            throw new ValidazioneNonSuperataException("'navNotifica' e' obbligatorio per il debitore ["
-                    + dto.getSoggetto().getIdentificativo() + "] con 'notificaSend' attivo");
-        }
         PdDebitore pdDebitore = new PdDebitore();
         pdDebitore.setDebitore(toDebitore(dto.getSoggetto()));
-        pdDebitore.setNotificaSendPayed(notificaSend);
-        pdDebitore.setNotificaSendNav(dto.getNavNotifica());
         for (NuovaOpzionePagamento opzione : dto.getOpzioniPagamento()) {
             pdDebitore.addOpzionePagamento(toOpzionePagamento(opzione, idDominio, applicazione));
         }
@@ -560,16 +550,13 @@ public class PosizioneDebitoriaMapper {
     /**
      * Traduce il JSON Patch di {@code PATCH .../debitori/{identificativoDebitore}} in un comando
      * della libreria. Path supportati: i campi di {@code DebitorePosizione} modificabili, cioe'
-     * {@code /soggetto/...}, {@code /notificaSend} e {@code /navNotifica}. I campi facoltativi
-     * si azzerano con {@code remove}; {@code tipo}, {@code identificativo} e {@code notificaSend}
-     * no.
+     * {@code /soggetto/...}. I campi facoltativi si azzerano con {@code remove}; {@code tipo} e
+     * {@code identificativo} no.
      */
     public DatiAggiornamentoDebitore toAggiornamentoDebitore(List<PatchOp> operazioni) {
         ModificaCampo<it.govpay.pendenze.model.TipoSoggetto> tipo = ModificaCampo.invariato();
         ModificaCampo<String> identificativo = ModificaCampo.invariato();
         java.util.Map<String, ModificaCampo<String>> testi = new java.util.HashMap<>();
-        ModificaCampo<Boolean> notificaSend = ModificaCampo.invariato();
-        ModificaCampo<String> navNotifica = ModificaCampo.invariato();
         for (PatchOp operazione : operazioni) {
             if (operazione == null) {
                 throw new ValidazioneNonSuperataException(
@@ -586,8 +573,6 @@ public class PosizioneDebitoriaMapper {
                                 ModificaCampo.imposta(validaCampoSoggetto(
                                         operazione.getPath().substring("/soggetto/".length()),
                                         leggiTestoFacoltativo(operazione))));
-                case "/notificaSend" -> notificaSend = ModificaCampo.imposta(leggiNotificaSend(operazione));
-                case "/navNotifica" -> navNotifica = ModificaCampo.imposta(leggiTestoFacoltativo(operazione));
                 default -> throw new ValidazioneNonSuperataException(
                         "path [" + operazione.getPath() + "] non supportato per questa risorsa");
             }
@@ -601,8 +586,7 @@ public class PosizioneDebitoriaMapper {
                 testi.getOrDefault("/soggetto/provincia", ModificaCampo.invariato()),
                 testi.getOrDefault("/soggetto/nazione", ModificaCampo.invariato()),
                 testi.getOrDefault("/soggetto/email", ModificaCampo.invariato()),
-                testi.getOrDefault("/soggetto/cellulare", ModificaCampo.invariato()),
-                notificaSend, navNotifica);
+                testi.getOrDefault("/soggetto/cellulare", ModificaCampo.invariato()));
     }
 
     /**
@@ -645,18 +629,6 @@ public class PosizioneDebitoriaMapper {
             return null;
         }
         return valoreStringa(operazione, operazione.getPath());
-    }
-
-    private Boolean leggiNotificaSend(PatchOp operazione) {
-        if (operazione.getOp() == PatchOp.OpEnum.REMOVE) {
-            throw new ValidazioneNonSuperataException(
-                    "'notificaSend' e' un booleano: non puo' essere rimosso con 'remove', usare 'replace' con false");
-        }
-        Object valore = valorePresente(operazione, "notificaSend");
-        if (!(valore instanceof Boolean booleano)) {
-            throw new ValidazioneNonSuperataException("'notificaSend' richiede un valore booleano");
-        }
-        return booleano;
     }
 
     /**
@@ -773,7 +745,8 @@ public class PosizioneDebitoriaMapper {
         }
         if (!"/stato".equals(operazione.getPath())) {
             throw new ValidazioneNonSuperataException(
-                    "path [" + operazione.getPath() + "] non supportato per questa risorsa: solo /stato");
+                    "path [" + operazione.getPath() + "] non supportato per questa risorsa: solo /stato, "
+                            + "/sendAbilitato e /sendNav");
         }
         if (operazione.getOp() == PatchOp.OpEnum.REMOVE) {
             throw new ValidazioneNonSuperataException("'stato' e' obbligatorio: non puo' essere rimosso con 'remove'");
@@ -785,6 +758,68 @@ public class PosizioneDebitoriaMapper {
                     + "non di un PATCH del chiamante");
         }
         return it.govpay.pendenze.model.StatoOpzionePagamento.valueOf(valore);
+    }
+
+    /**
+     * Modifica richiesta con {@code PATCH .../opzioni-pagamento/{idOpzionePagamento}}: o una
+     * transizione di stato ({@code stato} valorizzato) o un aggiornamento della notifica SEND
+     * ({@code sendAbilitato} e/o {@code sendNav}), mai insieme.
+     */
+    public record PatchOpzione(it.govpay.pendenze.model.StatoOpzionePagamento stato,
+            ModificaCampo<Boolean> sendAbilitato, ModificaCampo<String> sendNav) {
+        public boolean isTransizioneDiStato() {
+            return stato != null;
+        }
+    }
+
+    /**
+     * Valida il body di {@code PATCH .../opzioni-pagamento/{idOpzionePagamento}}. Con il solo path
+     * {@code /stato} vale {@link #validaPatchStatoOpzione}. Con {@code /sendAbilitato} e/o
+     * {@code /sendNav} si aggiorna la notifica SEND: {@code sendAbilitato} e' un booleano e non si
+     * rimuove, {@code sendNav} e' una stringa non vuota e si azzera con {@code remove}. Sintassi
+     * sola: le regole (NAV valido, stato delle pendenze) sono del servizio.
+     */
+    public PatchOpzione toPatchOpzione(List<PatchOp> operazioni) {
+        if (operazioni == null) {
+            throw new ValidazioneNonSuperataException("body della richiesta mancante");
+        }
+        boolean conStato = operazioni.stream().anyMatch(o -> o != null && "/stato".equals(o.getPath()));
+        boolean conSend = operazioni.stream().anyMatch(o -> o != null
+                && ("/sendAbilitato".equals(o.getPath()) || "/sendNav".equals(o.getPath())));
+        if (conStato && conSend) {
+            throw new ValidazioneNonSuperataException(
+                    "lo stato e la notifica SEND non si modificano nella stessa richiesta");
+        }
+        if (!conSend) {
+            return new PatchOpzione(validaPatchStatoOpzione(operazioni), ModificaCampo.invariato(),
+                    ModificaCampo.invariato());
+        }
+        ModificaCampo<Boolean> sendAbilitato = ModificaCampo.invariato();
+        ModificaCampo<String> sendNav = ModificaCampo.invariato();
+        for (PatchOp operazione : operazioni) {
+            if (operazione == null) {
+                throw new ValidazioneNonSuperataException(
+                        "operazione di patch nulla non ammessa: deve essere un oggetto {op, path, value}");
+            }
+            switch (operazione.getPath()) {
+                case "/sendAbilitato" -> {
+                    if (operazione.getOp() == PatchOp.OpEnum.REMOVE) {
+                        throw new ValidazioneNonSuperataException("'sendAbilitato' e' un booleano: non puo' "
+                                + "essere rimosso con 'remove', usare 'replace' con false");
+                    }
+                    if (!(valorePresente(operazione, "sendAbilitato") instanceof Boolean booleano)) {
+                        throw new ValidazioneNonSuperataException("'sendAbilitato' richiede un valore booleano");
+                    }
+                    sendAbilitato = ModificaCampo.imposta(booleano);
+                }
+                case "/sendNav" -> sendNav = ModificaCampo.imposta(
+                        operazione.getOp() == PatchOp.OpEnum.REMOVE ? null : valoreStringa(operazione, "sendNav"));
+                default -> throw new ValidazioneNonSuperataException(
+                        "path [" + operazione.getPath() + "] non supportato per questa risorsa: "
+                                + "solo /stato, /sendAbilitato e /sendNav");
+            }
+        }
+        return new PatchOpzione(null, sendAbilitato, sendNav);
     }
 
     /**
@@ -804,32 +839,46 @@ public class PosizioneDebitoriaMapper {
         opzione.setTipologia(it.govpay.pendenze.model.TipologiaOpzionePagamento.valueOf(dto.getTipologia().name()));
 
         java.util.List<NuovaPendenza> pendenze;
+        Boolean sendAbilitato;
+        String sendNav;
         if (dto instanceof NuovaOpzionePagamentoPianoRateale o) {
             opzione.setDataInizioValidita(o.getDataInizioValidita());
             opzione.setDataScadenza(o.getDataScadenza());
             pendenze = o.getPendenze();
+            sendAbilitato = o.getSendAbilitato();
+            sendNav = o.getSendNav();
         } else if (dto instanceof NuovaOpzionePagamentoSoluzioneUnica o) {
             opzione.setDataInizioValidita(o.getDataInizioValidita());
             opzione.setDataScadenza(o.getDataScadenza());
             pendenze = o.getPendenze();
+            sendAbilitato = o.getSendAbilitato();
+            sendNav = o.getSendNav();
         } else if (dto instanceof NuovaOpzionePagamentoSoluzioneUnicaEntro o) {
             opzione.setGiorni(o.getGiorni());
             opzione.setDataInizioValidita(o.getDataInizioValidita());
             opzione.setDataScadenza(o.getDataScadenza());
             pendenze = o.getPendenze();
+            sendAbilitato = o.getSendAbilitato();
+            sendNav = o.getSendNav();
         } else if (dto instanceof NuovaOpzionePagamentoSoluzioneUnicaOltre o) {
             opzione.setGiorni(o.getGiorni());
             opzione.setDataInizioValidita(o.getDataInizioValidita());
             opzione.setDataScadenza(o.getDataScadenza());
             pendenze = o.getPendenze();
+            sendAbilitato = o.getSendAbilitato();
+            sendNav = o.getSendNav();
         } else if (dto instanceof NuovaOpzionePagamentoSoluzioneUnicaRidotto o) {
             opzione.setDataInizioValidita(o.getDataInizioValidita());
             opzione.setDataScadenza(o.getDataScadenza());
             pendenze = o.getPendenze();
+            sendAbilitato = o.getSendAbilitato();
+            sendNav = o.getSendNav();
         } else if (dto instanceof NuovaOpzionePagamentoSoluzioneUnicaScontato o) {
             opzione.setDataInizioValidita(o.getDataInizioValidita());
             opzione.setDataScadenza(o.getDataScadenza());
             pendenze = o.getPendenze();
+            sendAbilitato = o.getSendAbilitato();
+            sendNav = o.getSendNav();
         } else {
             throw new IllegalArgumentException("tipo di NuovaOpzionePagamento non gestito: " + dto.getClass());
         }
@@ -837,6 +886,10 @@ public class PosizioneDebitoriaMapper {
         for (NuovaPendenza pendenza : pendenze) {
             opzione.addPendenza(toPendenza(pendenza, idDominioPosizione, applicazione));
         }
+        if (!Boolean.TRUE.equals(sendAbilitato) && sendNav != null) {
+            throw new ValidazioneNonSuperataException("'sendNav' e' ammesso solo con 'sendAbilitato' attivo");
+        }
+        opzione.impostaNotificaSend(Boolean.TRUE.equals(sendAbilitato), sendNav);
         return opzione;
     }
 
@@ -1089,8 +1142,6 @@ public class PosizioneDebitoriaMapper {
     public DebitorePosizione toDebitorePosizioneDto(PdDebitore pdDebitore) {
         DebitorePosizione dto = new DebitorePosizione();
         dto.setSoggetto(toSoggettoDto(pdDebitore.getDebitore()));
-        dto.setNotificaSend(pdDebitore.isNotificaSendPayed());
-        dto.setNavNotifica(pdDebitore.getNotificaSendNav());
         for (it.govpay.pendenze.entity.OpzionePagamento opzione : pdDebitore.getOpzioniPagamento()) {
             dto.addOpzioniPagamentoItem(toOpzionePagamentoDto(opzione));
         }
@@ -1156,6 +1207,8 @@ public class PosizioneDebitoriaMapper {
                 dto.setStato(stato);
                 dto.setDataInizioValidita(entity.getDataInizioValidita());
                 dto.setDataScadenza(entity.getDataScadenza());
+                dto.setSendAbilitato(entity.isSendAbilitato());
+                dto.setSendNav(entity.getSendNav());
                 dto.setPendenze(pendenze);
                 return dto;
             }
@@ -1166,6 +1219,8 @@ public class PosizioneDebitoriaMapper {
                 dto.setStato(stato);
                 dto.setDataInizioValidita(entity.getDataInizioValidita());
                 dto.setDataScadenza(entity.getDataScadenza());
+                dto.setSendAbilitato(entity.isSendAbilitato());
+                dto.setSendNav(entity.getSendNav());
                 dto.setPendenze(pendenze);
                 return dto;
             }
@@ -1177,6 +1232,8 @@ public class PosizioneDebitoriaMapper {
                 dto.setStato(stato);
                 dto.setDataInizioValidita(entity.getDataInizioValidita());
                 dto.setDataScadenza(entity.getDataScadenza());
+                dto.setSendAbilitato(entity.isSendAbilitato());
+                dto.setSendNav(entity.getSendNav());
                 dto.setPendenze(pendenze);
                 return dto;
             }
@@ -1188,6 +1245,8 @@ public class PosizioneDebitoriaMapper {
                 dto.setStato(stato);
                 dto.setDataInizioValidita(entity.getDataInizioValidita());
                 dto.setDataScadenza(entity.getDataScadenza());
+                dto.setSendAbilitato(entity.isSendAbilitato());
+                dto.setSendNav(entity.getSendNav());
                 dto.setPendenze(pendenze);
                 return dto;
             }
@@ -1198,6 +1257,8 @@ public class PosizioneDebitoriaMapper {
                 dto.setStato(stato);
                 dto.setDataInizioValidita(entity.getDataInizioValidita());
                 dto.setDataScadenza(entity.getDataScadenza());
+                dto.setSendAbilitato(entity.isSendAbilitato());
+                dto.setSendNav(entity.getSendNav());
                 dto.setPendenze(pendenze);
                 return dto;
             }
@@ -1208,6 +1269,8 @@ public class PosizioneDebitoriaMapper {
                 dto.setStato(stato);
                 dto.setDataInizioValidita(entity.getDataInizioValidita());
                 dto.setDataScadenza(entity.getDataScadenza());
+                dto.setSendAbilitato(entity.isSendAbilitato());
+                dto.setSendNav(entity.getSendNav());
                 dto.setPendenze(pendenze);
                 return dto;
             }
@@ -1278,6 +1341,19 @@ public class PosizioneDebitoriaMapper {
         throw new IllegalStateException("tipologia non gestita: " + entity.getTipologia());
     }
 
+    /**
+     * Stato della pendenza esposto dalla v3: quello salvato, salvo {@code NON_PUBBLICATA} per una
+     * pendenza non eseguita la cui posizione ha una data di pubblicazione futura.
+     */
+    private StatoPendenza statoEsposto(it.govpay.pendenze.entity.Pendenza entity) {
+        StatoPendenza stato = StatoPendenza.valueOf(entity.getStato().name());
+        if (stato == StatoPendenza.NON_ESEGUITO && entity.getOpzionePagamento() != null
+                && !entity.getOpzionePagamento().getPosizioneDebitoria().isPubblicata(LocalDate.now(clock))) {
+            return StatoPendenza.NON_PUBBLICATA;
+        }
+        return stato;
+    }
+
     private PendenzaOpzionePagamento toPendenzaOpzionePagamentoDto(it.govpay.pendenze.entity.Pendenza entity) {
         PendenzaOpzionePagamento dto = new PendenzaOpzionePagamento();
         dto.setIdA2A(risolviCodApplicazione(entity.getIdApplicazione()));
@@ -1285,7 +1361,7 @@ public class PosizioneDebitoriaMapper {
         dto.setIdTipoPendenza(risolviCodTipoVersamento(entity.getIdTipoPendenza()));
         dto.setCausale(CausaleVersamentoCodec.decode(entity.getCausaleVersamento()));
         dto.setIdDominio(risolviCodDominio(entity.getIdDominio()));
-        dto.setStato(StatoPendenza.valueOf(entity.getStato().name()));
+        dto.setStato(statoEsposto(entity));
         dto.setIuv(entity.getIuv());
         dto.setDataPagamento(entity.getDataPagamento() == null ? null : entity.getDataPagamento().toLocalDate());
         dto.setOpzionePagamento(toOpzionePagamentoIndexDto(entity.getOpzionePagamento()));
@@ -1331,7 +1407,7 @@ public class PosizioneDebitoriaMapper {
         dto.setIdTipoPendenza(risolviCodTipoVersamento(entity.getIdTipoPendenza()));
         dto.setCausale(CausaleVersamentoCodec.decode(entity.getCausaleVersamento()));
         dto.setIdDominio(risolviCodDominio(entity.getIdDominio()));
-        dto.setStato(StatoPendenza.valueOf(entity.getStato().name()));
+        dto.setStato(statoEsposto(entity));
         dto.setIuv(entity.getIuv());
         dto.setDataPagamento(entity.getDataPagamento() == null ? null : entity.getDataPagamento().toLocalDate());
         dto.setOpzionePagamento(toOpzionePagamentoIndexDto(entity.getOpzionePagamento()));
@@ -1372,7 +1448,7 @@ public class PosizioneDebitoriaMapper {
         dto.setIdTipoPendenza(risolviCodTipoVersamento(entity.getIdTipoPendenza()));
         dto.setCausale(CausaleVersamentoCodec.decode(entity.getCausaleVersamento()));
         dto.setIdDominio(risolviCodDominio(entity.getIdDominio()));
-        dto.setStato(StatoPendenza.valueOf(entity.getStato().name()));
+        dto.setStato(statoEsposto(entity));
         dto.setIuv(entity.getIuv());
         dto.setDataPagamento(entity.getDataPagamento() == null ? null : entity.getDataPagamento().toLocalDate());
         dto.setOpzionePagamento(toOpzionePagamentoIndexDto(entity.getOpzionePagamento()));
