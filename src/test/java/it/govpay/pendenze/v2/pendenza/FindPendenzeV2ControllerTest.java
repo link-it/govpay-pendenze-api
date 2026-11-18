@@ -217,9 +217,9 @@ class FindPendenzeV2ControllerTest {
                   "codDocumento": "%s",
                   "idDominio": "12345678902",
                   "descrizione": "test findPendenze v2",
-                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "%s",
-                                           "anagrafica": "Mario Rossi" } ],
-                  "opzioniPagamento": [ {
+                  "debitori": [ { "soggetto": { "tipo": "F", "identificativo": "%s",
+                                           "anagrafica": "Mario Rossi" },
+                                  "opzioniPagamento": [ {
                     "tipologia": "SOLUZIONE_UNICA",
                     "pendenze": [ {
                       "idPendenza": "%s",
@@ -228,7 +228,7 @@ class FindPendenzeV2ControllerTest {
                       "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-%s", "importo": 16.00,
                                   "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
                     } ]
-                  } ]
+                  } ] } ]
                 }
                 """.formatted(idPosizioneDebitoria, idDebitore, idPendenza, idPendenza);
 
@@ -274,14 +274,13 @@ class FindPendenzeV2ControllerTest {
     }
 
     /**
-     * {@code idDebitore} filtra su QUALSIASI {@code SoggettoDebitore} della posizione (debitori
-     * "in solido" compresi), non piu' sul placeholder legacy
-     * {@code Pendenza.srcDebitoreIdentificativo} (sempre {@code "VEDERE_SOGGETTI_DEBITORI"} per
+     * {@code idDebitore} filtra sul debitore dell'opzione della pendenza, non sul placeholder
+     * legacy {@code Pendenza.srcDebitoreIdentificativo} (sempre {@code "VEDERE_DEBITORI"} per
      * le pendenze scritte dal percorso v3-nativo — un confronto diretto su quella colonna non
-     * troverebbe mai nulla qui). Decisione del committente: match su qualsiasi co-debitore.
+     * troverebbe mai nulla qui).
      */
     @Test
-    @DisplayName("GET /v2/pendenze filtra per idDebitore case-insensitive (su un SoggettoDebitore qualsiasi)")
+    @DisplayName("GET /v2/pendenze filtra per idDebitore case-insensitive (sul debitore dell'opzione)")
     void findPendenzeFiltroIdDebitoreCaseInsensitive() throws Exception {
         creaPendenzaConDebitore("pos-find-3", "pendenza-find-3", "RSSMRA80A01H501U");
         creaPendenza("pos-find-3b", "pendenza-find-3b");
@@ -297,31 +296,41 @@ class FindPendenzeV2ControllerTest {
     }
 
     /**
-     * Decisione del committente: {@code idDebitore} matcha QUALSIASI debitore "in solido" della
-     * posizione, non solo il soggetto pagatore (ordine 0).
+     * {@code idDebitore} matcha il debitore dell'opzione della pendenza: ogni co-obbligato ha le
+     * proprie pendenze, e quelle degli altri debitori della posizione non gli appartengono.
      */
     @Test
-    @DisplayName("GET /v2/pendenze filtra per idDebitore anche su un co-debitore (non il pagatore principale)")
+    @DisplayName("GET /v2/pendenze filtra per idDebitore sul co-debitore: trova solo le sue pendenze, non quelle degli altri debitori")
     void findPendenzeFiltroIdDebitoreCoDebitore() throws Exception {
         String body = """
                 {
                   "codDocumento": "pos-find-codebitore",
                   "idDominio": "12345678902",
                   "descrizione": "test findPendenze v2 co-debitore",
-                  "soggettiDebitori": [
-                    { "tipo": "F", "identificativo": "FRRPLA90C41H501Y", "anagrafica": "Mario Rossi" },
-                    { "tipo": "F", "identificativo": "RSSMRA80A01H501U", "anagrafica": "Anna Rossi" }
-                  ],
-                  "opzioniPagamento": [ {
-                    "tipologia": "SOLUZIONE_UNICA",
-                    "pendenze": [ {
-                      "idPendenza": "pendenza-find-codebitore",
-                      "idTipoPendenza": "DIRITTI_SEGRETERIA",
-                      "importo": 16.00,
-                      "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-codebitore",
-                                  "importo": 16.00, "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
-                    } ]
-                  } ]
+                  "debitori": [
+                    { "soggetto": { "tipo": "F", "identificativo": "FRRPLA90C41H501Y", "anagrafica": "Mario Rossi" },
+                      "opzioniPagamento": [ {
+                        "tipologia": "SOLUZIONE_UNICA",
+                        "pendenze": [ {
+                          "idPendenza": "pendenza-find-pagatore",
+                          "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                          "importo": 16.00,
+                          "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-pagatore",
+                                      "importo": 16.00, "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
+                        } ]
+                      } ] },
+                    { "soggetto": { "tipo": "F", "identificativo": "RSSMRA80A01H501U", "anagrafica": "Anna Rossi" },
+                      "opzioniPagamento": [ {
+                        "tipologia": "SOLUZIONE_UNICA",
+                        "pendenze": [ {
+                          "idPendenza": "pendenza-find-codebitore",
+                          "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                          "importo": 16.00,
+                          "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-codebitore",
+                                      "importo": 16.00, "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
+                        } ]
+                      } ] }
+                  ]
                 }
                 """;
         mockMvc.perform(post("/posizioni-debitorie/{idA2A}", PRINCIPAL)

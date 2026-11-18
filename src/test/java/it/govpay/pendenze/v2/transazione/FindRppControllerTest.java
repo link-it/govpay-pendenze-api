@@ -492,9 +492,9 @@ class FindRppControllerTest {
                   "codDocumento": "%s",
                   "idDominio": "%s",
                   "descrizione": "test wrapper v2 find rpp",
-                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "%s",
-                                           "anagrafica": "Mario Rossi" } ],
-                  "opzioniPagamento": [ {
+                  "debitori": [ { "soggetto": { "tipo": "F", "identificativo": "%s",
+                                           "anagrafica": "Mario Rossi" },
+                                  "opzioniPagamento": [ {
                     "tipologia": "SOLUZIONE_UNICA",
                     "pendenze": [ {
                       "idPendenza": "%s",
@@ -503,7 +503,7 @@ class FindRppControllerTest {
                       "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-%s", "importo": 16.00,
                                   "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
                     } ]
-                  } ]
+                  } ] } ]
                 }
                 """.formatted(codDocumento, DOMINIO, idDebitore, idPendenza, idPendenza);
     }

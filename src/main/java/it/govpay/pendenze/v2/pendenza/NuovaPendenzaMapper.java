@@ -33,12 +33,17 @@ import it.govpay.common.repository.TipoVersamentoDominioRepository;
 import it.govpay.common.repository.TributoRepository;
 import it.govpay.common.repository.UnitaOperativaRepository;
 import it.govpay.pendenze.comando.AggiornamentoPendenza;
+import it.govpay.pendenze.comando.AggiornamentoPosizioneDebitoria;
+import it.govpay.pendenze.comando.ModificaCampo;
 import it.govpay.pendenze.comando.DatiOpzionePagamento;
 import it.govpay.pendenze.comando.DatiPendenza;
 import it.govpay.pendenze.comando.DatiPosizioneDebitoria;
-import it.govpay.pendenze.comando.DatiSoggettoDebitore;
+import it.govpay.pendenze.comando.DatiDebitore;
+import it.govpay.pendenze.comando.DatiOpzionePagamentoDebitore;
+import it.govpay.pendenze.comando.DatiPdDebitore;
 import it.govpay.pendenze.comando.DatiVocePendenza;
 import it.govpay.pendenze.entity.OpzionePagamento;
+import it.govpay.pendenze.entity.PdDebitore;
 import it.govpay.pendenze.entity.Pendenza;
 import it.govpay.pendenze.entity.PosizioneDebitoria;
 import it.govpay.pendenze.entity.VocePendenza;
@@ -327,8 +332,9 @@ public class NuovaPendenzaMapper {
         if (posizioneEsistente.isPresent()) {
             // Decisione #3: un documento esplicito che coincide con uno gia' esistente
             // aggiunge una pendenza all'opzione esistente, non crea una nuova posizione.
-            return aggiungiAPosizioneEsistente(idA2A, posizioneEsistente.get(), rataRichiesta, soglia, datiPendenza,
-                    descrizioneDocumento);
+            return aggiungiAPosizioneEsistente(idA2A, posizioneEsistente.get(), dto.getSoggettoPagatore(),
+                    rataRichiesta, soglia, datiPendenza, descrizioneDocumento,
+                    dataPubblicazioneRichiesta(dto, posizioneEsistente.get()));
         }
 
         TipologiaEGiorni tipologiaEGiorni = risolviTipologia(rataRichiesta, soglia);
@@ -338,11 +344,12 @@ public class NuovaPendenzaMapper {
         }
 
         DatiOpzionePagamento datiOpzione = new DatiOpzionePagamento(tipologiaEGiorni.tipologia(),
-                tipologiaEGiorni.giorni(), null, null, List.of(datiPendenza));
+                tipologiaEGiorni.giorni(), null, null, false, null, List.of(datiPendenza));
         Long idUnitaOperativa = risolviIdUnitaOperativa(idDominio, dto.getIdUnitaOperativa());
-        DatiSoggettoDebitore soggetto = toDatiSoggettoDebitore(dto.getSoggettoPagatore());
+        DatiPdDebitore debitore = new DatiPdDebitore(toDatiDebitore(dto.getSoggettoPagatore()),
+                List.of(datiOpzione));
         DatiPosizioneDebitoria comando = new DatiPosizioneDebitoria(codDocumento, applicazione.getId(), idDominio,
-                idUnitaOperativa, descrizioneDocumento, null, false, null, List.of(soggetto), List.of(datiOpzione));
+                idUnitaOperativa, descrizioneDocumento, dto.getDataPubblicazione(), List.of(debitore));
 
         PosizioneDebitoria creata = posizioneDebitoriaService.crea(comando);
         return creata.getOpzioniPagamento().get(0).getPendenze().get(0);
@@ -369,11 +376,13 @@ public class NuovaPendenzaMapper {
      * o piu' di una corrispondenza: errore esplicito (400). {@code descrizioneDocumento}
      * sovrascrive sempre quella della posizione esistente, indipendentemente dall'esito sopra.
      */
-    private Pendenza aggiungiAPosizioneEsistente(String idA2A, PosizioneDebitoria posizione, Integer rataRichiesta,
-            VincoloPagamento soglia, DatiPendenza datiPendenza, String descrizioneDocumento) {
+    private Pendenza aggiungiAPosizioneEsistente(String idA2A, PosizioneDebitoria posizione,
+            Soggetto soggettoPagatore, Integer rataRichiesta, VincoloPagamento soglia, DatiPendenza datiPendenza,
+            String descrizioneDocumento, ModificaCampo<LocalDate> dataPubblicazione) {
         posizione.setDescrizione(descrizioneDocumento);
         TipologiaEGiorni tipologiaEGiorni = risolviTipologia(rataRichiesta, soglia);
-        List<OpzionePagamento> opzioni = posizione.getOpzioniPagamento();
+        PdDebitore pdDebitore = debitoreDellaRichiesta(posizione, soggettoPagatore);
+        List<OpzionePagamento> opzioni = pdDebitore.getOpzioniPagamento();
 
         List<OpzionePagamento> corrispondenti = opzioni.stream()
                 .filter(o -> o.getTipologia() == tipologiaEGiorni.tipologia())
@@ -396,13 +405,13 @@ public class NuovaPendenzaMapper {
             }
             String idPosizioneDebitoriaPubblica = posizioneDebitoriaService.idPosizioneDebitoriaPubblica(posizione);
             return posizioneDebitoriaService.aggiungiPendenza(idA2A, idPosizioneDebitoriaPubblica,
-                    opzione.getIdOpzionePagamento(), datiPendenza);
+                    opzione.getIdOpzionePagamento(), datiPendenza, dataPubblicazione);
         }
 
         boolean complementarePresente = opzioni.stream()
                 .anyMatch(o -> sonoSoglieComplementari(o.getTipologia(), tipologiaEGiorni.tipologia()));
         if (complementarePresente) {
-            return completaCoppiaSoglia(idA2A, posizione, tipologiaEGiorni, datiPendenza);
+            return completaCoppiaSoglia(idA2A, posizione, pdDebitore, tipologiaEGiorni, datiPendenza, dataPubblicazione);
         }
         throw new ValidazioneNonSuperataException("il documento [" + posizione.getCodDocumento() + "] non ha "
                 + "un'opzione di tipologia " + tipologiaEGiorni.tipologia() + " ne' una complementare a cui "
@@ -432,14 +441,40 @@ public class NuovaPendenzaMapper {
      * alternative distinte nel modello v3, non due pendenze della stessa opzione), tramite
      * {@link PosizioneDebitoriaService#aggiungiOpzionePagamento}.
      */
-    private Pendenza completaCoppiaSoglia(String idA2A, PosizioneDebitoria posizione,
-            TipologiaEGiorni tipologiaEGiorni, DatiPendenza datiPendenza) {
+    private Pendenza completaCoppiaSoglia(String idA2A, PosizioneDebitoria posizione, PdDebitore pdDebitore,
+            TipologiaEGiorni tipologiaEGiorni, DatiPendenza datiPendenza, ModificaCampo<LocalDate> dataPubblicazione) {
+        if (posizione.getPdDebitori().size() > 1) {
+            throw new ValidazioneNonSuperataException("il documento [" + posizione.getCodDocumento() + "] ha piu' "
+                    + "debitori: non e' possibile aggiungere una nuova opzione di pagamento tramite questa API, "
+                    + "usare l'API v3");
+        }
         String idPosizioneDebitoriaPubblica = posizioneDebitoriaService.idPosizioneDebitoriaPubblica(posizione);
         DatiOpzionePagamento comando = new DatiOpzionePagamento(tipologiaEGiorni.tipologia(),
-                tipologiaEGiorni.giorni(), null, null, List.of(datiPendenza));
-        OpzionePagamento nuovaOpzione = posizioneDebitoriaService.aggiungiOpzionePagamento(idA2A,
-                idPosizioneDebitoriaPubblica, comando);
-        return nuovaOpzione.getPendenze().get(0);
+                tipologiaEGiorni.giorni(), null, null, false, null, List.of(datiPendenza));
+        List<OpzionePagamento> nuove = posizioneDebitoriaService.aggiungiOpzionePagamento(idA2A,
+                idPosizioneDebitoriaPubblica,
+                List.of(new DatiOpzionePagamentoDebitore(pdDebitore.getDebitore().getIdentificativo(), comando)),
+                dataPubblicazione);
+        return nuove.get(0).getPendenze().get(0);
+    }
+
+    /**
+     * Il debitore del documento a cui si riferisce la richiesta: l'unico, se il documento ne ha
+     * uno solo ({@code soggettoPagatore} resta ignorato, come in v2); con piu' debitori quello
+     * identificato da {@code soggettoPagatore.identificativo}.
+     */
+    private PdDebitore debitoreDellaRichiesta(PosizioneDebitoria posizione, Soggetto soggettoPagatore) {
+        List<PdDebitore> debitori = posizione.getPdDebitori();
+        if (debitori.size() == 1) {
+            return debitori.get(0);
+        }
+        String identificativo = soggettoPagatore == null ? null : soggettoPagatore.getIdentificativo();
+        return debitori.stream()
+                .filter(d -> d.getDebitore().getIdentificativo().equalsIgnoreCase(identificativo))
+                .findFirst()
+                .orElseThrow(() -> new ValidazioneNonSuperataException("il documento ["
+                        + posizione.getCodDocumento() + "] ha piu' debitori e soggettoPagatore ["
+                        + identificativo + "] non e' uno di essi"));
     }
 
     /**
@@ -487,8 +522,8 @@ public class NuovaPendenzaMapper {
                 aInizioGiorno(dto.getDataScadenza()), voci, dto.getCausale());
     }
 
-    private DatiSoggettoDebitore toDatiSoggettoDebitore(Soggetto dto) {
-        return new DatiSoggettoDebitore(it.govpay.pendenze.model.TipoSoggetto.valueOf(dto.getTipo().name()),
+    private DatiDebitore toDatiDebitore(Soggetto dto) {
+        return new DatiDebitore(it.govpay.pendenze.model.TipoSoggetto.valueOf(dto.getTipo().name()),
                 dto.getIdentificativo(), dto.getAnagrafica(), dto.getIndirizzo(), dto.getCivico(), dto.getCap(),
                 dto.getLocalita(), dto.getProvincia(), dto.getNazione(), dto.getEmail(), dto.getCellulare());
     }
@@ -681,7 +716,47 @@ public class NuovaPendenzaMapper {
      * committente (decisione #4) li riguarda, quindi qui si resta fedeli al comportamento
      * del legacy, che li sovrascrive a ogni chiamata.</p>
      */
-    public void applicaCampiLegacy(Pendenza pendenza, NuovaPendenza dto) {
+    /**
+     * Notifica SEND della pendenza: {@code sendAbilitato} e {@code sendNav} si scrivono sulla
+     * singola pendenza, come nella v2. Se la richiesta non indica {@code sendNav} con la notifica
+     * abilitata resta quello salvato; con la notifica disabilitata il NAV non e' conservato e
+     * indicarlo e' un errore. La validazione e l'azzeramento della quota SEND, se lo stato SEND
+     * cambia, sono della libreria.
+     */
+    private void applicaNotificaSend(Pendenza pendenza, NuovaPendenza dto) {
+        boolean abilitato = Boolean.TRUE.equals(dto.getSendAbilitato());
+        if (!abilitato && dto.getSendNav() != null) {
+            throw new ValidazioneNonSuperataException("'sendNav' e' ammesso solo con 'sendAbilitato' a true");
+        }
+        String nav = dto.getSendNav() != null ? dto.getSendNav() : pendenza.getSendNav();
+        posizioneDebitoriaService.impostaNotificaSendPendenza(pendenza, abilitato, nav);
+    }
+
+    /**
+     * Data di pubblicazione richiesta: e' della posizione. Se la richiesta la indica e differisce
+     * da quella salvata e' impostata, altrimenti resta quella salvata. Si passa alla libreria
+     * insieme alla pendenza, che valida le scadenze contro la data finale.
+     */
+    public ModificaCampo<LocalDate> dataPubblicazioneRichiesta(NuovaPendenza dto, PosizioneDebitoria posizione) {
+        LocalDate richiesta = dto.getDataPubblicazione();
+        return richiesta != null && !richiesta.equals(posizione.getDataPubblicazione())
+                ? ModificaCampo.imposta(richiesta) : ModificaCampo.invariato();
+    }
+
+    /**
+     * Allinea la data di pubblicazione nei percorsi che non la passano alla libreria insieme
+     * alla pendenza.
+     */
+    private void applicaDataPubblicazione(String idA2A, Pendenza pendenza, NuovaPendenza dto) {
+        PosizioneDebitoria posizione = pendenza.getOpzionePagamento().getPosizioneDebitoria();
+        if (dto.getDataPubblicazione() != null && !dto.getDataPubblicazione().equals(posizione.getDataPubblicazione())) {
+            posizioneDebitoriaService.aggiorna(idA2A, posizioneDebitoriaService.idPosizioneDebitoriaPubblica(posizione),
+                    new AggiornamentoPosizioneDebitoria(ModificaCampo.invariato(),
+                            ModificaCampo.imposta(dto.getDataPubblicazione())));
+        }
+    }
+
+    public void applicaCampiLegacy(String idA2A, Pendenza pendenza, NuovaPendenza dto) {
         pendenza.setDirezione(dto.getDirezione());
         pendenza.setDivisione(dto.getDivisione());
         pendenza.setTassonomia(dto.getTassonomia());
@@ -691,7 +766,8 @@ public class NuovaPendenzaMapper {
         pendenza.setCodAnnoTributario(dto.getAnnoRiferimento() == null ? null
                 : String.valueOf(dto.getAnnoRiferimento()));
         pendenza.setProprieta(toJson(dto.getProprieta()));
-        pendenza.setSendAbilitato(Boolean.TRUE.equals(dto.getSendAbilitato()));
+        applicaNotificaSend(pendenza, dto);
+        applicaDataPubblicazione(idA2A, pendenza, dto);
 
         Map<String, NuovaVocePendenza> vociPerId = dto.getVoci().stream().filter(Objects::nonNull)
                 .collect(Collectors.toMap(NuovaVocePendenza::getIdVocePendenza, v -> v, (a, b) -> a));

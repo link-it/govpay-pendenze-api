@@ -25,6 +25,8 @@ import it.govpay.common.repository.DominioRepository;
 import it.govpay.common.repository.UnitaOperativaRepository;
 import it.govpay.pendenze.api.model.TipoRicevuta;
 import it.govpay.pendenze.entity.OpzionePagamento;
+import it.govpay.pendenze.entity.Debitore;
+import it.govpay.pendenze.entity.PdDebitore;
 import it.govpay.pendenze.entity.Pendenza;
 import it.govpay.pendenze.entity.PosizioneDebitoria;
 import it.govpay.pendenze.entity.Rpt;
@@ -82,7 +84,13 @@ class RppContenutoMapperTest {
     private static Pendenza pendenza() {
         PosizioneDebitoria posizione = new PosizioneDebitoria();
         OpzionePagamento opzione = new OpzionePagamento();
-        posizione.addOpzionePagamento(opzione);
+        PdDebitore pdDebitore = new PdDebitore();
+        Debitore debitore = new Debitore();
+        debitore.setTipo(it.govpay.pendenze.model.TipoSoggetto.F);
+        debitore.setIdentificativo("RSSMRA80A01H501U");
+        pdDebitore.setDebitore(debitore);
+        posizione.addPdDebitore(pdDebitore);
+        pdDebitore.addOpzionePagamento(opzione);
         Pendenza pendenza = new Pendenza();
         pendenza.setIdDominio(ID_DOMINIO);
         opzione.addPendenza(pendenza);

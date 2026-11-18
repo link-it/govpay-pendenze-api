@@ -1266,6 +1266,14 @@ components:
           nullable: true
           description: Data di scadenza della pendenza, decorsa la quale non è più pagabile.
           example: '2020-12-31'
+        dataPubblicazione:
+          type: string
+          format: date
+          nullable: true
+          description: |-
+            Data da cui l'avviso risulta pubblicato, a partire dalle 00:00. Prima di questa data l'avviso non e' pagabile su pagoPA, non viene inviato all'Archivio Centralizzato Avvisi e non e' visibile ad accessi di terzi.
+            Deve essere antecedente alla data di scadenza e non oltre il numero massimo di giorni configurato (default 7). Se non indicata in aggiornamento, resta quella salvata.
+          example: '2020-12-01'
         annoRiferimento:
           type: integer
           format: int32
@@ -1304,6 +1312,15 @@ components:
           description: Indica se per questa pendenza e' prevista l'attualizzazione dell'importo con le spese di notifica SEND
           default: false
           example: false
+        sendNav:
+          type: string
+          pattern: '(^[0-9]{18}$)'
+          nullable: true
+          description: |-
+            NAV dell'avviso notificato su SEND, da indicare quando quell'avviso e' stato sostituito da questa pendenza.
+            Se valorizzato, l'attualizzazione delle spese di notifica interroga SEND con questo NAV al posto del numero avviso della pendenza.
+            Ammesso solo con sendAbilitato a true. In aggiornamento, se omesso resta il valore gia' salvato.
+          example: '301000000000000123'
         voci:
           type: array
           minItems: 1
@@ -1544,6 +1561,14 @@ components:
           format: date
           description: Data di scadenza della pendenza, decorsa la quale non è più pagabile.
           example: '2020-12-31'
+        dataPubblicazione:
+          type: string
+          format: date
+          nullable: true
+          description: |-
+            Data da cui l'avviso risulta pubblicato, a partire dalle 00:00. Prima di questa data l'avviso non e' pagabile su pagoPA, non viene inviato all'Archivio Centralizzato Avvisi e non e' visibile ad accessi di terzi.
+            Deve essere antecedente alla data di scadenza e non oltre il numero massimo di giorni configurato (default 7). Se non indicata in aggiornamento, resta quella salvata.
+          example: '2020-12-01'
         annoRiferimento:
           type: integer
           format: int32
@@ -1588,6 +1613,11 @@ components:
           description: Indica se per questa pendenza e' prevista l'attualizzazione dell'importo con le spese di notifica SEND
           default: false
           example: false
+        sendNav:
+          type: string
+          pattern: '(^[0-9]{18}$)'
+          description: NAV dell'avviso notificato su SEND usato per l'attualizzazione delle spese di notifica al posto del numero avviso della pendenza
+          example: '301000000000000123'
     PendenzaCreata:
       type: object
       required:
@@ -2068,6 +2098,7 @@ components:
         - ESEGUITA_PARZIALE
         - ANNULLATA
         - SCADUTA
+        - NON_PUBBLICATA
         - ANOMALA
         - INCASSATA
     StatoVocePendenza:

@@ -303,15 +303,15 @@ class GetStampaPosizioneDebitoriaControllerTest {
                   "codDocumento": "pos-stampa-causale",
                   "idDominio": "%s",
                   "descrizione": "Descrizione della posizione",
-                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y", "anagrafica": "Paola Ferrari" } ],
-                  "opzioniPagamento": [ { "tipologia": "SOLUZIONE_UNICA", "pendenze": [ {
+                  "debitori": [ { "soggetto": { "tipo": "F", "identificativo": "FRRPLA90C41H501Y", "anagrafica": "Paola Ferrari" },
+                                  "opzioniPagamento": [ { "tipologia": "SOLUZIONE_UNICA", "pendenze": [ {
                     "idPendenza": "pos-stampa-causale-r1",
                     "idTipoPendenza": "DIRITTI_SEGRETERIA",
                     "causale": "Causale specifica della rata",
                     "importo": 10.00,
                     "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "pos-stampa-causale-voce1",
                                 "importo": 10.00, "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
-                  } ] } ]
+                  } ] } ] } ]
                 }
                 """.formatted(ID_DOMINIO);
         mockMvc.perform(post("/posizioni-debitorie/{idA2A}", PRINCIPAL)
@@ -452,8 +452,8 @@ class GetStampaPosizioneDebitoriaControllerTest {
                   "codDocumento": "pos-stampa-mbt",
                   "idDominio": "%s",
                   "descrizione": "test MBT",
-                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
-                  "opzioniPagamento": [ {
+                  "debitori": [ { "soggetto": { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" },
+                                  "opzioniPagamento": [ {
                     "tipologia": "SOLUZIONE_UNICA",
                     "pendenze": [ {
                       "idPendenza": "pos-stampa-mbt-pendenza",
@@ -463,7 +463,7 @@ class GetStampaPosizioneDebitoriaControllerTest {
                                   "descrizione": "test", "tipoBollo": "01", "hashDocumento": "aGFzaA==",
                                   "provinciaResidenza": "RM", "tassonomia": "9/0101002IM/" } ]
                     } ]
-                  } ]
+                  } ] } ]
                 }
                 """.formatted(ID_DOMINIO);
         mockMvc.perform(post("/posizioni-debitorie/{idA2A}", PRINCIPAL)
@@ -487,8 +487,8 @@ class GetStampaPosizioneDebitoriaControllerTest {
                   "codDocumento": "pos-stampa-no-anagrafica",
                   "idDominio": "%s",
                   "descrizione": "test anagrafica assente",
-                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" } ],
-                  "opzioniPagamento": [ {
+                  "debitori": [ { "soggetto": { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" },
+                                  "opzioniPagamento": [ {
                     "tipologia": "SOLUZIONE_UNICA",
                     "pendenze": [ {
                       "idPendenza": "pos-stampa-no-anagrafica-pendenza",
@@ -497,7 +497,7 @@ class GetStampaPosizioneDebitoriaControllerTest {
                       "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-no-anagrafica",
                                   "importo": 16.00, "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
                     } ]
-                  } ]
+                  } ] } ]
                 }
                 """.formatted(ID_DOMINIO);
         mockMvc.perform(post("/posizioni-debitorie/{idA2A}", PRINCIPAL)
@@ -536,8 +536,8 @@ class GetStampaPosizioneDebitoriaControllerTest {
                   "codDocumento": "%s",
                   "idDominio": "%s",
                   "descrizione": "test stampa posizione",
-                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y", "anagrafica": "Paola Ferrari" } ],
-                  "opzioniPagamento": [ { "tipologia": "%s", "pendenze": [ %s ] } ]
+                  "debitori": [ { "soggetto": { "tipo": "F", "identificativo": "FRRPLA90C41H501Y", "anagrafica": "Paola Ferrari" },
+                                  "opzioniPagamento": [ { "tipologia": "%s", "pendenze": [ %s ] } ] } ]
                 }
                 """.formatted(codDocumento, ID_DOMINIO, numeroRate > 1 ? "PIANO_RATEALE" : "SOLUZIONE_UNICA",
                 pendenze);
@@ -561,11 +561,11 @@ class GetStampaPosizioneDebitoriaControllerTest {
                   "codDocumento": "%s",
                   "idDominio": "%s",
                   "descrizione": "test stampa posizione con opzioni alternative",
-                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y", "anagrafica": "Paola Ferrari" } ],
-                  "opzioniPagamento": [
+                  "debitori": [ { "soggetto": { "tipo": "F", "identificativo": "FRRPLA90C41H501Y", "anagrafica": "Paola Ferrari" },
+                                  "opzioniPagamento": [
                     { "tipologia": "%s", "pendenze": [ %s ] },
                     { "tipologia": "%s", "pendenze": [ %s ] }
-                  ]
+                  ] } ]
                 }
                 """.formatted(codDocumento, ID_DOMINIO,
                 numeroRateA > 1 ? "PIANO_RATEALE" : "SOLUZIONE_UNICA", pendenzeOpzione(codDocumento, "A", numeroRateA),
@@ -585,8 +585,8 @@ class GetStampaPosizioneDebitoriaControllerTest {
                   "codDocumento": "%s",
                   "idDominio": "%s",
                   "descrizione": "test stampa violazione CdS",
-                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y", "anagrafica": "Paola Ferrari" } ],
-                  "opzioniPagamento": [
+                  "debitori": [ { "soggetto": { "tipo": "F", "identificativo": "FRRPLA90C41H501Y", "anagrafica": "Paola Ferrari" },
+                                  "opzioniPagamento": [
                     { "tipologia": "SOLUZIONE_UNICA_RIDOTTO", "pendenze": [ {
                         "idPendenza": "%s-ridotto", "idTipoPendenza": "DIRITTI_SEGRETERIA", "importo": 70.00,
                         "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "%s-ridotto-voce",
@@ -597,7 +597,7 @@ class GetStampaPosizioneDebitoriaControllerTest {
                         "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "%s-scontato-voce",
                                     "importo": 100.00, "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
                       } ] }
-                  ]
+                  ] } ]
                 }
                 """.formatted(codDocumento, ID_DOMINIO, codDocumento, codDocumento, codDocumento, codDocumento);
 
@@ -615,8 +615,8 @@ class GetStampaPosizioneDebitoriaControllerTest {
                   "codDocumento": "%s",
                   "idDominio": "%s",
                   "descrizione": "test stampa soglie ENTRO/OLTRE",
-                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y", "anagrafica": "Paola Ferrari" } ],
-                  "opzioniPagamento": [
+                  "debitori": [ { "soggetto": { "tipo": "F", "identificativo": "FRRPLA90C41H501Y", "anagrafica": "Paola Ferrari" },
+                                  "opzioniPagamento": [
                     { "tipologia": "SOLUZIONE_UNICA_ENTRO", "giorni": 5, "pendenze": [ {
                         "idPendenza": "%s-ridotta", "idTipoPendenza": "DIRITTI_SEGRETERIA", "importo": 7.00,
                         "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "%s-ridotta-voce",
@@ -627,7 +627,7 @@ class GetStampaPosizioneDebitoriaControllerTest {
                         "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "%s-intera-voce",
                                     "importo": 10.00, "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
                       } ] }
-                  ]
+                  ] } ]
                 }
                 """.formatted(codDocumento, ID_DOMINIO, codDocumento, codDocumento, codDocumento, codDocumento);
 
@@ -663,5 +663,63 @@ class GetStampaPosizioneDebitoriaControllerTest {
         String payload = ULTIMO_PAYLOAD.get();
         assertNotNull(payload, "nessuna chiamata a govpay-stampe");
         return objectMapper.readTree(payload);
+    }
+
+    // ── Piu' debitori ────────────────────────────────────────────────────────────────
+
+    private String creaConDueDebitori(String codDocumento) throws Exception {
+        String debitore = """
+                { "soggetto": { "tipo": "F", "identificativo": "%s", "anagrafica": "Debitore %s" },
+                  "opzioniPagamento": [ { "tipologia": "SOLUZIONE_UNICA", "pendenze": [ {
+                    "idPendenza": "%s-%s", "idTipoPendenza": "DIRITTI_SEGRETERIA", "importo": 10.00,
+                    "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "%s-voce-%s",
+                                "importo": 10.00, "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
+                  } ] } ] }
+                """;
+        String body = """
+                { "codDocumento": "%s", "idDominio": "%s", "descrizione": "stampa due debitori",
+                  "debitori": [ %s, %s ] }
+                """.formatted(codDocumento, ID_DOMINIO,
+                debitore.formatted("FRRPLA90C41H501Y", "uno", codDocumento, "d1", codDocumento, "d1"),
+                debitore.formatted("BNCLRA85M41F205Z", "due", codDocumento, "d2", codDocumento, "d2"));
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}", PRINCIPAL)
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isCreated());
+        return IdentificatorePosizioneDebitoria.comporre(PRINCIPAL, ID_DOMINIO, codDocumento);
+    }
+
+    @Test
+    @DisplayName("posizione con piu' debitori senza idDebitore: 400, senza chiamare govpay-stampe")
+    void piuDebitoriSenzaIdDebitoreRestituisce400() throws Exception {
+        String id = creaConDueDebitori("pos-stampa-due-senza-id");
+
+        mockMvc.perform(get(PATH, PRINCIPAL, id).accept(MediaType.APPLICATION_PDF))
+                .andExpect(status().isBadRequest());
+        assertEquals(0, CHIAMATE.get());
+    }
+
+    @Test
+    @DisplayName("posizione con piu' debitori e idDebitore: l'avviso e' quello del debitore indicato")
+    void piuDebitoriConIdDebitoreStampaSoloQuelDebitore() throws Exception {
+        String id = creaConDueDebitori("pos-stampa-due-con-id");
+
+        mockMvc.perform(get(PATH, PRINCIPAL, id).queryParam("idDebitore", "bnclra85m41f205z")
+                        .accept(MediaType.APPLICATION_PDF))
+                .andExpect(status().isOk())
+                .andExpect(content().bytes(FINTO_PDF));
+
+        String payload = ULTIMO_PAYLOAD.get();
+        assertTrue(payload.contains("BNCLRA85M41F205Z"));
+        assertFalse(payload.contains("FRRPLA90C41H501Y"));
+    }
+
+    @Test
+    @DisplayName("idDebitore che non e' un debitore della posizione: 404")
+    void idDebitoreSconosciutoRestituisce404() throws Exception {
+        String id = creaConDueDebitori("pos-stampa-due-sconosciuto");
+
+        mockMvc.perform(get(PATH, PRINCIPAL, id).queryParam("idDebitore", "RSSMRA80A01H501U")
+                        .accept(MediaType.APPLICATION_PDF))
+                .andExpect(status().isNotFound());
     }
 }

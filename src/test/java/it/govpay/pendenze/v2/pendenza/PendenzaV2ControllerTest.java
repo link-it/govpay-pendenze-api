@@ -252,9 +252,9 @@ class PendenzaV2ControllerTest {
                   "codDocumento": "%s",
                   "idDominio": "%s",
                   "descrizione": "test wrapper v2",
-                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y",
-                                           "anagrafica": "Mario Rossi" } ],
-                  "opzioniPagamento": [ {
+                  "debitori": [ { "soggetto": { "tipo": "F", "identificativo": "FRRPLA90C41H501Y",
+                                           "anagrafica": "Mario Rossi" },
+                                  "opzioniPagamento": [ {
                     "tipologia": "SOLUZIONE_UNICA",
                     "pendenze": [ {
                       "idPendenza": "%s",
@@ -263,7 +263,7 @@ class PendenzaV2ControllerTest {
                       "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-%s", "importo": 16.00,
                                   "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
                     } ]
-                  } ]
+                  } ] } ]
                 }
                 """.formatted(idPosizioneDebitoria, codDominio, idPendenza, idPendenza);
 
@@ -273,7 +273,7 @@ class PendenzaV2ControllerTest {
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
 
-        return JsonPath.read(risposta, "$.opzioniPagamento[0].pendenze[0].numeroAvviso");
+        return JsonPath.read(risposta, "$.debitori[0].opzioniPagamento[0].pendenze[0].numeroAvviso");
     }
 
     private static byte[] fixtureRt(String nome) throws IOException {
@@ -330,16 +330,16 @@ class PendenzaV2ControllerTest {
 
     @Test
     @DisplayName("GET /v2/pendenze/{idA2A}/{idPendenza}: soggettoPagatore.cellulare di una pendenza creata via "
-            + "API v3-nativa e' letto correttamente (campo aggiunto a SoggettoDebitore/Soggetto, 2026-10-27)")
+            + "API v3-nativa e' letto correttamente (campo aggiunto a Debitore/Soggetto, 2026-10-27)")
     void getPendenzaRestituisceCellulareDelSoggettoCreatoViaV3Nativa() throws Exception {
         String body = """
                 {
                   "codDocumento": "pos-v2-cellulare-1",
                   "idDominio": "12345678901",
                   "descrizione": "test cellulare",
-                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y",
-                                           "anagrafica": "Mario Rossi", "cellulare": "+39 000-1234567" } ],
-                  "opzioniPagamento": [ {
+                  "debitori": [ { "soggetto": { "tipo": "F", "identificativo": "FRRPLA90C41H501Y",
+                                           "anagrafica": "Mario Rossi", "cellulare": "+39 000-1234567" },
+                                  "opzioniPagamento": [ {
                     "tipologia": "SOLUZIONE_UNICA",
                     "pendenze": [ {
                       "idPendenza": "pendenza-v2-cellulare-1",
@@ -348,7 +348,7 @@ class PendenzaV2ControllerTest {
                       "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-cellulare-1",
                                   "importo": 16.00, "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
                     } ]
-                  } ]
+                  } ] } ]
                 }
                 """;
         mockMvc.perform(post("/posizioni-debitorie/{idA2A}", "A2A-TEST")
@@ -473,9 +473,9 @@ class PendenzaV2ControllerTest {
                   "codDocumento": "pos-v2-avviso-altro-1",
                   "idDominio": "12345678901",
                   "descrizione": "test altra applicazione",
-                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "FRRPLA90C41H501Y",
-                                           "anagrafica": "Mario Rossi" } ],
-                  "opzioniPagamento": [ {
+                  "debitori": [ { "soggetto": { "tipo": "F", "identificativo": "FRRPLA90C41H501Y",
+                                           "anagrafica": "Mario Rossi" },
+                                  "opzioniPagamento": [ {
                     "tipologia": "SOLUZIONE_UNICA",
                     "pendenze": [ {
                       "idPendenza": "pendenza-v2-avviso-altro-1",
@@ -484,7 +484,7 @@ class PendenzaV2ControllerTest {
                       "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-altro-1", "importo": 16.00,
                                   "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
                     } ]
-                  } ]
+                  } ] } ]
                 }
                 """;
         String risposta = mockMvc.perform(post("/posizioni-debitorie/{idA2A}", "A2A-ALTRO")
@@ -493,7 +493,7 @@ class PendenzaV2ControllerTest {
                         .content(body))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
-        String numeroAvviso = JsonPath.read(risposta, "$.opzioniPagamento[0].pendenze[0].numeroAvviso");
+        String numeroAvviso = JsonPath.read(risposta, "$.debitori[0].opzioniPagamento[0].pendenze[0].numeroAvviso");
 
         mockMvc.perform(get("/v2/pendenze/byAvviso/{idDominio}/{numeroAvviso}", "12345678901", numeroAvviso))
                 .andExpect(status().isForbidden())

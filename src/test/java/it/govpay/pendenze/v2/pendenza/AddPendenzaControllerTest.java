@@ -1,9 +1,13 @@
 package it.govpay.pendenze.v2.pendenza;
 
+import it.govpay.pendenze.service.PosizioneDebitoriaService;
+import org.springframework.test.web.servlet.ResultActions;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.hamcrest.Matchers.blankOrNullString;
 import static org.hamcrest.Matchers.not;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -55,7 +59,7 @@ import it.govpay.common.repository.UnitaOperativaRepository;
 import it.govpay.pendenze.entity.OpzionePagamento;
 import it.govpay.pendenze.entity.Pendenza;
 import it.govpay.pendenze.entity.PosizioneDebitoria;
-import it.govpay.pendenze.entity.SoggettoDebitore;
+import it.govpay.pendenze.entity.Debitore;
 import it.govpay.pendenze.identificativo.IdentificatorePosizioneDebitoria;
 import it.govpay.pendenze.model.StatoPendenza;
 import it.govpay.pendenze.model.TipologiaOpzionePagamento;
@@ -164,6 +168,9 @@ class AddPendenzaControllerTest {
 
     @Autowired
     private PendenzaRepository pendenzaRepository;
+
+    @Autowired
+    private PosizioneDebitoriaService posizioneDebitoriaService;
 
     @Autowired
     private RptRepository rptRepository;
@@ -292,6 +299,153 @@ class AddPendenzaControllerTest {
                 """.formatted(ID_DOMINIO, causale, importo, idVocePendenza, importo);
     }
 
+    private ResultActions putPendenza(String idPendenza, String corpo) throws Exception {
+        return mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, idPendenza)
+                .contentType(MediaType.APPLICATION_JSON).content(corpo));
+    }
+
+    private String conCampi(String corpo, String campi) {
+        return corpo.replaceFirst("\\{", "{ " + campi + ",");
+    }
+
+    private Pendenza leggi(String idPendenza) {
+        return inTransazioneDiLettura(() -> pendenzaRepository
+                .findByIdApplicazioneAndIdPendenzaAndOpzionePagamentoIsNotNull(idApplicazione, idPendenza)
+                .orElseThrow());
+    }
+
+    @Test
+    @DisplayName("sendAbilitato e sendNav sulla pendenza: persistiti e restituiti in lettura; se omesso in "
+            + "aggiornamento resta il NAV salvato, con sendAbilitato false il NAV e' azzerato")
+    void sendAbilitatoESendNavSullaPendenza() throws Exception {
+        String base = corpoBase("send", 16.00, "voce-send-1");
+        putPendenza("pend-send-1", conCampi(base, "\"sendAbilitato\": true, \"sendNav\": \"999999999999999999\""))
+                .andExpect(status().isCreated());
+        org.junit.jupiter.api.Assertions.assertEquals("999999999999999999", leggi("pend-send-1").getSendNav());
+
+        putPendenza("pend-send-1", conCampi(base, "\"sendAbilitato\": true")).andExpect(status().isOk());
+        org.junit.jupiter.api.Assertions.assertEquals("999999999999999999", leggi("pend-send-1").getSendNav());
+
+        mockMvc.perform(get("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-send-1"))
+                .andExpect(jsonPath("$.sendAbilitato").value(true))
+                .andExpect(jsonPath("$.sendNav").value("999999999999999999"));
+
+        putPendenza("pend-send-1", base).andExpect(status().isOk());
+        org.junit.jupiter.api.Assertions.assertNull(leggi("pend-send-1").getSendNav());
+        org.junit.jupiter.api.Assertions.assertFalse(leggi("pend-send-1").isSendAbilitato());
+    }
+
+    @Test
+    @DisplayName("sendNav senza sendAbilitato, di formato errato o uguale al numero avviso: 400")
+    void sendNavNonValidoRestituisce400() throws Exception {
+        String base = corpoBase("send", 16.00, "voce-send-ko");
+        putPendenza("pend-send-ko1", conCampi(base, "\"sendNav\": \"999999999999999999\""))
+                .andExpect(status().isBadRequest());
+        putPendenza("pend-send-ko2", conCampi(base, "\"sendAbilitato\": true, \"sendNav\": \"12\""))
+                .andExpect(status().isBadRequest());
+        putPendenza("pend-send-ko3", conCampi(base, "\"sendAbilitato\": true, \"numeroAvviso\": "
+                + "\"100000000000000910\", \"sendNav\": \"100000000000000910\""))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("cambiare il sendNav toglie la quota SEND gia' acquisita")
+    void cambiareSendNavTogliLaQuotaSend() throws Exception {
+        String base = corpoBase("send", 16.00, "voce-send-q");
+        putPendenza("pend-send-q", conCampi(base, "\"sendAbilitato\": true")).andExpect(status().isCreated());
+        new org.springframework.transaction.support.TransactionTemplate(transactionManager).execute(stato -> {
+            posizioneDebitoriaService.registraImportoSend(PRINCIPAL, "pend-send-q", 5.0,
+                    java.time.OffsetDateTime.now());
+            return null;
+        });
+        org.junit.jupiter.api.Assertions.assertEquals(5.0, leggi("pend-send-q").getSendImportoTotale());
+
+        putPendenza("pend-send-q", conCampi(base, "\"sendAbilitato\": true, \"sendNav\": \"999999999999999999\""))
+                .andExpect(status().isOk());
+
+        org.junit.jupiter.api.Assertions.assertNull(leggi("pend-send-q").getSendImportoTotale());
+    }
+
+    @Test
+    @DisplayName("dataPubblicazione futura: la pendenza e' NON_PUBBLICATA in lettura e nel filtro di ricerca, "
+            + "NON_ESEGUITA non la comprende")
+    void dataPubblicazioneFuturaRendeLaPendenzaNonPubblicata() throws Exception {
+        String data = java.time.LocalDate.now().plusDays(3).toString();
+        putPendenza("pend-pubb-1", conCampi(corpoBase("pubb", 16.00, "voce-pubb-1"),
+                "\"dataPubblicazione\": \"" + data + "\"")).andExpect(status().isCreated());
+        putPendenza("pend-pubb-2", corpoBase("subito", 16.00, "voce-pubb-2")).andExpect(status().isCreated());
+
+        mockMvc.perform(get("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-pubb-1"))
+                .andExpect(jsonPath("$.stato").value("NON_PUBBLICATA"))
+                .andExpect(jsonPath("$.dataPubblicazione").value(data));
+        mockMvc.perform(get("/v2/pendenze").queryParam("stato", "NON_PUBBLICATA"))
+                .andExpect(jsonPath("$.numRisultati").value(1));
+        mockMvc.perform(get("/v2/pendenze").queryParam("stato", "NON_ESEGUITA"))
+                .andExpect(jsonPath("$.numRisultati").value(1))
+                .andExpect(jsonPath("$.risultati[0].idPendenza").value("pend-pubb-2"));
+    }
+
+    @Test
+    @DisplayName("la lettura v3 espone NON_PUBBLICATA per una pendenza non eseguita con pubblicazione futura")
+    void letturaV3EsponeNonPubblicata() throws Exception {
+        putPendenza("pend-pubb-v3a", conCampi(corpoBase("pubb", 16.00, "voce-pubb-v3a"),
+                "\"dataPubblicazione\": \"" + java.time.LocalDate.now().plusDays(3) + "\"")).andExpect(status().isCreated());
+        putPendenza("pend-pubb-v3b", corpoBase("subito", 16.00, "voce-pubb-v3b")).andExpect(status().isCreated());
+
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-pubb-v3a"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.stato").value("NON_PUBBLICATA"));
+        mockMvc.perform(get("/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-pubb-v3b"))
+                .andExpect(jsonPath("$.stato").value("NON_ESEGUITO"));
+    }
+
+    @Test
+    @DisplayName("seconda soglia complementare con pubblicazione e scadenza anticipate: si valida lo stato finale")
+    void aggiuntaDellaSogliaComplementareConDataPubblicazioneDiversa() throws Exception {
+        java.time.LocalDate oggi = java.time.LocalDate.now();
+        putPendenza("pend-pubb-so1", conCampi(corpoConSoglia("ridotta", 70.00, "voce-pubb-so1", "DOC-PUBB-SO", "ENTRO", 5),
+                "\"dataPubblicazione\": \"" + oggi.plusDays(5) + "\", \"dataScadenza\": \"" + oggi.plusDays(6) + "\""))
+                .andExpect(status().isCreated());
+
+        putPendenza("pend-pubb-so2", conCampi(corpoConSoglia("intera", 100.00, "voce-pubb-so2", "DOC-PUBB-SO", "OLTRE", 5),
+                "\"dataPubblicazione\": \"" + oggi.plusDays(1) + "\", \"dataScadenza\": \"" + oggi.plusDays(2) + "\""))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(get("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-pubb-so2"))
+                .andExpect(jsonPath("$.dataPubblicazione").value(oggi.plusDays(1).toString()));
+    }
+
+    @Test
+    @DisplayName("PUT che anticipa insieme pubblicazione e scadenza: si valida lo stato finale, non la data salvata")
+    void aggiornamentoCoordinatoDiPubblicazioneEScadenza() throws Exception {
+        String base = corpoBase("pubb", 16.00, "voce-pubb-coord");
+        java.time.LocalDate oggi = java.time.LocalDate.now();
+        putPendenza("pend-pubb-coord", conCampi(base, "\"dataPubblicazione\": \"" + oggi.plusDays(5)
+                + "\", \"dataScadenza\": \"" + oggi.plusDays(6) + "\"")).andExpect(status().isCreated());
+
+        putPendenza("pend-pubb-coord", conCampi(base, "\"dataPubblicazione\": \"" + oggi.plusDays(1)
+                + "\", \"dataScadenza\": \"" + oggi.plusDays(2) + "\"")).andExpect(status().isOk());
+
+        mockMvc.perform(get("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-pubb-coord"))
+                .andExpect(jsonPath("$.dataPubblicazione").value(oggi.plusDays(1).toString()));
+    }
+
+    @Test
+    @DisplayName("dataPubblicazione oltre i giorni massimi, o non antecedente alla scadenza: 400; "
+            + "futura su una posizione gia' pubblicata: 400")
+    void dataPubblicazioneNonValidaRestituisce400() throws Exception {
+        String base = corpoBase("pubb", 16.00, "voce-pubb-ko");
+        putPendenza("pend-pubb-ko1", conCampi(base, "\"dataPubblicazione\": \""
+                + java.time.LocalDate.now().plusDays(30) + "\"")).andExpect(status().isBadRequest());
+        putPendenza("pend-pubb-ko2", conCampi(base, "\"dataPubblicazione\": \""
+                + java.time.LocalDate.now().plusDays(3) + "\", \"dataScadenza\": \""
+                + java.time.LocalDate.now().plusDays(3) + "\"")).andExpect(status().isBadRequest());
+
+        putPendenza("pend-pubb-ko3", base).andExpect(status().isCreated());
+        putPendenza("pend-pubb-ko3", conCampi(base, "\"dataPubblicazione\": \""
+                + java.time.LocalDate.now().plusDays(2) + "\"")).andExpect(status().isBadRequest());
+    }
+
     @Test
     @DisplayName("creazione senza 'documento': sintetizza un documento e crea un'opzione SOLUZIONE_UNICA (201)")
     void creaSenzaDocumentoSintetizzaSoluzioneUnica() throws Exception {
@@ -317,7 +471,7 @@ class AddPendenzaControllerTest {
     }
 
     @Test
-    @DisplayName("creazione con soggettoPagatore.cellulare: persistito su SoggettoDebitore (campo aggiunto, "
+    @DisplayName("creazione con soggettoPagatore.cellulare: persistito su Debitore (campo aggiunto, "
             + "2026-10-27 — in precedenza scartato silenziosamente, gap noto)")
     void creaConCellulareDelSoggettoLoPersiste() throws Exception {
         String corpo = """
@@ -340,8 +494,7 @@ class AddPendenzaControllerTest {
         inTransazioneDiLettura(() -> {
             Pendenza pendenza = pendenzaRepository.findByIdApplicazioneAndIdPendenzaAndOpzionePagamentoIsNotNull(
                     idApplicazione, "pend-cellulare-1").orElseThrow();
-            SoggettoDebitore soggetto = pendenza.getOpzionePagamento().getPosizioneDebitoria()
-                    .getSoggettiDebitori().get(0);
+            Debitore soggetto = pendenza.getOpzionePagamento().getPdDebitore().getDebitore();
             org.junit.jupiter.api.Assertions.assertEquals("+39 000-1234567", soggetto.getCellulare());
             return null;
         });
@@ -598,8 +751,8 @@ class AddPendenzaControllerTest {
                   "codDocumento": "DOC-MULTI-1",
                   "idDominio": "%s",
                   "descrizione": "documento con piu' opzioni",
-                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "RSSMRA80A01H501U" } ],
-                  "opzioniPagamento": [ {
+                  "debitori": [ { "soggetto": { "tipo": "F", "identificativo": "RSSMRA80A01H501U" },
+                                  "opzioniPagamento": [ {
                     "tipologia": "SOLUZIONE_UNICA",
                     "pendenze": [ {
                       "idPendenza": "pend-multi-su",
@@ -608,7 +761,7 @@ class AddPendenzaControllerTest {
                       "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-multi-su",
                                   "importo": 10.00, "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
                     } ]
-                  } ]
+                  } ] } ]
                 }
                 """.formatted(ID_DOMINIO);
         mockMvc.perform(post("/posizioni-debitorie/{idA2A}", PRINCIPAL)
@@ -617,6 +770,7 @@ class AddPendenzaControllerTest {
                 .andExpect(status().isCreated());
 
         String secondaOpzione = """
+                [ { "identificativoDebitore": "RSSMRA80A01H501U", "opzionePagamento":
                 {
                   "tipologia": "SOLUZIONE_UNICA_ENTRO",
                   "giorni": 5,
@@ -628,6 +782,7 @@ class AddPendenzaControllerTest {
                                 "importo": 70.00, "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
                   } ]
                 }
+                } ]
                 """;
         mockMvc.perform(post("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento", PRINCIPAL,
                 IdentificatorePosizioneDebitoria.comporre(PRINCIPAL, ID_DOMINIO, "DOC-MULTI-1"))
@@ -670,8 +825,8 @@ class AddPendenzaControllerTest {
                   "codDocumento": "DOC-MULTI-2",
                   "idDominio": "%s",
                   "descrizione": "documento con due opzioni della stessa tipologia",
-                  "soggettiDebitori": [ { "tipo": "F", "identificativo": "RSSMRA80A01H501U" } ],
-                  "opzioniPagamento": [ {
+                  "debitori": [ { "soggetto": { "tipo": "F", "identificativo": "RSSMRA80A01H501U" },
+                                  "opzioniPagamento": [ {
                     "tipologia": "SOLUZIONE_UNICA",
                     "pendenze": [ {
                       "idPendenza": "pend-ambig-1",
@@ -680,7 +835,7 @@ class AddPendenzaControllerTest {
                       "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "voce-ambig-1",
                                   "importo": 10.00, "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
                     } ]
-                  } ]
+                  } ] } ]
                 }
                 """.formatted(ID_DOMINIO);
         mockMvc.perform(post("/posizioni-debitorie/{idA2A}", PRINCIPAL)
@@ -689,6 +844,7 @@ class AddPendenzaControllerTest {
                 .andExpect(status().isCreated());
 
         String secondaOpzione = """
+                [ { "identificativoDebitore": "RSSMRA80A01H501U", "opzionePagamento":
                 {
                   "tipologia": "SOLUZIONE_UNICA",
                   "pendenze": [ {
@@ -699,6 +855,7 @@ class AddPendenzaControllerTest {
                                 "importo": 10.00, "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
                   } ]
                 }
+                } ]
                 """;
         mockMvc.perform(post("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/opzioni-pagamento", PRINCIPAL,
                 IdentificatorePosizioneDebitoria.comporre(PRINCIPAL, ID_DOMINIO, "DOC-MULTI-2"))
@@ -1150,5 +1307,101 @@ class AddPendenzaControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(corpo))
                 .andExpect(status().isCreated());
+    }
+
+    // ── Documento con piu' debitori (creato dalla v3) ────────────────────────────────
+
+    private void creaDocumentoV3ConDueDebitori(String codDocumento, String tipologia, String giorni) throws Exception {
+        String pendenza = """
+                { "idPendenza": "%s-%s-r%d", "idTipoPendenza": "DIRITTI_SEGRETERIA", %s "importo": 10.00,
+                  "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "%s-%s-v%d",
+                              "importo": 10.00, "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ] }
+                """;
+        boolean rateale = "PIANO_RATEALE".equals(tipologia);
+        StringBuilder debitori = new StringBuilder();
+        String[][] soggetti = {{"RSSMRA80A01H501U", "m"}, {"VRDGNN80A01H501W", "g"}};
+        for (int i = 0; i < soggetti.length; i++) {
+            String sig = soggetti[i][1];
+            String pendenze = pendenza.formatted(codDocumento, sig, 1, rateale ? "\"rata\": 1," : "",
+                    codDocumento, sig, 1);
+            if (rateale) {
+                pendenze += "," + pendenza.formatted(codDocumento, sig, 2, "\"rata\": 2,", codDocumento, sig, 2);
+            }
+            if (i > 0) {
+                debitori.append(',');
+            }
+            debitori.append("""
+                    { "soggetto": { "tipo": "F", "identificativo": "%s", "anagrafica": "Debitore" },
+                      "opzioniPagamento": [ { "tipologia": "%s", %s "pendenze": [ %s ] } ] }
+                    """.formatted(soggetti[i][0], tipologia, giorni, pendenze));
+        }
+        String body = """
+                { "codDocumento": "%s", "idDominio": "%s", "descrizione": "due debitori",
+                  "debitori": [ %s ] }
+                """.formatted(codDocumento, ID_DOMINIO, debitori);
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}", PRINCIPAL)
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isCreated());
+    }
+
+    @Test
+    @DisplayName("documento con due debitori: la rata successiva si aggiunge al piano del debitore indicato da "
+            + "soggettoPagatore, non a quello dell'altro")
+    void aggiuntaPendenzaSuDocumentoMultiDebitoreRisolveIlDebitore() throws Exception {
+        creaDocumentoV3ConDueDebitori("DOC-DUE-DEB-1", "PIANO_RATEALE", "");
+
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "DOC-DUE-DEB-1-g-r3")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpoConDocumentoEDescrizione("terza rata", 10.00, "DOC-DUE-DEB-1-g-v3", "DOC-DUE-DEB-1",
+                        "due debitori", 3).replace("RSSMRA80A01H501U", "VRDGNN80A01H501W")))
+                .andExpect(status().isCreated());
+
+        inTransazioneDiLettura(() -> {
+            PosizioneDebitoria posizione = posizioneDebitoriaRepository
+                    .findByIdApplicazioneAndIdDominioAndCodDocumento(idApplicazione, idDominio, "DOC-DUE-DEB-1")
+                    .orElseThrow();
+            org.junit.jupiter.api.Assertions.assertEquals(2,
+                    posizione.getPdDebitori().get(0).getOpzioniPagamento().get(0).getPendenze().size());
+            org.junit.jupiter.api.Assertions.assertEquals(3,
+                    posizione.getPdDebitori().get(1).getOpzioniPagamento().get(0).getPendenze().size());
+            return null;
+        });
+    }
+
+    @Test
+    @DisplayName("documento con due debitori: un soggettoPagatore che non e' uno di essi e' rifiutato (400)")
+    void aggiuntaPendenzaSuDocumentoMultiDebitoreConPagatoreSconosciuto() throws Exception {
+        creaDocumentoV3ConDueDebitori("DOC-DUE-DEB-2", "PIANO_RATEALE", "");
+
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "DOC-DUE-DEB-2-x-r3")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpoConDocumentoEDescrizione("terza rata", 10.00, "DOC-DUE-DEB-2-x-v3", "DOC-DUE-DEB-2",
+                        "due debitori", 3).replace("RSSMRA80A01H501U", "BNCLRA85M41F205Z")))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("documento con due debitori: una nuova opzione (seconda soglia) non si aggiunge dal wrapper v2 (400)")
+    void nuovaOpzioneSuDocumentoMultiDebitoreRestituisce400() throws Exception {
+        creaDocumentoV3ConDueDebitori("DOC-DUE-DEB-3", "SOLUZIONE_UNICA_ENTRO", "\"giorni\": 5,");
+
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "DOC-DUE-DEB-3-m-oltre")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpoConSoglia("oltre", 100.00, "DOC-DUE-DEB-3-m-vo", "DOC-DUE-DEB-3", "OLTRE", 5)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("PUT /v2/pendenze su una pendenza di un debitore rimosso: 409")
+    void aggiornamentoPendenzaDiDebitoreRimossoRestituisce409() throws Exception {
+        creaDocumentoV3ConDueDebitori("DOC-DUE-DEB-4", "PIANO_RATEALE", "");
+        mockMvc.perform(delete("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}/debitori/{identificativo}",
+                PRINCIPAL, IdentificatorePosizioneDebitoria.comporre(PRINCIPAL, ID_DOMINIO, "DOC-DUE-DEB-4"),
+                "VRDGNN80A01H501W")).andExpect(status().isNoContent());
+
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "DOC-DUE-DEB-4-g-r1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpoBase("aggiornamento", 10.00, "DOC-DUE-DEB-4-g-v1")))
+                .andExpect(status().isConflict());
     }
 }
