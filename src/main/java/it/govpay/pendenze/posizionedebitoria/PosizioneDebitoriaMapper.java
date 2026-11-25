@@ -1,5 +1,6 @@
 package it.govpay.pendenze.posizionedebitoria;
 
+import it.govpay.pendenze.anagrafica.UnitaOperativaResolver;
 import it.govpay.pendenze.comando.AggiornamentoPendenza;
 import it.govpay.pendenze.comando.AggiornamentoPosizioneDebitoria;
 import it.govpay.pendenze.comando.DatiOpzionePagamento;
@@ -122,29 +123,10 @@ import it.govpay.pendenze.web.AnagraficaNonTrovataException;
 @Component
 public class PosizioneDebitoriaMapper {
 
-    /**
-     * Codice della unita' operativa sintetica che il legacy auto-crea per ogni dominio
-     * ({@code DominiDAO.setCodUo(Dominio.EC)}) e usa come default per ogni versamento senza
-     * una UO esplicita ({@code VersamentoUtils}: {@code codUnitaOperativa == null ? EC : ...}).
-     * Sempre presente (una per dominio, mai assente) e porta l'anagrafica dell'ente creditore
-     * stesso, non quella di una sotto-struttura: per questo la sua risoluzione in scrittura
-     * ({@link #risolviIdUnitaOperativa}) non ha bisogno di alcun caso speciale, ne' nel legacy
-     * ne' qui — e' una UO reale e abilitata come ogni altra, semplicemente non scelta dal
-     * chiamante.
-     *
-     * <p>Diverso in lettura: mai significativa per il chiamante, perche' non rappresenta una
-     * sua scelta. Ogni superficie REST del legacy la sospende (verificato in oltre dieci
-     * converter/builder, es. {@code CtPaymentPABuilder}, {@code RptUtils}) invece di
-     * restituirla come se fosse una UO scelta. La migrazione a v3 non toccando
-     * {@code versamenti.id_unita_operativa}, ogni posizione nata da un versamento legacy senza
-     * UO esplicita continua a puntare a questa riga: senza la sospensione,
-     * {@link #risolviCodUnitaOperativa} la esporrebbe.</p>
-     */
-    private static final String COD_UNITA_OPERATIVA_EC = "EC";
-
     private final ApplicazioneRepository applicazioneRepository;
     private final DominioRepository dominioRepository;
     private final UnitaOperativaRepository unitaOperativaRepository;
+    private final UnitaOperativaResolver unitaOperativaResolver;
     private final TipoVersamentoDominioRepository tipoVersamentoDominioRepository;
     private final TipoTributoRepository tipoTributoRepository;
     private final TributoRepository tributoRepository;
@@ -157,6 +139,7 @@ public class PosizioneDebitoriaMapper {
 
     public PosizioneDebitoriaMapper(ApplicazioneRepository applicazioneRepository,
             DominioRepository dominioRepository, UnitaOperativaRepository unitaOperativaRepository,
+            UnitaOperativaResolver unitaOperativaResolver,
             TipoVersamentoDominioRepository tipoVersamentoDominioRepository, TipoTributoRepository tipoTributoRepository,
             TributoRepository tributoRepository, IbanAccreditoRepository ibanAccreditoRepository,
             UtenzaRepository utenzaRepository, UtenzaTipoVersamentoRepository utenzaTipoVersamentoRepository,
@@ -164,6 +147,7 @@ public class PosizioneDebitoriaMapper {
         this.applicazioneRepository = applicazioneRepository;
         this.dominioRepository = dominioRepository;
         this.unitaOperativaRepository = unitaOperativaRepository;
+        this.unitaOperativaResolver = unitaOperativaResolver;
         this.tipoVersamentoDominioRepository = tipoVersamentoDominioRepository;
         this.tipoTributoRepository = tipoTributoRepository;
         this.tributoRepository = tributoRepository;
@@ -257,37 +241,11 @@ public class PosizioneDebitoriaMapper {
                 risolviCodDominio(entity.getIdDominio()), entity.getCodDocumento());
     }
 
-    /**
-     * Rifiuta un'unita' operativa disabilitata, come {@link #risolviIdTributo}/
-     * {@link #risolviIdIban} fanno per i rispettivi controlli — v2 applica lo stesso
-     * controllo in {@code VersamentoUtils.setUo}, {@code UOP_001}.
-     *
-     * @return {@code null} se {@code idUnitaOperativa} e' {@code null} (campo opzionale)
-     * @throws AnagraficaNonTrovataException se {@code idUnitaOperativa} e' valorizzato ma
-     *                                        non corrisponde a nessuna unita' operativa del
-     *                                        dominio indicato
-     * @throws ValidazioneNonSuperataException se l'unita' operativa esiste per il dominio ma
-     *                                          e' disabilitata
-     */
-    private Long risolviIdUnitaOperativa(Long idDominio, String idUnitaOperativa) {
-        if (idUnitaOperativa == null) {
-            return null;
-        }
-        UnitaOperativaEntity unitaOperativa = unitaOperativaRepository
-                .findByCodUoAndDominioId(idUnitaOperativa, idDominio)
-                .orElseThrow(() -> new AnagraficaNonTrovataException("nessuna unita' operativa con idUnitaOperativa ["
-                        + idUnitaOperativa + "] per il dominio [id:" + idDominio + "]"));
-        if (Boolean.FALSE.equals(unitaOperativa.getAbilitato())) {
-            throw new ValidazioneNonSuperataException("l'unita' operativa [" + idUnitaOperativa
-                    + "] per il dominio [id:" + idDominio + "] non e' abilitata");
-        }
-        return unitaOperativa.getId();
-    }
-
+    /** Codice della unita' operativa per la risposta; {@code null} se assente o se e' quella con codice EC. */
     private String risolviCodUnitaOperativa(Long idUnitaOperativa) {
         return idUnitaOperativa == null ? null
                 : unitaOperativaRepository.findById(idUnitaOperativa).map(UnitaOperativaEntity::getCodUo)
-                        .filter(codUo -> !COD_UNITA_OPERATIVA_EC.equals(codUo))
+                        .filter(codUo -> !UnitaOperativaResolver.COD_UNITA_OPERATIVA_EC.equals(codUo))
                         .orElse(null);
     }
 
@@ -465,7 +423,7 @@ public class PosizioneDebitoriaMapper {
                         + "]"));
         Long idApplicazione = applicazione.getId();
         Long idDominio = risolviIdDominioAbilitato(dto.getIdDominio());
-        Long idUnitaOperativa = risolviIdUnitaOperativa(idDominio, dto.getIdUnitaOperativa());
+        Long idUnitaOperativa = unitaOperativaResolver.risolviPerCreazione(idDominio, dto.getIdUnitaOperativa());
 
         it.govpay.pendenze.entity.PosizioneDebitoria posizione = new it.govpay.pendenze.entity.PosizioneDebitoria();
         posizione.setIdApplicazione(idApplicazione);

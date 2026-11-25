@@ -52,10 +52,12 @@ import it.govpay.common.entity.TipoVersamentoEntity;
 import it.govpay.common.entity.TributoEntity;
 import it.govpay.common.repository.ApplicazioneRepository;
 import it.govpay.common.repository.DominioRepository;
+import it.govpay.common.repository.UnitaOperativaRepository;
 import it.govpay.common.repository.TipoTributoRepository;
 import it.govpay.common.repository.TipoVersamentoDominioRepository;
 import it.govpay.common.repository.TipoVersamentoRepository;
 import it.govpay.common.repository.TributoRepository;
+import it.govpay.pendenze.anagrafica.UnitaOperativaFixtures;
 import it.govpay.pendenze.identificativo.IdentificatorePosizioneDebitoria;
 import it.govpay.pendenze.model.StatoPendenza;
 import it.govpay.pendenze.repository.PosizioneDebitoriaRepository;
@@ -156,6 +158,9 @@ class GetStampaPosizioneDebitoriaControllerTest {
     private DominioRepository dominioRepository;
 
     @Autowired
+    private UnitaOperativaRepository unitaOperativaRepository;
+
+    @Autowired
     private TipoVersamentoRepository tipoVersamentoRepository;
 
     @Autowired
@@ -210,6 +215,7 @@ class GetStampaPosizioneDebitoriaControllerTest {
                 .scaricaFr(false)
                 .auxDigit(1)
                 .build());
+        UnitaOperativaFixtures.salvaEc(unitaOperativaRepository, dominio);
 
         TipoVersamentoEntity tipoVersamento = new TipoVersamentoEntity();
         tipoVersamento.setCodTipoVersamento("DIRITTI_SEGRETERIA");
@@ -250,6 +256,7 @@ class GetStampaPosizioneDebitoriaControllerTest {
         tipoVersamentoRepository.deleteAll();
         tributoRepository.deleteAll();
         tipoTributoRepository.deleteAll();
+        unitaOperativaRepository.deleteAll();
         dominioRepository.deleteAll();
         applicazioneRepository.deleteAll();
         aclRepository.deleteAll();
