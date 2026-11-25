@@ -56,6 +56,7 @@ import it.govpay.common.repository.TipoVersamentoDominioRepository;
 import it.govpay.common.repository.TipoVersamentoRepository;
 import it.govpay.common.repository.TributoRepository;
 import it.govpay.common.repository.UnitaOperativaRepository;
+import it.govpay.pendenze.anagrafica.UnitaOperativaFixtures;
 import it.govpay.pendenze.entity.OpzionePagamento;
 import it.govpay.pendenze.entity.Pendenza;
 import it.govpay.pendenze.entity.PosizioneDebitoria;
@@ -236,6 +237,7 @@ class AddPendenzaControllerTest {
                 .auxDigit(1)
                 .build());
         idDominio = dominio.getId();
+        UnitaOperativaFixtures.salvaEc(unitaOperativaRepository, dominio);
 
         TipoVersamentoEntity tipoVersamento = new TipoVersamentoEntity();
         tipoVersamento.setCodTipoVersamento("DIRITTI_SEGRETERIA");
@@ -1226,11 +1228,86 @@ class AddPendenzaControllerTest {
     }
 
     @Test
+    @DisplayName("creazione senza 'idUnitaOperativa': la posizione salva l'id della unita' operativa EC del dominio")
+    void creazioneSenzaUnitaOperativaSalvaLaUnitaOperativaEc() throws Exception {
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-uo-def-1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpoConDocumento("default", 16.00, "voce-uo-def-1", "DOC-UO-DEF", 1)))
+                .andExpect(status().isCreated());
+
+        Long idEc = unitaOperativaRepository.findByCodUoAndDominioId("EC", idDominio).orElseThrow().getId();
+        inTransazioneDiLettura(() -> {
+            PosizioneDebitoria posizione = posizioneDebitoriaRepository
+                    .findByIdApplicazioneAndIdDominioAndCodDocumento(idApplicazione, idDominio, "DOC-UO-DEF")
+                    .orElseThrow();
+            org.junit.jupiter.api.Assertions.assertEquals(idEc, posizione.getIdUnitaOperativa());
+            return null;
+        });
+    }
+
+    @Test
+    @DisplayName("creazione senza 'idUnitaOperativa' con la unita' operativa EC del dominio assente: 404, nessuna posizione")
+    void creazioneSenzaUnitaOperativaConEcAssenteRispondeNotFound() throws Exception {
+        unitaOperativaRepository.deleteAll();
+
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-uo-def-2")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpoBase("default", 16.00, "voce-uo-def-2")))
+                .andExpect(status().isNotFound());
+
+        org.junit.jupiter.api.Assertions.assertEquals(0, posizioneDebitoriaRepository.count());
+    }
+
+    @Test
+    @DisplayName("creazione senza 'idUnitaOperativa' con la unita' operativa EC disabilitata: 400, nessuna posizione")
+    void creazioneSenzaUnitaOperativaConEcDisabilitataRispondeBadRequest() throws Exception {
+        UnitaOperativaEntity ec = unitaOperativaRepository.findByCodUoAndDominioId("EC", idDominio).orElseThrow();
+        ec.setAbilitato(false);
+        unitaOperativaRepository.save(ec);
+
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-uo-def-3")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpoBase("default", 16.00, "voce-uo-def-3")))
+                .andExpect(status().isBadRequest());
+
+        org.junit.jupiter.api.Assertions.assertEquals(0, posizioneDebitoriaRepository.count());
+    }
+
+    @Test
+    @DisplayName("creazione con 'idUnitaOperativa' esplicito non richiede la unita' operativa EC del dominio")
+    void creazioneConUnitaOperativaEsplicitaNonRichiedeEc() throws Exception {
+        UnitaOperativaEntity ec = unitaOperativaRepository.findByCodUoAndDominioId("EC", idDominio).orElseThrow();
+        unitaOperativaRepository.delete(ec);
+        salvaUnitaOperativa("UO1");
+
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-uo-esp-1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpoConUnitaOperativa("esplicita", 16.00, "voce-uo-esp-1", "UO1")))
+                .andExpect(status().isCreated());
+    }
+
+    @Test
+    @DisplayName("update che omette 'idUnitaOperativa' su una posizione creata senza unita' operativa (salvata come EC): 200")
+    void aggiornamentoSenzaUnitaOperativaSuPosizioneCreataConDefaultNonRifiutato() throws Exception {
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-uo-def-4")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpoBase("originale", 16.00, "voce-uo-def-4")))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-uo-def-4")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(corpoBase("aggiornata", 20.00, "voce-uo-def-4")))
+                .andExpect(status().isOk());
+
+        Pendenza pendenza = pendenzaRepository.findByIdApplicazioneAndIdPendenzaAndOpzionePagamentoIsNotNull(
+                idApplicazione, "pend-uo-def-4").orElseThrow();
+        org.junit.jupiter.api.Assertions.assertEquals(20.00, pendenza.getImporto());
+    }
+
+    @Test
     @DisplayName("update che omette 'idUnitaOperativa' su una pendenza associata a EC: 200, non un 400 per un "
             + "falso cambio di beneficiario (il legacy interpreta l'omissione come EC)")
     void aggiornamentoSenzaUnitaOperativaSuPendenzaEcNonRifiutato() throws Exception {
-        salvaUnitaOperativa("EC");
-
         mockMvc.perform(put("/v2/pendenze/{idA2A}/{idPendenza}", PRINCIPAL, "pend-ec-1")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(corpoConUnitaOperativa("originale", 16.00, "voce-ec-1", "EC")))

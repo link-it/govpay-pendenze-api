@@ -37,10 +37,12 @@ import it.govpay.common.entity.TipoVersamentoEntity;
 import it.govpay.common.entity.TributoEntity;
 import it.govpay.common.repository.ApplicazioneRepository;
 import it.govpay.common.repository.DominioRepository;
+import it.govpay.common.repository.UnitaOperativaRepository;
 import it.govpay.common.repository.TipoTributoRepository;
 import it.govpay.common.repository.TipoVersamentoDominioRepository;
 import it.govpay.common.repository.TipoVersamentoRepository;
 import it.govpay.common.repository.TributoRepository;
+import it.govpay.pendenze.anagrafica.UnitaOperativaFixtures;
 import it.govpay.pendenze.entity.Pendenza;
 import it.govpay.pendenze.entity.Rpt;
 import it.govpay.pendenze.repository.PendenzaRepository;
@@ -101,6 +103,9 @@ class PendenzaV2ControllerTest {
     private DominioRepository dominioRepository;
 
     @Autowired
+    private UnitaOperativaRepository unitaOperativaRepository;
+
+    @Autowired
     private TipoVersamentoRepository tipoVersamentoRepository;
 
     @Autowired
@@ -147,6 +152,7 @@ class PendenzaV2ControllerTest {
                 .scaricaFr(false)
                 .auxDigit(1)
                 .build());
+        UnitaOperativaFixtures.salvaEc(unitaOperativaRepository, dominio);
 
         tipoVersamento = new TipoVersamentoEntity();
         tipoVersamento.setCodTipoVersamento("DIRITTI_SEGRETERIA");
@@ -189,6 +195,7 @@ class PendenzaV2ControllerTest {
         tipoVersamentoRepository.deleteAll();
         tributoRepository.deleteAll();
         tipoTributoRepository.deleteAll();
+        unitaOperativaRepository.deleteAll();
         dominioRepository.deleteAll();
         applicazioneRepository.deleteAll();
         aclRepository.deleteAll();
