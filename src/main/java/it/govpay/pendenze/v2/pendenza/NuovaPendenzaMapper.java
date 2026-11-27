@@ -32,6 +32,7 @@ import it.govpay.common.repository.TipoTributoRepository;
 import it.govpay.common.repository.TipoVersamentoDominioRepository;
 import it.govpay.common.repository.TributoRepository;
 import it.govpay.common.repository.UnitaOperativaRepository;
+import it.govpay.pendenze.anagrafica.UnitaOperativaResolver;
 import it.govpay.pendenze.comando.AggiornamentoPendenza;
 import it.govpay.pendenze.comando.AggiornamentoPosizioneDebitoria;
 import it.govpay.pendenze.comando.ModificaCampo;
@@ -105,16 +106,10 @@ import it.govpay.pendenze.web.AnagraficaNonTrovataException;
 @Component
 public class NuovaPendenzaMapper {
 
-    /**
-     * Stesso significato gia' usato per nascondere l'UO nelle risposte ({@code PendenzaV2Mapper
-     * #risolviUnitaOperativaDto}): "EC" e' l'ente creditore stesso, non una vera unita'
-     * operativa.
-     */
-    private static final String COD_UNITA_OPERATIVA_EC = "EC";
-
     private final ApplicazioneRepository applicazioneRepository;
     private final DominioRepository dominioRepository;
     private final UnitaOperativaRepository unitaOperativaRepository;
+    private final UnitaOperativaResolver unitaOperativaResolver;
     private final TipoVersamentoDominioRepository tipoVersamentoDominioRepository;
     private final TipoTributoRepository tipoTributoRepository;
     private final TributoRepository tributoRepository;
@@ -133,7 +128,7 @@ public class NuovaPendenzaMapper {
     private final ObjectMapper jsonMapper = new ObjectMapper().registerModule(new JavaTimeModule());
 
     public NuovaPendenzaMapper(ApplicazioneRepository applicazioneRepository, DominioRepository dominioRepository,
-            UnitaOperativaRepository unitaOperativaRepository,
+            UnitaOperativaRepository unitaOperativaRepository, UnitaOperativaResolver unitaOperativaResolver,
             TipoVersamentoDominioRepository tipoVersamentoDominioRepository,
             TipoTributoRepository tipoTributoRepository, TributoRepository tributoRepository,
             IbanAccreditoRepository ibanAccreditoRepository, UtenzaRepository utenzaRepository,
@@ -144,6 +139,7 @@ public class NuovaPendenzaMapper {
         this.applicazioneRepository = applicazioneRepository;
         this.dominioRepository = dominioRepository;
         this.unitaOperativaRepository = unitaOperativaRepository;
+        this.unitaOperativaResolver = unitaOperativaResolver;
         this.tipoVersamentoDominioRepository = tipoVersamentoDominioRepository;
         this.tipoTributoRepository = tipoTributoRepository;
         this.tributoRepository = tributoRepository;
@@ -172,21 +168,6 @@ public class NuovaPendenzaMapper {
             throw new ValidazioneNonSuperataException("il dominio [" + idDominio + "] non e' abilitato");
         }
         return dominio.getId();
-    }
-
-    private Long risolviIdUnitaOperativa(Long idDominio, String idUnitaOperativa) {
-        if (idUnitaOperativa == null) {
-            return null;
-        }
-        UnitaOperativaEntity unitaOperativa = unitaOperativaRepository
-                .findByCodUoAndDominioId(idUnitaOperativa, idDominio)
-                .orElseThrow(() -> new AnagraficaNonTrovataException("nessuna unita' operativa con idUnitaOperativa ["
-                        + idUnitaOperativa + "] per il dominio [id:" + idDominio + "]"));
-        if (Boolean.FALSE.equals(unitaOperativa.getAbilitato())) {
-            throw new ValidazioneNonSuperataException("l'unita' operativa [" + idUnitaOperativa
-                    + "] per il dominio [id:" + idDominio + "] non e' abilitata");
-        }
-        return unitaOperativa.getId();
     }
 
     private TipoVersamentoDominioEntity risolviTipoVersamentoDominio(String idTipoPendenza, Long idDominio) {
@@ -345,7 +326,7 @@ public class NuovaPendenzaMapper {
 
         DatiOpzionePagamento datiOpzione = new DatiOpzionePagamento(tipologiaEGiorni.tipologia(),
                 tipologiaEGiorni.giorni(), null, null, false, null, List.of(datiPendenza));
-        Long idUnitaOperativa = risolviIdUnitaOperativa(idDominio, dto.getIdUnitaOperativa());
+        Long idUnitaOperativa = unitaOperativaResolver.risolviPerCreazione(idDominio, dto.getIdUnitaOperativa());
         DatiPdDebitore debitore = new DatiPdDebitore(toDatiDebitore(dto.getSoggettoPagatore()),
                 List.of(datiOpzione));
         DatiPosizioneDebitoria comando = new DatiPosizioneDebitoria(codDocumento, applicazione.getId(), idDominio,
@@ -578,28 +559,12 @@ public class NuovaPendenzaMapper {
                     + "esistente (richiesto [" + dto.getIdDominio() + "], originale [id:"
                     + posizioneEsistente.getIdDominio() + "])");
         }
-        Long idUnitaOperativaRichiesta = risolviIdUnitaOperativa(idDominioRichiesto, dto.getIdUnitaOperativa());
-        if (!Objects.equals(normalizzaUnitaOperativaEc(idUnitaOperativaRichiesta),
-                normalizzaUnitaOperativaEc(posizioneEsistente.getIdUnitaOperativa()))) {
+        Long idUnitaOperativaRichiesta = unitaOperativaResolver.risolvi(idDominioRichiesto, dto.getIdUnitaOperativa());
+        if (!Objects.equals(unitaOperativaResolver.normalizzaEc(idUnitaOperativaRichiesta),
+                unitaOperativaResolver.normalizzaEc(posizioneEsistente.getIdUnitaOperativa()))) {
             throw new ValidazioneNonSuperataException("non e' consentito modificare l'unita' operativa di una "
                     + "pendenza esistente");
         }
-    }
-
-    /**
-     * {@code null} e l'id della UO "EC" sono equivalenti per questo confronto: il legacy
-     * interpreta l'omissione di {@code idUnitaOperativa} come EC (l'ente creditore stesso), e
-     * questo wrapper la nasconde comunque nelle risposte ({@code PendenzaV2Mapper
-     * #risolviUnitaOperativaDto}) — un aggiornamento che omette il campo su una pendenza gia'
-     * associata a EC non e' un cambio di beneficiario, va ammesso.
-     */
-    private Long normalizzaUnitaOperativaEc(Long idUnitaOperativa) {
-        if (idUnitaOperativa == null) {
-            return null;
-        }
-        boolean ec = unitaOperativaRepository.findById(idUnitaOperativa).map(UnitaOperativaEntity::getCodUo)
-                .map(COD_UNITA_OPERATIVA_EC::equals).orElse(false);
-        return ec ? null : idUnitaOperativa;
     }
 
     // ── Voci (comuni a creazione e aggiornamento) ───────────────────────────────────────

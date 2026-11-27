@@ -3,6 +3,7 @@ package it.govpay.pendenze.posizionedebitoria;
 import org.springframework.test.web.servlet.ResultActions;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.startsWith;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -53,6 +54,7 @@ import it.govpay.common.repository.TipoVersamentoDominioRepository;
 import it.govpay.common.repository.TipoVersamentoRepository;
 import it.govpay.common.repository.TributoRepository;
 import it.govpay.common.repository.UnitaOperativaRepository;
+import it.govpay.pendenze.anagrafica.UnitaOperativaFixtures;
 import it.govpay.pendenze.identificativo.IdentificatorePosizioneDebitoria;
 import it.govpay.pendenze.model.StatoPendenza;
 import it.govpay.pendenze.repository.PosizioneDebitoriaRepository;
@@ -185,6 +187,7 @@ class PosizioneDebitoriaControllerTest {
                 .build();
         dominio = dominioRepository.save(dominio);
         idDominio = dominio.getId();
+        UnitaOperativaFixtures.salvaEc(unitaOperativaRepository, dominio);
 
         TipoVersamentoEntity tipoVersamento = nuovoTipoVersamento("DIRITTI_SEGRETERIA", "Diritti di segreteria");
         tipoVersamentoRepository.save(tipoVersamento);
@@ -718,6 +721,7 @@ class PosizioneDebitoriaControllerTest {
                 .iuvPrefix("%(p)")
                 .build();
         dominioConPrefisso = dominioRepository.save(dominioConPrefisso);
+        UnitaOperativaFixtures.salvaEc(unitaOperativaRepository, dominioConPrefisso);
 
         TipoVersamentoEntity tipoVersamento = nuovoTipoVersamento("IMU", "Imposta Municipale Unica");
         tipoVersamento.setCodificaIuv("9902"); // deve risolvere in un prefisso numerico
@@ -1215,6 +1219,7 @@ class PosizioneDebitoriaControllerTest {
                 .scaricaFr(false)
                 .auxDigit(1)
                 .build());
+        UnitaOperativaFixtures.salvaEc(unitaOperativaRepository, altroDominio);
 
         TipoVersamentoEntity tipoVersamentoGlobale = tipoVersamentoRepository.findByCodTipoVersamento("DIRITTI_SEGRETERIA")
                 .orElseThrow();
@@ -1338,9 +1343,6 @@ class PosizioneDebitoriaControllerTest {
     @DisplayName("idUnitaOperativa non appare in risposta se e' l'unita' operativa sintetica \"EC\" (bug trovato "
             + "il 2026-10-16: ogni superficie REST del legacy la sospende, qui non ancora)")
     void nonRestituisceIdUnitaOperativaSeECSintetica() throws Exception {
-        DominioEntity dominio = dominioRepository.findByCodDominio("12345678901").orElseThrow();
-        salvaUnitaOperativa("EC", dominio, true);
-
         String body = """
                 {
                   "codDocumento": "pos-uo-ec",
@@ -1370,6 +1372,71 @@ class PosizioneDebitoriaControllerTest {
         mockMvc.perform(get("/posizioni-debitorie/{idA2A}/{idPosizioneDebitoria}", "A2A-TEST", IdentificatorePosizioneDebitoria.comporre("A2A-TEST", "12345678901", "pos-uo-ec")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.idUnitaOperativa").doesNotExist());
+    }
+
+    private String corpoSenzaUnitaOperativa(String codDocumento, String idPendenza, String idVocePendenza) {
+        return """
+                {
+                  "codDocumento": "%s",
+                  "idDominio": "12345678901",
+                  "descrizione": "test",
+                  "debitori": [ { "soggetto": { "tipo": "F", "identificativo": "FRRPLA90C41H501Y" },
+                                  "opzioniPagamento": [ {
+                    "tipologia": "SOLUZIONE_UNICA",
+                    "pendenze": [ {
+                      "idPendenza": "%s",
+                      "idTipoPendenza": "DIRITTI_SEGRETERIA",
+                      "importo": 16.00,
+                      "voci": [ { "tipoRiferimento": "RIFERIMENTO_ENTRATA", "idVocePendenza": "%s", "importo": 16.00,
+                                  "descrizione": "test", "codEntrata": "DIRITTI_SEGRETERIA" } ]
+                    } ]
+                  } ] } ]
+                }
+                """.formatted(codDocumento, idPendenza, idVocePendenza);
+    }
+
+    @Test
+    @DisplayName("crea senza idUnitaOperativa: la posizione salva l'id della unita' operativa EC del dominio, "
+            + "che non appare in risposta")
+    void creaSenzaUnitaOperativaSalvaLaUnitaOperativaEc() throws Exception {
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}", "A2A-TEST")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(corpoSenzaUnitaOperativa("pos-uo-default", "pendenza-uo-default", "voce-uo-default")))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.idUnitaOperativa").doesNotExist());
+
+        Long idEc = unitaOperativaRepository.findByCodUoAndDominioId("EC", idDominio).orElseThrow().getId();
+        java.util.List<it.govpay.pendenze.entity.PosizioneDebitoria> posizioni = posizioneDebitoriaRepository.findAll();
+        assertEquals(1, posizioni.size());
+        assertEquals(idEc, posizioni.get(0).getIdUnitaOperativa());
+    }
+
+    @Test
+    @DisplayName("crea senza idUnitaOperativa con la unita' operativa EC del dominio assente: 404, nessuna posizione")
+    void creaSenzaUnitaOperativaConEcAssenteRispondeNotFound() throws Exception {
+        unitaOperativaRepository.deleteAll();
+
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}", "A2A-TEST")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(corpoSenzaUnitaOperativa("pos-uo-ec-assente", "pendenza-uo-ec-assente", "voce-uo-ec-assente")))
+                .andExpect(status().isNotFound());
+
+        assertEquals(0, posizioneDebitoriaRepository.count());
+    }
+
+    @Test
+    @DisplayName("crea senza idUnitaOperativa con la unita' operativa EC disabilitata: 400, nessuna posizione")
+    void creaSenzaUnitaOperativaConEcDisabilitataRispondeBadRequest() throws Exception {
+        UnitaOperativaEntity ec = unitaOperativaRepository.findByCodUoAndDominioId("EC", idDominio).orElseThrow();
+        ec.setAbilitato(false);
+        unitaOperativaRepository.save(ec);
+
+        mockMvc.perform(post("/posizioni-debitorie/{idA2A}", "A2A-TEST")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(corpoSenzaUnitaOperativa("pos-uo-ec-disab", "pendenza-uo-ec-disab", "voce-uo-ec-disab")))
+                .andExpect(status().isBadRequest());
+
+        assertEquals(0, posizioneDebitoriaRepository.count());
     }
 
     @Test
